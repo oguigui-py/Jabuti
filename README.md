@@ -117,6 +117,25 @@ contagens de CAZy por classe) e `examples/cazy_counts.tsv` (matriz de 31 famíli
 
 Folhas ocultas e ramos encurtados vão para os presets, junto com clados e colapsos.
 
+### Nomes e destaques
+
+- **Nomes de exibição** — só mudam o texto desenhado; buscas (que também aceitam o nome
+  exibido), mapeamentos, seleção e presets continuam usando o nome original. Aplicados nesta
+  ordem: *Tabela de nomes…* (CSV/TSV com cabeçalho: nome original, nome exibido; lida em
+  segundo plano, com aviso dos nomes que não estão na árvore) → *Trocar “_” por espaço* →
+  substituições por regex (procurar/trocar, em ordem; regras inválidas são avisadas e
+  ignoradas) → *Abreviar gênero* (Cupriavidus necator → C. necator) → prefixo/símbolo (★) das
+  folhas marcadas com *Marcar seleção*. As regras e as folhas marcadas vão para os presets; a
+  tabela de nomes (dados), não.
+- **Destaque de linha inteira** — *Destacar linhas da seleção* desenha uma faixa translúcida
+  com contorno que atravessa o rótulo e todas as colunas (no circular, um setor até o último
+  anel/rótulo), atrás de tudo. Folhas vizinhas formam uma única faixa. Cor, opacidade,
+  contorno (cor e espessura) e espessura da faixa são ajustáveis por destaque.
+- **Clado a partir de lista** — cole nomes (um por linha; só a 1ª coluna conta) ou carregue
+  um arquivo, dê nome e cor e clique *Criar clado*. Os nomes são casados com as mesmas regras
+  tolerantes dos GFFs (os não encontrados são listados); o clado é o ancestral comum. Se o
+  grupo não for monofilético, uma confirmação lista as folhas extras.
+
 ## Personalização (painel **Estilo**, à direita)
 
 Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PNG.

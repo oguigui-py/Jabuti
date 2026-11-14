@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from jabuti.models.clades import Clade, CladeSet
-from jabuti.models.document import LADDERIZE, ShortBranch, TreeEdits
+from jabuti.models.document import LADDERIZE, RowHighlight, ShortBranch, TreeEdits
 from jabuti.models.label_groups import SOURCES, LabelGroup, LabelGroupSet, LabelLook
 from jabuti.parsers.errors import JabutiParseError, read_text
 from jabuti.models.colormaps import COLORMAPS, SCALES
@@ -215,6 +215,9 @@ def preset_to_dict(
             "collapsed": [sorted(s) for s in edits.collapsed],
             "hidden": sorted(edits.hidden),
             "shortened": [{"leaves": sorted(b.leaves), "max_length": b.max_length} for b in edits.shortened],
+            "marked": sorted(edits.marked),
+            "highlights": [{"leaves": sorted(h.leaves), "color": h.color, "alpha": h.alpha, "outline": h.outline,
+                            "outline_width": h.outline_width, "thickness": h.thickness} for h in edits.highlights],
         }
     return out
 
@@ -326,10 +329,46 @@ def preset_from_dict(data: Any) -> LoadedPreset:
                     edits.shortened.append(ShortBranch(frozenset(leaves), float(length)))
                 else:
                     warnings.append(f"“edits.shortened[{i}]” ignorado (folhas e comprimento ≥ 0 esperados).")
+            marked = raw.get("marked", [])
+            if isinstance(marked, list) and all(isinstance(x, str) for x in marked):
+                edits.marked = set(marked)
+            else:
+                warnings.append("“edits.marked” deveria ser uma lista de nomes de folhas.")
+            edits.highlights = _highlights(raw.get("highlights", []), warnings)
     label_groups: LabelGroupSet | None = None
     if "label_groups" in data:
         label_groups = _label_groups(data["label_groups"], warnings)
     return LoadedPreset(style, detection, clade_set, edits, warnings, label_groups)
+
+
+def _highlights(raw: Any, warnings: list[str]) -> list[RowHighlight]:
+    out: list[RowHighlight] = []
+    if not isinstance(raw, list):
+        warnings.append("“edits.highlights” deveria ser uma lista.")
+        return out
+    for i, h in enumerate(raw):
+        key = f"edits.highlights[{i}]"
+        leaves = h.get("leaves") if isinstance(h, dict) else None
+        if not (isinstance(leaves, list) and leaves and all(isinstance(x, str) for x in leaves)):
+            warnings.append(f"“{key}” sem lista de folhas válida; ignorado.")
+            continue
+        hl = RowHighlight(frozenset(leaves))
+        for name, default in (("color", hl.color), ("outline", hl.outline)):
+            v = h.get(name, default)
+            if v is None and name == "outline":
+                hl.outline = None
+            elif isinstance(v, str) and _HEX.match(v):
+                setattr(hl, name, v.lower())
+            else:
+                warnings.append(f"Cor inválida em “{key}.{name}” (mantido o padrão).")
+        for name, lo, hi in (("alpha", 0.0, 1.0), ("outline_width", 0.0, 20.0), ("thickness", 0.1, 1.0)):
+            v = h.get(name, getattr(hl, name))
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and lo <= v <= hi:
+                setattr(hl, name, float(v))
+            else:
+                warnings.append(f"Valor inválido em “{key}.{name}” (mantido o padrão).")
+        out.append(hl)
+    return out
 
 
 def _label_groups(raw: Any, warnings: list[str]) -> LabelGroupSet:

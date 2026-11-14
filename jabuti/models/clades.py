@@ -182,3 +182,24 @@ def assign_nodes(tree: Tree, resolved: list[ResolvedClade]) -> dict[Node, Resolv
             out[node] = current
         stack.extend((c, current) for c in node.children)
     return out
+
+
+def clade_from_names(tree: Tree, names: list[str]) -> tuple[frozenset[str], list[str], list[str]]:
+    """Clado a partir de uma lista de nomes (casamento tolerante, como nos GFFs).
+
+    Devolve (folhas do ancestral comum, nomes não encontrados, folhas extras que entram por o
+    grupo não ser monofilético)."""
+    from jabuti.parsers.names import match_names
+
+    names = [n.strip() for n in names if n.strip()]
+    leaves = tree.leaf_names()
+    exact = {n for n in names if n in leaves}
+    mapping = match_names([n for n in names if n not in exact], [l for l in leaves if l not in exact])
+    found = exact | set(mapping.values())
+    unknown = [n for n in names if n not in exact and n not in mapping]
+    if not found:
+        return frozenset(), unknown, []
+    node = mrca(tree, frozenset(found))
+    assert node is not None
+    full = frozenset(l.name for l in node.leaves())
+    return full, unknown, sorted(full - found)

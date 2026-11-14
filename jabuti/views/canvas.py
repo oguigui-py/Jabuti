@@ -237,13 +237,19 @@ class TreeCanvas(QGraphicsView):
         self._highlights = []
 
     def search(self, query: str) -> list[str]:
-        """Destaca folhas cujo nome contém ``query`` (sem diferenciar maiúsculas)."""
+        """Destaca folhas cujo nome (original ou exibido) contém ``query`` (sem diferenciar maiúsculas)."""
         self.clear_highlights()
         q = query.strip().lower()
         if not q or self.result is None:
             return []
-        exact = [n for n in self.result.leaf_items if n.lower() == q]
-        matches = exact or [n for n in self.result.leaf_items if q in n.lower()]
+        shown = self.result.display
+
+        def texts(n: str) -> tuple[str, str]:
+            return n.lower(), shown.get(n, n).lower()
+
+        # o nome original e o nome exibido valem na busca
+        exact = [n for n in self.result.leaf_items if q in texts(n)]      # igual a um dos dois
+        matches = exact or [n for n in self.result.leaf_items if any(q in t for t in texts(n))]
         for name in matches:
             for item in self.result.leaf_items[name]:
                 self._highlights.append(make_highlight(self._scene, item))

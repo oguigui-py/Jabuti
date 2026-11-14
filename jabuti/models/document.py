@@ -25,12 +25,26 @@ class ShortBranch:
 
 
 @dataclass
+class RowHighlight:
+    """Faixa translúcida que atravessa rótulo e colunas de dados das folhas indicadas."""
+
+    leaves: frozenset[str]
+    color: str = "#ffe066"
+    alpha: float = 0.35
+    outline: str | None = "#e0a800"
+    outline_width: float = 1.0
+    thickness: float = 1.0            # fração da altura da linha (0.2–1)
+
+
+@dataclass
 class TreeEdits:
     ladderize: str = "none"                                   # chave de LADDERIZE
     rotations: list[frozenset[str]] = field(default_factory=list)
     collapsed: list[frozenset[str]] = field(default_factory=list)
     hidden: set[str] = field(default_factory=set)             # folhas ocultas (podadas do desenho)
     shortened: list[ShortBranch] = field(default_factory=list)
+    marked: set[str] = field(default_factory=set)             # folhas com prefixo/símbolo (★)
+    highlights: list[RowHighlight] = field(default_factory=list)
 
     def hide(self, names) -> None:  # type: ignore[no-untyped-def]
         self.hidden |= set(names)

@@ -230,6 +230,17 @@ class MatrixSpec:
     cell_width: float = 1.0         # em múltiplos do espaço entre folhas
 
 
+@dataclass
+class NameRules:
+    """Regras de nome de exibição (o nome original continua nas buscas e mapeamentos)."""
+
+    underscores: bool = False         # "_" → espaço
+    patterns: list[str] = field(default_factory=list)       # regex
+    replacements: list[str] = field(default_factory=list)   # substituição de cada regex
+    abbreviate_genus: bool = False    # Cupriavidus necator → C. necator
+    mark_prefix: str = "★ "           # prefixo das folhas marcadas
+
+
 SCALE_MODES: dict[str, str] = {"gradient": "Colormap contínuo", "bins": "Por faixas"}
 
 
@@ -256,6 +267,7 @@ class FigureConfig:
     scales: list[ColumnScale] = field(default_factory=list)
     track_order: list[str] = field(default_factory=list)    # chaves das trilhas, da árvore para fora
     hidden_tracks: list[str] = field(default_factory=list)
+    names: NameRules = field(default_factory=NameRules)
     break_legend: bool = False                               # nota do ramo encurtado na legenda
     break_legend_text: str = "outgroup branch not to scale"
 

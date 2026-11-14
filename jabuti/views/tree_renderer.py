@@ -52,6 +52,7 @@ TAG_BAR_VALUE = "bar-value"
 TAG_STACKED = "stacked-bar"
 TAG_MATRIX = "matrix"
 TAG_BREAK = "branch-break"
+TAG_ROW_HIGHLIGHT = "row-highlight"
 
 
 @dataclass
@@ -63,6 +64,7 @@ class RenderResult:
     label_backgrounds: dict[str, QGraphicsPathItem] = field(default_factory=dict)
     label_groups: dict[str, LabelGroup] = field(default_factory=dict)  # folha -> grupo efetivo
     notes: list[str] = field(default_factory=list)                      # avisos para a barra de status
+    display: dict[str, str] = field(default_factory=dict)               # nome original -> exibido
 
 
 @dataclass
@@ -205,6 +207,8 @@ class TreeRenderer:
         label_groups: LabelGroupSet | None = None,
         legend: list[LegendGroup] | None = None,
         hidden: set[str] | frozenset[str] = frozenset(),
+        names: dict[str, str] | None = None,
+        highlights: list | None = None,
     ) -> RenderResult:
         self.scene.clear()
         self.notes: list[str] = []
@@ -236,6 +240,9 @@ class TreeRenderer:
         self._marker = sym.size if sym.shape != "none" else 0.0
         self.geometry = None
         res = RenderResult()
+        self._names = dict(names or {})
+        self._highlights = list(highlights or [])
+        res.display = dict(self._names)
         self._groups = label_groups.effective(tree.leaf_names()) if label_groups is not None else {}
         res.label_groups = dict(self._groups)
         res.clades = resolve_clades(tree, clades or [], style.palette_colors(), hidden)
@@ -325,7 +332,7 @@ class TreeRenderer:
             font.setPointSizeF(max(self.style.label.size * look.size_scale, 1.0))
             fm = QFontMetricsF(font)
         color = look.text_color if look is not None and look.text_color else self._label_color(leaf)
-        spec = _LabelSpec(font, color, fm.horizontalAdvance(leaf.name))
+        spec = _LabelSpec(font, color, fm.horizontalAdvance(self._shown(leaf)))
         cs = self.style.clades
         if look is not None and look.background:
             spec.bg, spec.bg_alpha = look.background, look.background_alpha
@@ -338,8 +345,13 @@ class TreeRenderer:
             spec.radius = look.radius if look is not None else 3.0
         return spec
 
+    def _shown(self, leaf: Node) -> str:
+        """Nome exibido (regras/tabela de nomes); o original identifica a folha."""
+        return self._names.get(leaf.name, leaf.name)
+
     def _leaf_text(self, leaf: Node, spec: _LabelSpec) -> QGraphicsSimpleTextItem:
-        item = QGraphicsSimpleTextItem(leaf.name)
+        item = QGraphicsSimpleTextItem(self._shown(leaf))
+        item.setData(3, leaf.name)
         item.setFont(spec.font)
         item.setBrush(QBrush(QColor(spec.color)))
         self.scene.addItem(item)
@@ -491,6 +503,39 @@ class TreeRenderer:
                     t.setZValue(1)
                     self.scene.addItem(t)
         return x0 + cst.width
+
+    # --------------------------------------------------------- destaque de linha
+    def _highlight_runs(self, lay):  # type: ignore[no-untyped-def]
+        """(destaque, folhas vizinhas) — folhas seguidas viram uma única faixa (contorno inteiro)."""
+        out = []
+        order = lay.leaf_order
+        for hl in self._highlights:
+            run: list[Node] = []
+            for i, leaf in enumerate(order):
+                if leaf.name in hl.leaves:
+                    if run and abs(lay.span[run[-1]][1] - lay.span[leaf][0]) > 1e-9:
+                        out.append((hl, run))
+                        run = []
+                    run.append(leaf)
+                elif run:
+                    out.append((hl, run))
+                    run = []
+            if run:
+                out.append((hl, run))
+        return out
+
+    def _row_highlight(self, path: QPainterPath, hl) -> None:  # type: ignore[no-untyped-def]
+        c = QColor(hl.color)
+        c.setAlphaF(max(0.0, min(hl.alpha, 1.0)))
+        item = QGraphicsPathItem(path)
+        item.setBrush(QBrush(c))
+        if hl.outline and hl.outline_width > 0:
+            item.setPen(QPen(QColor(hl.outline), hl.outline_width))
+        else:
+            item.setPen(QPen(Qt.PenStyle.NoPen))
+        item.setZValue(-3)                 # atrás de tudo (inclusive do fundo dos clados)
+        item.setData(1, TAG_ROW_HIGHLIGHT)
+        self.scene.addItem(item)
 
     # ------------------------------------------------------------ "//"
     def _broken(self, tree: Tree) -> list[Node]:
@@ -1072,6 +1117,14 @@ class TreeRenderer:
         x = self._draw_tracks_rect(tree, lay, x, sy, pad, visible, y_range)
         if self._context:
             x = self._draw_context(lay, x, sy, pad) + pad
+        for hl, run in self._highlight_runs(lay):
+            first, last = run[0], run[-1]
+            h = sy * max(min(hl.thickness, 1.0), 0.1)
+            x0 = min(pt(l).x() for l in run) + pad / 2
+            rect = QRectF(x0, pt(first).y() - h / 2, x - pad / 2 - x0, pt(last).y() - pt(first).y() + h)
+            path = QPainterPath()
+            path.addRect(rect)
+            self._row_highlight(path, hl)
         if cs.background and visible:
             for rc in visible:
                 y0, y1 = y_range(rc.node)
@@ -1229,6 +1282,15 @@ class TreeRenderer:
 
         def th_range(node: Node) -> tuple[float, float]:
             return lay.span[node]
+
+        for hl, run in self._highlight_runs(lay):
+            frac = max(min(hl.thickness, 1.0), 0.1)
+            a0, b0 = lay.span[run[0]]
+            a1, b1 = lay.span[run[-1]]
+            th0 = (a0 + b0) / 2 - (b0 - a0) / 2 * frac
+            th1 = (a1 + b1) / 2 + (b1 - a1) / 2 * frac
+            r0 = geom.tip_ring if geom.align_tips else min(rad(l) for l in run)
+            self._row_highlight(annular_sector(max(r0 - pad / 2, 0.0), outer + pad / 2, th0, th1), hl)
 
         root_span = lay.span[tree.root]
         for i, track in enumerate(self._ring_tracks):

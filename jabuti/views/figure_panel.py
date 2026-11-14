@@ -102,6 +102,7 @@ class FigurePanel(QWidget):
     table_loaded = Signal(bool)     # terminou de ler (ok?)
     root_group_requested = Signal()
     hidden_changed = Signal()
+    clade_from_list_requested = Signal(list, str, str)   # nomes, nome do clado, cor
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -116,6 +117,9 @@ class FigurePanel(QWidget):
         self.edits = TreeEdits()                    # compartilhado com o painel Estilo
         self.selection: list[str] = []
         self.break_legend_text = "outgroup branch not to scale"
+        self.name_map: dict[str, str] = {}          # tabela de nomes (dados: fora do preset)
+        self.name_map_file = ""
+        self._load_kind = "data"
         self._custom_colors: dict[tuple[str, str], str] = {}   # cor escolhida para série desmarcada
         self.metadata_by_leaf = lambda: {}          # fornecido pela janela (aba Metadados)
         self.metadata_columns = lambda: []
@@ -131,10 +135,12 @@ class FigurePanel(QWidget):
         lay.setContentsMargins(4, 4, 4, 4)
         self._add_section(lay, "columns", "Colunas de dados", self._build_columns(), True)
         self._add_section(lay, "pruning", "Enraizamento e poda", self._build_pruning(), False)
+        self._add_section(lay, "names", "Nomes e destaques", self._build_names(), False)
         lay.addStretch(1)
         for cb in self.findChildren(QComboBox):
             cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             cb.setMinimumContentsLength(8)
+        self.set_selection([])
 
     def _add_section(self, lay: QVBoxLayout, key: str, title: str, w: QWidget, expanded: bool) -> None:
         sec = CollapsibleSection(title, w, expanded)
@@ -333,6 +339,9 @@ class FigurePanel(QWidget):
                                "Nenhuma folha selecionada (Cmd/Shift+clique nos nomes ou busca).")
         self.root_group_btn.setEnabled(n > 0)
         self.hide_btn.setEnabled(n > 0)
+        if hasattr(self, "hl_add_btn"):
+            for b in (self.hl_add_btn, self.mark_btn, self.unmark_btn):
+                b.setEnabled(n > 0)
 
     def hide_leaves(self, names) -> bool:  # type: ignore[no-untyped-def]
         names = set(names) & set(self.leaves)
@@ -413,6 +422,322 @@ class FigurePanel(QWidget):
             del self.edits.shortened[row]
             self.refresh_pruning()
             self.changed.emit()
+
+    # ----------------------------------------------------- nomes e destaques
+    def _build_names(self) -> QWidget:
+        from PySide6.QtWidgets import QPlainTextEdit, QTableWidget
+
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(8, 0, 0, 6)
+        v.addWidget(QLabel("<b>Nomes de exibição</b>"))
+        v.addWidget(_hint("Só mudam o texto desenhado: buscas, mapeamentos e presets usam o nome original."))
+        row = QHBoxLayout()
+        self.names_load_btn = QPushButton("Tabela de nomes…")
+        self.names_load_btn.setToolTip("CSV/TSV com cabeçalho e 2 colunas: nome original, nome exibido")
+        self.names_load_btn.clicked.connect(self._choose_name_table)
+        self.names_clear_btn = QPushButton("Remover")
+        self.names_clear_btn.clicked.connect(self.clear_name_table)
+        row.addWidget(self.names_load_btn, 1)
+        row.addWidget(self.names_clear_btn)
+        v.addLayout(row)
+        self.names_report = QLabel("")
+        self.names_report.setWordWrap(True)
+        v.addWidget(self.names_report)
+        self.opt_underscores = QCheckBox("Trocar “_” por espaço")
+        self.opt_abbrev = QCheckBox("Abreviar gênero (Cupriavidus → C.)")
+        for cb in (self.opt_underscores, self.opt_abbrev):
+            cb.toggled.connect(self._emit)
+            v.addWidget(cb)
+        v.addWidget(QLabel("Substituições (regex, aplicadas em ordem):"))
+        self.rules_table = QTableWidget(0, 2)
+        self.rules_table.setHorizontalHeaderLabels(["Procurar", "Trocar por"])
+        self.rules_table.horizontalHeader().setStretchLastSection(True)
+        self.rules_table.verticalHeader().setVisible(False)
+        self.rules_table.setMaximumHeight(100)
+        self.rules_table.itemChanged.connect(self._rules_edited)
+        v.addWidget(self.rules_table)
+        rrow = QHBoxLayout()
+        add_rule = QPushButton("+ regra")
+        add_rule.clicked.connect(self.add_rule)
+        rm_rule = QPushButton("− regra")
+        rm_rule.clicked.connect(self.remove_rule)
+        rrow.addWidget(add_rule)
+        rrow.addWidget(rm_rule)
+        rrow.addStretch(1)
+        v.addLayout(rrow)
+        self.rules_hint = _hint("Ex.: procurar “_LMG(\\d+)” e trocar por “ LMG \\1”. Roda depois do “_” → espaço.")
+        v.addWidget(self.rules_hint)
+        mrow = QHBoxLayout()
+        self.mark_btn = QPushButton("Marcar seleção")
+        self.mark_btn.setToolTip("Acrescenta o prefixo/símbolo ao nome das folhas selecionadas")
+        self.mark_btn.clicked.connect(lambda: self.mark_selected(True))
+        self.unmark_btn = QPushButton("Desmarcar")
+        self.unmark_btn.clicked.connect(lambda: self.mark_selected(False))
+        self.mark_prefix = QLineEdit("★ ")
+        self.mark_prefix.setMaximumWidth(50)
+        self.mark_prefix.setToolTip("Prefixo ou símbolo das folhas marcadas")
+        self.mark_prefix.editingFinished.connect(self._emit)
+        mrow.addWidget(self.mark_btn, 1)
+        mrow.addWidget(self.unmark_btn)
+        mrow.addWidget(self.mark_prefix)
+        v.addLayout(mrow)
+        self.mark_label = _hint("")
+        v.addWidget(self.mark_label)
+
+        v.addWidget(QLabel("<b>Destaque de linha inteira</b>"))
+        v.addWidget(_hint("Faixa translúcida atrás do rótulo e de todas as colunas/anéis das folhas selecionadas."))
+        self.hl_add_btn = QPushButton("Destacar linhas da seleção")
+        self.hl_add_btn.clicked.connect(self.highlight_selected)
+        v.addWidget(self.hl_add_btn)
+        self.hl_list = QListWidget()
+        self.hl_list.setMaximumHeight(70)
+        self.hl_list.currentRowChanged.connect(self._hl_selected)
+        v.addWidget(self.hl_list)
+        ed = QWidget()
+        f = QFormLayout(ed)
+        f.setContentsMargins(0, 0, 0, 0)
+        self.hl_color = ColorButton("#ffe066", ["#ffe066", "#a5d8ff", "#b7e4a3", "#ffc9c9", "#e5dbff"])
+        self.hl_color.color_changed.connect(self._hl_edited)
+        self.hl_alpha = self._spin(5, 100, 35, 5, " %")
+        self.hl_alpha.valueChanged.connect(self._hl_edited)
+        crow = QHBoxLayout()
+        crow.addWidget(self.hl_color)
+        crow.addWidget(QLabel("opacidade"))
+        crow.addWidget(self.hl_alpha, 1)
+        self.hl_outline_on = QCheckBox("contorno")
+        self.hl_outline_on.setChecked(True)
+        self.hl_outline_on.toggled.connect(self._hl_edited)
+        self.hl_outline = ColorButton("#e0a800", ["#e0a800", "#1971c2", "#2f9e44", "#c92a2a", "#202020"])
+        self.hl_outline.color_changed.connect(self._hl_edited)
+        self.hl_outline_w = self._spin(0.2, 6, 1.0, 0.2, " px")
+        self.hl_outline_w.valueChanged.connect(self._hl_edited)
+        orow = QHBoxLayout()
+        orow.addWidget(self.hl_outline_on)
+        orow.addWidget(self.hl_outline)
+        orow.addWidget(self.hl_outline_w, 1)
+        self.hl_thick = self._spin(20, 100, 100, 5, " %")
+        self.hl_thick.setToolTip("Espessura da faixa em relação à altura da linha")
+        self.hl_thick.valueChanged.connect(self._hl_edited)
+        self.hl_rm = QPushButton("Remover destaque")
+        self.hl_rm.clicked.connect(self.remove_highlight)
+        f.addRow("Cor:", crow)
+        f.addRow(orow)
+        f.addRow("Espessura:", self.hl_thick)
+        f.addRow(self.hl_rm)
+        self.hl_editor = ed
+        v.addWidget(ed)
+
+        v.addWidget(QLabel("<b>Clado a partir de lista</b>"))
+        self.list_edit = QPlainTextEdit()
+        self.list_edit.setPlaceholderText("Um nome por linha (nome da folha ou do genoma)")
+        self.list_edit.setMaximumHeight(90)
+        v.addWidget(self.list_edit)
+        lrow = QHBoxLayout()
+        self.list_file_btn = QPushButton("Carregar arquivo…")
+        self.list_file_btn.clicked.connect(self._choose_list_file)
+        self.list_name = QLineEdit()
+        self.list_name.setPlaceholderText("nome do clado")
+        self.list_color = ColorButton("#e15759", self.palette)
+        lrow.addWidget(self.list_file_btn)
+        lrow.addWidget(self.list_name, 1)
+        lrow.addWidget(self.list_color)
+        v.addLayout(lrow)
+        self.list_create = QPushButton("Criar clado")
+        self.list_create.clicked.connect(self._create_clade_from_list)
+        v.addWidget(self.list_create)
+        self.list_report = _hint("")
+        v.addWidget(self.list_report)
+        self.refresh_names()
+        return w
+
+    # nomes
+    def _choose_name_table(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Tabela de nomes", "", TABLE_FILTER)
+        if path:
+            self.load_name_table(path, wait=False)
+
+    def _names_loaded(self, path: Path, table) -> None:  # type: ignore[no-untyped-def]
+        from jabuti.models.display_names import parse_name_table
+
+        mapping, warns = parse_name_table(table)
+        self.name_map = mapping
+        self.name_map_file = path.name
+        self._last_ok = True
+        self.refresh_names()
+        if warns:
+            self.names_report.setText(self.names_report.text() + "<br>⚠ " + "<br>⚠ ".join(warns[:3]))
+        self._emit()
+
+    def clear_name_table(self) -> None:
+        if self.name_map:
+            self.name_map, self.name_map_file = {}, ""
+            self.refresh_names()
+            self._emit()
+
+    def refresh_names(self) -> None:
+        if self.name_map:
+            unknown = [k for k in self.name_map if self.leaves and k not in self.leaves]
+            used = len(self.name_map) - len(unknown)
+            text = f"<b>{self.name_map_file}</b>: {len(self.name_map)} nomes · {used} folhas renomeadas."
+            if unknown:
+                more = "…" if len(unknown) > 5 else ""
+                text += f"<br>⚠ Não estão na árvore ({len(unknown)}): {', '.join(unknown[:5])}{more}"
+            self.names_report.setText(text)
+            self.names_report.setToolTip("\n".join(unknown))
+        else:
+            self.names_report.setText("Sem tabela de nomes.")
+        self.names_clear_btn.setEnabled(bool(self.name_map))
+        n = len(self.edits.marked & set(self.leaves)) if self.leaves else len(self.edits.marked)
+        self.mark_label.setText(f"{n} folha(s) marcada(s)." if n else "")
+        self._refresh_highlights()
+
+    def add_rule(self, pattern: str = "", replacement: str = "") -> None:
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        r = self.rules_table.rowCount()
+        self.rules_table.blockSignals(True)
+        self.rules_table.insertRow(r)
+        self.rules_table.setItem(r, 0, QTableWidgetItem(pattern or ""))
+        self.rules_table.setItem(r, 1, QTableWidgetItem(replacement or ""))
+        self.rules_table.blockSignals(False)
+        if pattern:
+            self._rules_edited()
+
+    def remove_rule(self) -> None:
+        r = self.rules_table.currentRow()
+        if r < 0:
+            r = self.rules_table.rowCount() - 1
+        if r >= 0:
+            self.rules_table.removeRow(r)
+            self._rules_edited()
+
+    def rules(self) -> tuple[list[str], list[str]]:
+        pats, reps = [], []
+        for r in range(self.rules_table.rowCount()):
+            a, b = self.rules_table.item(r, 0), self.rules_table.item(r, 1)
+            pat = a.text() if a else ""
+            if pat:
+                pats.append(pat)
+                reps.append(b.text() if b else "")
+        return pats, reps
+
+    def _rules_edited(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        from jabuti.models.display_names import compile_rules
+
+        pats, reps = self.rules()
+        _ok, errors = compile_rules(pats, reps)
+        self.rules_hint.setText("⚠ " + "<br>⚠ ".join(errors) if errors else
+                                "Ex.: procurar “_LMG(\\d+)” e trocar por “ LMG \\1”. Roda depois do “_” → espaço.")
+        self._emit()
+
+    def mark_selected(self, on: bool) -> None:
+        if not self.selection:
+            self.status_message.emit("Selecione folhas (Cmd/Shift+clique ou busca) para marcar.")
+            return
+        if on:
+            self.edits.marked |= set(self.selection)
+        else:
+            self.edits.marked -= set(self.selection)
+        self.refresh_names()
+        self.changed.emit()
+
+    # destaques
+    def highlight_selected(self) -> None:
+        from jabuti.models.document import RowHighlight
+
+        if not self.selection:
+            self.status_message.emit("Selecione folhas (Cmd/Shift+clique ou busca) para destacar as linhas.")
+            return
+        self.edits.highlights.append(RowHighlight(frozenset(self.selection)))
+        self._refresh_highlights(select=len(self.edits.highlights) - 1)
+        self.changed.emit()
+
+    def remove_highlight(self) -> None:
+        row = self.hl_list.currentRow()
+        if 0 <= row < len(self.edits.highlights):
+            del self.edits.highlights[row]
+            self._refresh_highlights(select=row - 1)
+            self.changed.emit()
+
+    def _refresh_highlights(self, select: int | None = None) -> None:
+        row = self.hl_list.currentRow() if select is None else select
+        self.hl_list.blockSignals(True)
+        self.hl_list.clear()
+        for hl in self.edits.highlights:
+            names = sorted(hl.leaves)
+            self.hl_list.addItem(names[0] if len(names) == 1 else f"{names[0]} + {len(names) - 1}")
+        self.hl_list.blockSignals(False)
+        has = bool(self.edits.highlights)
+        self.hl_list.setVisible(has)
+        if has:
+            self.hl_list.setCurrentRow(max(0, min(row, len(self.edits.highlights) - 1)))
+        self._hl_selected(self.hl_list.currentRow())
+
+    def _hl_selected(self, row: int) -> None:
+        ok = 0 <= row < len(self.edits.highlights)
+        self.hl_editor.setVisible(ok)
+        if not ok:
+            return
+        hl = self.edits.highlights[row]
+        self._filling = True
+        try:
+            self.hl_color.set_color(hl.color)
+            self.hl_alpha.setValue(round(hl.alpha * 100))
+            self.hl_outline_on.setChecked(hl.outline is not None)
+            if hl.outline:
+                self.hl_outline.set_color(hl.outline)
+            self.hl_outline_w.setValue(hl.outline_width)
+            self.hl_thick.setValue(round(hl.thickness * 100))
+        finally:
+            self._filling = False
+
+    def _hl_edited(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        row = self.hl_list.currentRow()
+        if self._filling or not 0 <= row < len(self.edits.highlights):
+            return
+        hl = self.edits.highlights[row]
+        hl.color = self.hl_color.color()
+        hl.alpha = self.hl_alpha.value() / 100
+        hl.outline = self.hl_outline.color() if self.hl_outline_on.isChecked() else None
+        hl.outline_width = self.hl_outline_w.value()
+        hl.thickness = self.hl_thick.value() / 100
+        self.changed.emit()
+
+    # clado por lista
+    def _choose_list_file(self) -> None:
+        from jabuti.parsers.errors import JabutiParseError, read_text
+
+        path, _ = QFileDialog.getOpenFileName(self, "Lista de nomes", "", "Texto (*.txt *.tsv *.csv *.list);;Todos (*)")
+        if not path:
+            return
+        try:
+            text = read_text(Path(path), JabutiParseError)
+        except Exception as exc:  # noqa: BLE001
+            show_error(self, exc, "Erro ao ler a lista")
+            return
+        self.list_edit.setPlainText(text)
+        if not self.list_name.text():
+            self.list_name.setText(Path(path).stem)
+
+    def list_names(self) -> list[str]:
+        """Um nome por linha (só a 1ª coluna, se o arquivo tiver TAB, vírgula ou ponto e vírgula)."""
+        import re as _re
+
+        out = []
+        for line in self.list_edit.toPlainText().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            out.append(_re.split(r"[\t,;]", line)[0].strip())
+        return [n for n in out if n]
+
+    def _create_clade_from_list(self) -> None:
+        names = self.list_names()
+        if not names:
+            self.list_report.setText("Cole os nomes (um por linha) ou carregue um arquivo.")
+            return
+        self.clade_from_list_requested.emit(names, self.list_name.text().strip(), self.list_color.color())
 
     def _build_order(self) -> QWidget:
         w = QWidget()
@@ -735,6 +1060,7 @@ class FigurePanel(QWidget):
     def set_leaves(self, leaves: list[str]) -> None:
         self.leaves = list(leaves)
         self.refresh_pruning()
+        self.refresh_names()
         for src in self.sources.values():
             src.mapping.set_leaves(self.leaves)
         self._show_table()
@@ -742,6 +1068,7 @@ class FigurePanel(QWidget):
     def set_palette(self, colors: list[str]) -> None:
         self.palette = list(colors)
         self.bar_color.palette_colors = self.palette
+        self.list_color.palette_colors = self.palette
         self.st_color.palette_colors = self.palette
 
     def set_layout(self, kind: LayoutKind) -> None:
@@ -765,7 +1092,11 @@ class FigurePanel(QWidget):
     def is_loading(self) -> bool:
         return self._loading
 
-    def load_table(self, path: str | Path, wait: bool = True) -> bool:
+    def load_name_table(self, path: str | Path, wait: bool = True) -> bool:
+        """Tabela de nomes (original, exibido), lida numa thread como as outras tabelas."""
+        return self.load_table(path, wait, kind="names")
+
+    def load_table(self, path: str | Path, wait: bool = True, kind: str = "data") -> bool:
         """Lê a tabela numa thread; com ``wait=True`` espera (processando eventos)."""
         if self._loading:
             self.status_message.emit("Aguarde a leitura em andamento.")
@@ -778,6 +1109,7 @@ class FigurePanel(QWidget):
         self._loader = loader
         self._loaders = [w for w in self._loaders if w.is_running()] + [loader]
         self._loading = True
+        self._load_kind = kind
         self._last_ok = False
         self.load_btn.setEnabled(False)
         self.table_report.setText(f"Lendo {p.name}…")
@@ -798,6 +1130,9 @@ class FigurePanel(QWidget):
                 show_error(self, Exception(result), "Erro ao ler tabela")
                 continue
             p = Path(path)
+            if self._load_kind == "names":
+                self._names_loaded(p, result)
+                continue
             src = DataSource(p.name, result, p)
             src.mapping.leaves = list(self.leaves)
             src.mapping.auto_map()
@@ -812,6 +1147,9 @@ class FigurePanel(QWidget):
         self._loading = False
         self._loader = None
         self.load_btn.setEnabled(True)
+        if self._load_kind == "names":
+            self.table_loaded.emit(self._last_ok)
+            return
         if self._last_ok:
             self.refresh_tables(select=list(self.sources)[-1])
             self.tables_changed.emit()
@@ -1478,6 +1816,11 @@ class FigurePanel(QWidget):
                       for x in self.scales if x.mode != "bins" or x.cutoffs]
         fig.track_order = list(self.track_order)
         fig.hidden_tracks = list(self.hidden_tracks)
+        nr = fig.names
+        nr.underscores = self.opt_underscores.isChecked()
+        nr.abbreviate_genus = self.opt_abbrev.isChecked()
+        nr.patterns, nr.replacements = self.rules()
+        nr.mark_prefix = self.mark_prefix.text()
         fig.break_legend = self.break_legend.isChecked()
         fig.break_legend_text = self.break_text.text().strip() or "outgroup branch not to scale"
         return style
@@ -1523,6 +1866,19 @@ class FigurePanel(QWidget):
         self.refresh_scales()
         self.track_order = list(fig.track_order)
         self.hidden_tracks = list(fig.hidden_tracks)
+        nr = fig.names
+        was = self._filling
+        self._filling = True
+        try:
+            self.opt_underscores.setChecked(nr.underscores)
+            self.opt_abbrev.setChecked(nr.abbreviate_genus)
+            self.mark_prefix.setText(nr.mark_prefix)
+            self.rules_table.setRowCount(0)
+            for i, pat in enumerate(nr.patterns):
+                self.add_rule(pat, nr.replacements[i] if i < len(nr.replacements) else "")
+        finally:
+            self._filling = was
+        self.refresh_names()
         self.break_legend.setChecked(fig.break_legend)
         self.break_text.setText(fig.break_legend_text)
         self.refresh_pruning()

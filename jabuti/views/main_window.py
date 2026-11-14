@@ -186,6 +186,7 @@ class MainWindow(QMainWindow):
         self.figure_panel.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.figure_panel.root_group_requested.connect(self.root_on_selection)
         self.figure_panel.hidden_changed.connect(self.canvas.clear_selection)
+        self.figure_panel.clade_from_list_requested.connect(self.clade_from_list)
         self.metadata_tab.columns_changed.connect(lambda _c: self.figure_panel.metadata_changed())
         self.viz_tab.layout_cb.currentIndexChanged.connect(
             lambda _i: self.figure_panel.set_layout(self.viz_tab.layout_cb.currentData()))
@@ -471,6 +472,7 @@ class MainWindow(QMainWindow):
             default = current / 2
         self.style_panel.edits.set_short(leaves, round(default, 6))
         self.figure_panel.refresh_pruning()
+        self.figure_panel.refresh_names()
         self.figure_panel.sections["pruning"].set_expanded(True)
         self.render_live()
         self.statusBar().showMessage("Ramo encurtado (comprimento ajustável no painel Figura → "
@@ -479,7 +481,52 @@ class MainWindow(QMainWindow):
     def unshorten_branch(self, leaves: frozenset[str]) -> None:
         self.style_panel.edits.unshort(leaves)
         self.figure_panel.refresh_pruning()
+        self.figure_panel.refresh_names()
         self.render_live()
+
+    def display_names(self, style: RenderStyle) -> dict[str, str]:
+        from jabuti.models.display_names import display_names
+
+        if self.display_tree is None:
+            return {}
+        fp = self.figure_panel
+        return display_names(self.display_tree.leaf_names(), style.figure.names, fp.name_map,
+                             self.style_panel.edits.marked)
+
+    def clade_from_list(self, names: list, name: str, color: str) -> None:
+        """Clado pelo ancestral comum dos nomes colados (avisa se não for monofilético)."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from jabuti.models.clades import clade_from_names
+
+        fp = self.figure_panel
+        if self.tree is None:
+            fp.list_report.setText("Abra uma árvore primeiro.")
+            return
+        tree = self.display_tree or self.tree
+        leaves, unknown, extras = clade_from_names(tree, names)
+        notes = []
+        if unknown:
+            more = "…" if len(unknown) > 5 else ""
+            notes.append(f"⚠ Não encontrados ({len(unknown)}): {', '.join(unknown[:5])}{more}")
+        if not leaves:
+            fp.list_report.setText("<br>".join(notes) or "Nenhum nome encontrado na árvore.")
+            return
+        if extras:
+            shown = "\n".join(f"• {e}" for e in extras[:15]) + ("\n…" if len(extras) > 15 else "")
+            answer = QMessageBox.question(
+                self, "Grupo não monofilético",
+                f"Os nomes não formam um clado. O ancestral comum inclui mais {len(extras)} folha(s):\n\n"
+                f"{shown}\n\nCriar o clado mesmo assim (com essas folhas)?")
+            if answer != QMessageBox.StandardButton.Yes:
+                fp.list_report.setText("<br>".join(notes + [f"Cancelado: {len(extras)} folha(s) extra(s)."]))
+                return
+            notes.append(f"Inclui {len(extras)} folha(s) extra(s) (não monofilético).")
+        sp = self.style_panel
+        clade = sp.clade_set.add_manual(leaves, name or None, color)
+        sp.clade_list.refresh()
+        sp.changed.emit()
+        fp.list_report.setText("<br>".join([f"Clado “{clade.name}” criado com {len(leaves)} folhas."] + notes))
 
     def root_on_selection(self) -> None:
         names = list(self.canvas.selected)
@@ -570,7 +617,8 @@ class MainWindow(QMainWindow):
                 groups.append(LegendGroup("Escala", [(f"// {style.figure.break_legend_text}", None)]))
             result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
                                           edits.collapsed, columns, meta_colors, context, label_groups,
-                                          legend=groups, hidden=edits.hidden)
+                                          legend=groups, hidden=edits.hidden,
+                                          names=self.display_names(style), highlights=edits.highlights)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
@@ -609,7 +657,15 @@ class MainWindow(QMainWindow):
             if unknown:
                 sp.edits.hidden -= unknown
                 warnings.append(f"{len(unknown)} folha(s) oculta(s) no preset não existem na árvore aberta.")
+            sp.edits.marked &= names
+            kept = []
+            for hl in sp.edits.highlights:
+                if hl.leaves & names:
+                    hl.leaves = frozenset(hl.leaves & names)
+                    kept.append(hl)
+            sp.edits.highlights = kept
         self.figure_panel.refresh_pruning()
+        self.figure_panel.refresh_names()
         if loaded.label_groups is not None:
             groups = loaded.label_groups
             if self.tree is not None:
