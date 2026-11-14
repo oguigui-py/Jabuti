@@ -1,8 +1,8 @@
-"""Opções de renderização e paletas."""
+"""Opções de renderização (agrupadas) e paletas."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 PALETTES: dict[str, list[str]] = {
@@ -23,20 +23,65 @@ class LayoutKind(str, Enum):
 
 
 @dataclass
+class BranchStyle:
+    width: float = 1.2
+    color: str = "#202020"
+
+
+@dataclass
+class GuideStyle:
+    """Linha de ligação ponta da folha → anel externo."""
+
+    color: str = "#a0a0a0"
+
+
+@dataclass
+class LabelStyle:
+    size: float = 10.0
+    color: str = "#202020"
+    show: bool = True
+
+
+@dataclass
+class SupportStyle:
+    show: bool = False
+    index: int = -1                # 0/1 quando há "a/b"; -1 = último; 99 = todos
+    threshold: float = 0.0
+
+
+@dataclass
+class CladeStyle:
+    palette: str = "Tableau 10"
+    color_branches: bool = True
+    color_labels: bool = True
+    background: bool = False       # cunha/retângulo translúcido atrás do clado
+    background_alpha: float = 0.18
+    outer_strip: bool = False      # faixa de cor no anel externo / coluna
+    strip_width: float = 12.0
+    show_names: bool = False
+    name_mode: str = "curved"      # circular: "curved" | "radial"
+    neutral_color: str = "#8a8a8a" # folhas/ramos fora de qualquer clado
+    cut_distance: float | None = None  # linha de corte (modo distância); None = oculta
+
+
+@dataclass
 class RenderStyle:
     layout: LayoutKind = LayoutKind.RECTANGULAR
-    font_size: float = 10.0
-    branch_scale: float = 1.0          # multiplicador horizontal / radial
-    leaf_spacing: float = 1.6          # espaçamento entre folhas em múltiplos da fonte
-    use_lengths: bool = True           # False = cladograma
-    align_tips: bool = True            # circular: pontas alinhadas no anel externo
-    show_support: bool = False
-    support_index: int = -1            # qual valor exibir quando há "a/b" (-1 = último; 99 = todos)
-    support_threshold: float = 0.0     # só exibe suporte >= limiar
-    show_leaf_labels: bool = True
-    branch_width: float = 1.2
-    palette: str = "Tableau 10"
-    branch_color: str = "#202020"
-    label_color: str = "#202020"
-    color_by: str | None = None        # coluna de metadados (Fase 2)
-    base_width: float = 600.0          # largura (px) da árvore com escala 1.0
+    branch_scale: float = 1.0      # multiplicador horizontal / radial
+    leaf_spacing: float = 1.6      # espaçamento entre folhas em múltiplos da fonte
+    use_lengths: bool = True       # False = cladograma
+    align_tips: bool = True        # circular: pontas alinhadas no anel externo
+    base_width: float = 600.0      # largura (px) da árvore com escala 1.0
+    branch: BranchStyle = field(default_factory=BranchStyle)
+    guide: GuideStyle = field(default_factory=GuideStyle)
+    label: LabelStyle = field(default_factory=LabelStyle)
+    support: SupportStyle = field(default_factory=SupportStyle)
+    clades: CladeStyle = field(default_factory=CladeStyle)
+    color_by: str | None = None    # coluna de metadados (Fase 2)
+
+    @property
+    def font_size(self) -> float:
+        return self.label.size
+
+    def palette_colors(self) -> list[str]:
+        return PALETTES.get(self.clades.palette) or next(iter(PALETTES.values()))

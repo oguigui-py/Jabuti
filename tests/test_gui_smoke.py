@@ -64,28 +64,31 @@ def test_rooting_via_gui(window, data_dir):
     assert window.shown_errors == []
 
 
-def test_color_panel_is_fixed_dock(window):
+def test_style_panel_is_fixed_dock(window):
     from PySide6.QtWidgets import QDockWidget
 
-    dock = window.color_dock
+    dock = window.style_dock
     assert dock.features() == QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
     assert not dock.isFloating()
-    assert window.color_panel.legend.entries == []
-    assert not window.color_panel.color_by.isEnabled()  # sem metadados ainda
+    assert window.style_panel.legend.entries == []
+    assert not window.style_panel.color_by.isEnabled()  # sem metadados ainda
+    assert set(window.style_panel.sections) >= {"clades", "colors", "meta"}
 
 
 def test_color_change_updates_canvas_immediately(window, data_dir):
     from PySide6.QtWidgets import QGraphicsPathItem
 
     window.tree_tab.load(data_dir / "small.nwk")
-    window.color_panel.branch_buttons["#b22222"].click()
-    window.color_panel.label_buttons["#1f4e79"].click()
+    sp = window.style_panel
+    sp.branch_row.buttons["#b22222"].click()
+    sp.label_row.buttons["#1f4e79"].click()
+    window.render_live()  # o timer de debounce dispararia isto
     paths = [i for i in window.canvas.tree_scene.items() if isinstance(i, QGraphicsPathItem)]
     assert any(p.pen().color().name() == "#b22222" for p in paths)
     label = window.canvas.result.leaf_items["A"][0]
     assert label.brush().color().name() == "#1f4e79"
-    window.color_panel.palette_buttons["Set2"].click()
-    assert window.current_style().palette == "Set2"
+    sp.palette_buttons["Set2"].click()
+    assert window.current_style().clades.palette == "Set2"
 
 
 def test_reroot_in_gui_keeps_circular_alignment(window, data_dir):

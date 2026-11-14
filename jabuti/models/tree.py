@@ -57,6 +57,17 @@ def _len(node: Node) -> float:
     return node.length if node.length is not None else 0.0
 
 
+SUPPORT_ALL = 99  # índice especial: todos os valores (o menor precisa passar no limiar)
+
+
+def support_value(values: list[float], index: int) -> float:
+    """Valor de suporte escolhido: índice 0/1 (ex.: SH-aLRT/UFBoot), -1 = último, 99 = mínimo."""
+    if index == SUPPORT_ALL:
+        return min(values)
+    i = index if -len(values) <= index < len(values) else -1
+    return values[i]
+
+
 @dataclass
 class TreeSummary:
     n_leaves: int

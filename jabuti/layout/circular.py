@@ -91,11 +91,17 @@ def circular_geometry(
     align_tips: bool = True,
     ring_widths: tuple[float, ...] = (),
     ring_gap: float = 2.0,
+    inner_extent: float = 0.0,
 ) -> CircGeometry:
+    """Raios do desenho circular.
+
+    ``inner_extent``: espaço extra entre o anel das pontas e os anéis de anotação
+    (usado quando os rótulos ficam nas pontas, sem alinhamento, para não cobrir os anéis).
+    """
     tip_ring = outer_ring_radius(len(lay.leaf_order), font_size, leaf_spacing, base_width, branch_scale)
     scale = tip_ring / lay.max_r if lay.max_r > 0 else 1.0
     pad = font_size * 0.5
-    rings_start = tip_ring + (pad if ring_widths else 0.0)
+    rings_start = tip_ring + ((pad + inner_extent) if ring_widths else 0.0)
     rings_end = rings_start + sum(ring_widths) + ring_gap * max(len(ring_widths) - 1, 0)
     return CircGeometry(
         scale=scale,

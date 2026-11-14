@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter, QWheelEvent
+from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QWheelEvent
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
 
 from jabuti.views.tree_renderer import RenderResult, make_highlight
 
 
 class TreeCanvas(QGraphicsView):
+    node_context_requested = Signal(object, QPoint)  # (Node, posição global)
+    PICK_TOLERANCE_PX = 14
     MIN_ZOOM = 0.02
     MAX_ZOOM = 60.0
 
@@ -42,6 +44,33 @@ class TreeCanvas(QGraphicsView):
         current = self.transform().m11()
         new = min(max(current * factor, self.MIN_ZOOM), self.MAX_ZOOM)
         self.scale(new / current, new / current)
+
+    def node_at(self, view_pos: QPoint):  # type: ignore[no-untyped-def]
+        """Nó mais próximo do ponto (em px de tela), dentro da tolerância."""
+        if self.result is None or not self.result.node_points:
+            return None
+        scene_pt = self.mapToScene(view_pos)
+        scale = self.transform().m11() or 1.0
+        tol = self.PICK_TOLERANCE_PX / scale
+        best, best_d = None, tol * tol
+        for node, p in self.result.node_points.items():
+            d = (p.x() - scene_pt.x()) ** 2 + (p.y() - scene_pt.y()) ** 2
+            if d <= best_d:
+                best, best_d = node, d
+        if best is None:  # clique sobre um rótulo de folha
+            for name, items in self.result.leaf_items.items():
+                if any(it.sceneBoundingRect().contains(scene_pt) for it in items):
+                    best = next((n for n in self.result.node_points if n.is_leaf and n.name == name), None)
+                    break
+        return best
+
+    def contextMenuEvent(self, event: QContextMenuEvent) -> None:  # noqa: N802
+        node = self.node_at(event.pos())
+        if node is not None:
+            self.node_context_requested.emit(node, event.globalPos())
+            event.accept()
+        else:
+            super().contextMenuEvent(event)
 
     def fit(self) -> None:
         rect = self._scene.sceneRect()

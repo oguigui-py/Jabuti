@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from jabuti.style import LayoutKind, RenderStyle
+from jabuti.style import BranchStyle, LabelStyle, LayoutKind, RenderStyle, SupportStyle
 
 
 class VizTab(QWidget):
@@ -121,14 +121,15 @@ class VizTab(QWidget):
     def render_style(self) -> RenderStyle:
         return RenderStyle(
             layout=self.layout_cb.currentData(),
-            font_size=self.font_size.value(),
             branch_scale=self.branch_scale.value() / 100,
             leaf_spacing=self.spacing.value(),
             use_lengths=self.use_lengths.isChecked(),
             align_tips=self.align_tips.isChecked(),
-            show_support=self.show_support.isChecked(),
-            support_index=self.support_which.currentData(),
-            support_threshold=self.support_threshold.value(),
-            show_leaf_labels=self.show_labels.isChecked(),
-            branch_width=self.branch_width.value(),
+            branch=BranchStyle(width=self.branch_width.value()),
+            label=LabelStyle(size=self.font_size.value(), show=self.show_labels.isChecked()),
+            support=SupportStyle(
+                show=self.show_support.isChecked(),
+                index=self.support_which.currentData(),
+                threshold=self.support_threshold.value(),
+            ),
         )
