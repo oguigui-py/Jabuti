@@ -51,6 +51,7 @@ TAG_BAR_AXIS = "bar-axis"
 TAG_BAR_VALUE = "bar-value"
 TAG_STACKED = "stacked-bar"
 TAG_MATRIX = "matrix"
+TAG_BREAK = "branch-break"
 
 
 @dataclass
@@ -203,6 +204,7 @@ class TreeRenderer:
         context: dict[str, list[ContextGene]] | None = None,
         label_groups: LabelGroupSet | None = None,
         legend: list[LegendGroup] | None = None,
+        hidden: set[str] | frozenset[str] = frozenset(),
     ) -> RenderResult:
         self.scene.clear()
         self.notes: list[str] = []
@@ -236,7 +238,7 @@ class TreeRenderer:
         res = RenderResult()
         self._groups = label_groups.effective(tree.leaf_names()) if label_groups is not None else {}
         res.label_groups = dict(self._groups)
-        res.clades = resolve_clades(tree, clades or [], style.palette_colors())
+        res.clades = resolve_clades(tree, clades or [], style.palette_colors(), hidden)
         self._assign = assign_nodes(tree, res.clades)
         self._has_clades = bool(self._assign)
         self._prepare_widths(tree)
@@ -489,6 +491,49 @@ class TreeRenderer:
                     t.setZValue(1)
                     self.scene.addItem(t)
         return x0 + cst.width
+
+    # ------------------------------------------------------------ "//"
+    def _broken(self, tree: Tree) -> list[Node]:
+        return [n for n in tree.broken if n.parent is not None and n in self._visible and n.parent in self._visible]
+
+    def _break_mark(self, center: QPointF, angle: float, width: float) -> None:
+        """Marca "//" sobre o ramo encurtado: duas barras inclinadas com uma lacuna entre elas."""
+        size = max(self.style.label.size * 0.55, 4.0)
+        gap = max(size * 0.35, width + 1.0)
+        d = QPointF(math.cos(angle), math.sin(angle))           # ao longo do ramo
+        n = QPointF(-d.y(), d.x())                                # perpendicular
+        slant = 0.45
+        bg = QColor(self.style.background) if self.style.background else None
+        if bg is not None:                                        # apaga o ramo entre as barras
+            hole = QPainterPath()
+            corners = []
+            for s_ in (-1, 1):
+                for t in (-1, 1):
+                    off = s_ * gap / 2 + t * slant * size
+                    corners.append(center + d * off + n * (t * size))
+            hole.moveTo(corners[0])
+            hole.lineTo(corners[1])
+            hole.lineTo(corners[3])
+            hole.lineTo(corners[2])
+            hole.closeSubpath()
+            item = QGraphicsPathItem(hole)
+            item.setBrush(QBrush(bg))
+            item.setPen(QPen(Qt.PenStyle.NoPen))
+            item.setZValue(1)
+            item.setData(1, TAG_BREAK)
+            self.scene.addItem(item)
+        path = QPainterPath()
+        for s_ in (-1, 1):
+            c = center + d * (s_ * gap / 2)
+            path.moveTo(c - d * (slant * size) - n * size)
+            path.lineTo(c + d * (slant * size) + n * size)
+        pen = QPen(QColor(self.style.branch.color), max(width, 1.0))
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        item = QGraphicsPathItem(path)
+        item.setPen(pen)
+        item.setZValue(1.1)
+        item.setData(1, TAG_BREAK)
+        self.scene.addItem(item)
 
     # ------------------------------------------------------------ trilhas
     def _value_text_width(self, track: BarTrack) -> float:
@@ -981,6 +1026,10 @@ class TreeRenderer:
                 top, bot = pt(node.children[0]), pt(node.children[-1])
                 edges.seg(self._node_color(node), self._width(node), QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()))
         edges.flush(self.scene)
+        for node in self._broken(tree):
+            pp = pt(node.parent)
+            p = pt(node)
+            self._break_mark(QPointF((pp.x() + p.x()) / 2, p.y()), 0.0, self._width(node))
 
         tree_right = lay.max_x * sx
         label_right = tree_right
@@ -1114,6 +1163,10 @@ class TreeRenderer:
                 edges.arc(self._node_color(node), self._width(node), r,
                           lay.pos[node.children[0]][1], lay.pos[node.children[-1]][1])
         edges.flush(self.scene)
+        for node in self._broken(tree):
+            th = lay.pos[node][1]
+            mid = (rad(node.parent) + rad(node)) / 2
+            self._break_mark(pt(mid, th), th, self._width(node))
 
         # clados colapsados: triângulo do nó até a folha mais distante
         tri_tips: list[tuple[float, float]] = []  # (raio final, ângulo) para ligações e rótulos

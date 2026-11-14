@@ -816,6 +816,8 @@ class StylePanel(QWidget):
             self.edits.ladderize = edits.ladderize
             self.edits.rotations = list(edits.rotations)
             self.edits.collapsed = list(edits.collapsed)
+            self.edits.hidden = set(edits.hidden)
+            self.edits.shortened = list(edits.shortened)
             was = self.ladder.blockSignals(True)
             self.ladder.setCurrentIndex(max(self.ladder.findData(edits.ladderize), 0))
             self.ladder.blockSignals(was)

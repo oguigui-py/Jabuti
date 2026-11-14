@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from jabuti.models.datatables import METADATA_SOURCE, DataSource, numeric_column
+from jabuti.models.document import TreeEdits
 from jabuti.models.tracks import parse_refs
 from jabuti.parsers.metadata import load_metadata
 from jabuti.models.colormaps import COLORMAPS, SCALES
@@ -99,6 +100,8 @@ class FigurePanel(QWidget):
     status_message = Signal(str)
     tables_changed = Signal()
     table_loaded = Signal(bool)     # terminou de ler (ok?)
+    root_group_requested = Signal()
+    hidden_changed = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -110,6 +113,9 @@ class FigurePanel(QWidget):
         self.scales: list[ColumnScale] = []
         self.track_order: list[str] = []
         self.hidden_tracks: list[str] = []
+        self.edits = TreeEdits()                    # compartilhado com o painel Estilo
+        self.selection: list[str] = []
+        self.break_legend_text = "outgroup branch not to scale"
         self._custom_colors: dict[tuple[str, str], str] = {}   # cor escolhida para série desmarcada
         self.metadata_by_leaf = lambda: {}          # fornecido pela janela (aba Metadados)
         self.metadata_columns = lambda: []
@@ -124,6 +130,7 @@ class FigurePanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
         self._add_section(lay, "columns", "Colunas de dados", self._build_columns(), True)
+        self._add_section(lay, "pruning", "Enraizamento e poda", self._build_pruning(), False)
         lay.addStretch(1)
         for cb in self.findChildren(QComboBox):
             cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -253,6 +260,159 @@ class FigurePanel(QWidget):
         self.refresh_matrices()
         self.refresh_scales()
         return w
+
+    # ------------------------------------------------------ enraizar e podar
+    def _build_pruning(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(8, 0, 0, 6)
+        self.sel_label = QLabel("Nenhuma folha selecionada (Cmd/Shift+clique nos nomes ou busca).")
+        self.sel_label.setWordWrap(True)
+        v.addWidget(self.sel_label)
+        self.root_group_btn = QPushButton("Enraizar no grupo selecionado")
+        self.root_group_btn.setToolTip("Raiz no ancestral comum das folhas selecionadas; avisa se entrarem "
+                                       "folhas extras (grupo não monofilético)")
+        self.root_group_btn.clicked.connect(self.root_group_requested.emit)
+        v.addWidget(self.root_group_btn)
+
+        v.addWidget(QLabel("<b>Folhas ocultas</b>"))
+        v.addWidget(_hint("Some do desenho e das colunas; os ramos são juntados. O arquivo não muda."))
+        self.hide_btn = QPushButton("Ocultar folhas selecionadas")
+        self.hide_btn.clicked.connect(self.hide_selected)
+        v.addWidget(self.hide_btn)
+        self.hidden_list = QListWidget()
+        self.hidden_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.hidden_list.setMaximumHeight(110)
+        v.addWidget(self.hidden_list)
+        row = QHBoxLayout()
+        self.restore_btn = QPushButton("Restaurar selecionadas")
+        self.restore_btn.clicked.connect(self.restore_selected)
+        self.restore_all_btn = QPushButton("Restaurar todas")
+        self.restore_all_btn.clicked.connect(self.restore_all)
+        row.addWidget(self.restore_btn)
+        row.addWidget(self.restore_all_btn)
+        v.addLayout(row)
+
+        v.addWidget(QLabel("<b>Ramos encurtados</b>"))
+        v.addWidget(_hint("Clique direito numa folha ou nó → “Encurtar este ramo”. O ramo ganha a marca “//”."))
+        self.short_list = QListWidget()
+        self.short_list.setMaximumHeight(80)
+        self.short_list.currentRowChanged.connect(self._short_selected)
+        v.addWidget(self.short_list)
+        srow = QHBoxLayout()
+        self.short_len = self._spin(0.0, 1e6, 0.1, 0.01)
+        self.short_len.setDecimals(4)
+        self.short_len.setToolTip("Comprimento exibido (unidades da árvore)")
+        self.short_len.valueChanged.connect(self._short_edited)
+        self.short_rm = QPushButton("Remover")
+        self.short_rm.clicked.connect(self._short_removed)
+        srow.addWidget(QLabel("Comprimento:"))
+        srow.addWidget(self.short_len, 1)
+        srow.addWidget(self.short_rm)
+        self.short_row = QWidget()
+        self.short_row.setLayout(srow)
+        v.addWidget(self.short_row)
+        self.break_legend = QCheckBox("Nota na legenda:")
+        self.break_legend.toggled.connect(self._emit)
+        self.break_text = QLineEdit(self.break_legend_text)
+        self.break_text.editingFinished.connect(self._emit)
+        brow = QHBoxLayout()
+        brow.addWidget(self.break_legend)
+        brow.addWidget(self.break_text, 1)
+        v.addLayout(brow)
+        self.prune_hint = _hint("")
+        v.addWidget(self.prune_hint)
+        self.set_selection([])
+        self.refresh_pruning()
+        return w
+
+    def set_selection(self, names: list[str]) -> None:
+        self.selection = list(names)
+        n = len(names)
+        self.sel_label.setText(f"{n} folha(s) selecionada(s)." if n else
+                               "Nenhuma folha selecionada (Cmd/Shift+clique nos nomes ou busca).")
+        self.root_group_btn.setEnabled(n > 0)
+        self.hide_btn.setEnabled(n > 0)
+
+    def hide_leaves(self, names) -> bool:  # type: ignore[no-untyped-def]
+        names = set(names) & set(self.leaves)
+        visible = set(self.leaves) - self.edits.hidden
+        if len(visible - names) < 2:
+            self.prune_hint.setText("⚠ Pelo menos 2 folhas precisam continuar visíveis.")
+            self.status_message.emit("Pelo menos 2 folhas precisam continuar visíveis.")
+            return False
+        self.edits.hide(names)
+        self.prune_hint.setText("")
+        self.refresh_pruning()
+        self.hidden_changed.emit()
+        self.changed.emit()
+        self.status_message.emit(f"{len(names)} folha(s) oculta(s). Restaure no painel Figura → Enraizamento e poda.")
+        return True
+
+    def hide_selected(self) -> None:
+        self.hide_leaves(self.selection)
+
+    def restore_selected(self) -> None:
+        names = [i.text() for i in self.hidden_list.selectedItems()]
+        if names:
+            self.edits.restore(names)
+            self.refresh_pruning()
+            self.hidden_changed.emit()
+            self.changed.emit()
+
+    def restore_all(self) -> None:
+        if self.edits.hidden:
+            self.edits.restore()
+            self.refresh_pruning()
+            self.hidden_changed.emit()
+            self.changed.emit()
+
+    def refresh_pruning(self) -> None:
+        self.hidden_list.clear()
+        for name in sorted(self.edits.hidden, key=str.lower):
+            item = QListWidgetItem(name)
+            if self.leaves and name not in self.leaves:
+                item.setToolTip("Não existe na árvore aberta")
+            self.hidden_list.addItem(item)
+        has = bool(self.edits.hidden)
+        self.hidden_list.setVisible(has)
+        self.restore_btn.setEnabled(has)
+        self.restore_all_btn.setEnabled(has)
+        row = self.short_list.currentRow()
+        self.short_list.blockSignals(True)
+        self.short_list.clear()
+        for b in self.edits.shortened:
+            names = sorted(b.leaves)
+            label = names[0] if len(names) == 1 else f"{names[0]} + {len(names) - 1}"
+            self.short_list.addItem(f"{label}  (≤ {b.max_length:g})")
+        self.short_list.blockSignals(False)
+        self.short_list.setVisible(bool(self.edits.shortened))
+        if self.edits.shortened:
+            self.short_list.setCurrentRow(max(0, min(row, len(self.edits.shortened) - 1)))
+        self._short_selected(self.short_list.currentRow())
+
+    def _short_selected(self, row: int) -> None:
+        ok = 0 <= row < len(self.edits.shortened)
+        self.short_row.setVisible(ok)
+        if ok:
+            was = self.short_len.blockSignals(True)
+            self.short_len.setValue(self.edits.shortened[row].max_length)
+            self.short_len.blockSignals(was)
+
+    def _short_edited(self, value: float) -> None:
+        row = self.short_list.currentRow()
+        if 0 <= row < len(self.edits.shortened):
+            self.edits.shortened[row].max_length = value
+            item = self.short_list.item(row)
+            item.setText(item.text().split("  (≤")[0] + f"  (≤ {value:g})")
+            self.changed.emit()
+
+    def _short_removed(self) -> None:
+        row = self.short_list.currentRow()
+        if 0 <= row < len(self.edits.shortened):
+            del self.edits.shortened[row]
+            self.refresh_pruning()
+            self.changed.emit()
 
     def _build_order(self) -> QWidget:
         w = QWidget()
@@ -574,6 +734,7 @@ class FigurePanel(QWidget):
     # ------------------------------------------------------------- árvore
     def set_leaves(self, leaves: list[str]) -> None:
         self.leaves = list(leaves)
+        self.refresh_pruning()
         for src in self.sources.values():
             src.mapping.set_leaves(self.leaves)
         self._show_table()
@@ -1317,6 +1478,8 @@ class FigurePanel(QWidget):
                       for x in self.scales if x.mode != "bins" or x.cutoffs]
         fig.track_order = list(self.track_order)
         fig.hidden_tracks = list(self.hidden_tracks)
+        fig.break_legend = self.break_legend.isChecked()
+        fig.break_legend_text = self.break_text.text().strip() or "outgroup branch not to scale"
         return style
 
     def load_style(self, style: RenderStyle) -> list[str]:
@@ -1360,6 +1523,9 @@ class FigurePanel(QWidget):
         self.refresh_scales()
         self.track_order = list(fig.track_order)
         self.hidden_tracks = list(fig.hidden_tracks)
+        self.break_legend.setChecked(fig.break_legend)
+        self.break_text.setText(fig.break_legend_text)
+        self.refresh_pruning()
         return warnings
 
 

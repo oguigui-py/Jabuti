@@ -256,6 +256,8 @@ class FigureConfig:
     scales: list[ColumnScale] = field(default_factory=list)
     track_order: list[str] = field(default_factory=list)    # chaves das trilhas, da árvore para fora
     hidden_tracks: list[str] = field(default_factory=list)
+    break_legend: bool = False                               # nota do ramo encurtado na legenda
+    break_legend_text: str = "outgroup branch not to scale"
 
 
 @dataclass

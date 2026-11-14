@@ -156,6 +156,7 @@ class MainWindow(QMainWindow):
         self.figure_panel = FigurePanel()
         self.figure_panel.metadata_by_leaf = self.metadata_tab.by_leaf
         self.figure_panel.metadata_columns = self.metadata_tab.value_columns
+        self.figure_panel.edits = self.style_panel.edits          # mesmas edições da árvore
         self.figure_holder = FigureDock(self.figure_panel)
         self.figure_dock = QDockWidget("Figura", self)
         self.figure_dock.setObjectName("figure_dock")
@@ -183,6 +184,8 @@ class MainWindow(QMainWindow):
         self.gff_tab.changed.connect(self._live_timer.start)
         self.figure_panel.changed.connect(self._live_timer.start)
         self.figure_panel.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
+        self.figure_panel.root_group_requested.connect(self.root_on_selection)
+        self.figure_panel.hidden_changed.connect(self.canvas.clear_selection)
         self.metadata_tab.columns_changed.connect(lambda _c: self.figure_panel.metadata_changed())
         self.viz_tab.layout_cb.currentIndexChanged.connect(
             lambda _i: self.figure_panel.set_layout(self.viz_tab.layout_cb.currentData()))
@@ -276,7 +279,13 @@ class MainWindow(QMainWindow):
         palette = style.palette_colors()
         md = style.metadata
         fig = style.figure
-        by_leaf = self.metadata_tab.by_leaf()
+        shown = set(self.display_tree.leaf_names()) if self.display_tree is not None else None
+
+        def visible(rows: dict) -> dict:
+            """Só folhas desenhadas: ocultas não entram em mínimos, máximos nem faixas."""
+            return rows if shown is None else {k: v for k, v in rows.items() if k in shown}
+
+        by_leaf = visible(self.metadata_tab.by_leaf())
         available = set(self.metadata_tab.value_columns())
         if by_leaf and md.color_by in available and (md.color_labels or md.color_branches):
             meta_colors, legend = metadata_colors(by_leaf, md.color_by, palette,
@@ -306,7 +315,7 @@ class MainWindow(QMainWindow):
             legends[GENE_BLOCK] = [presence_legend(hm.present_color, hm.absent_color, hm.missing_color)]
         fp = self.figure_panel
         for b in fig.bars:
-            rows = fp.by_leaf(b.source)
+            rows = visible(fp.by_leaf(b.source))
             values = numeric_column(rows, b.column)
             if not values:
                 self._render_notes.append(f"barras “{b.column}” sem dados ({fp.source_label(b.source)})")
@@ -319,7 +328,7 @@ class MainWindow(QMainWindow):
                 width=b.width, missing_color=md.missing_color)]
             labels[f"bar:{b.id}"] = f"Barras: {b.column}"
         for st in fig.stacked:
-            rows = fp.by_leaf(st.source)
+            rows = visible(fp.by_leaf(st.source))
             series = [c for c in st.columns if numeric_column(rows, c)]
             if not series:
                 self._render_notes.append(f"barras empilhadas “{st.name or '/'.join(st.columns)}” sem dados")
@@ -335,7 +344,7 @@ class MainWindow(QMainWindow):
             legends[track.key] = [LegendGroup(f"Séries: {header}", list(zip(series, colors)))]
         row_h = style.label.size * style.leaf_spacing
         for mx in fig.matrices:
-            rows = fp.by_leaf(mx.source)
+            rows = visible(fp.by_leaf(mx.source))
             features = select_features(rows, fp.columns_of(mx.source), mx.select, mx.features, mx.top_n)
             title = mx.name or mx.source or "matriz"
             if not features:
@@ -415,6 +424,7 @@ class MainWindow(QMainWindow):
         else:
             menu.addAction(f"Remover clado “{existing.name}”", lambda: sp.remove_clade_with(leaves))
         self._label_menu(menu, node, leaves)
+        self._prune_menu(menu, node, leaves)
         if not node.is_leaf:
             menu.addSeparator()
             menu.addAction("Girar nó (inverter filhos)", lambda: sp.rotate(leaves))
@@ -423,6 +433,61 @@ class MainWindow(QMainWindow):
             elif node.parent is not None:
                 menu.addAction("Colapsar em triângulo", lambda: sp.collapse(leaves))
         return menu
+
+    def _prune_menu(self, menu: QMenu, node, leaves: frozenset[str]) -> None:  # type: ignore[no-untyped-def]
+        """Enraizar no grupo, ocultar folhas e encurtar o ramo."""
+        fp = self.figure_panel
+        selected = list(self.canvas.selected)
+        menu.addSeparator()
+        if selected:
+            menu.addAction(f"Enraizar no grupo selecionado ({len(selected)})", self.root_on_selection)
+            menu.addAction(f"Ocultar folhas selecionadas ({len(selected)})", lambda: fp.hide_leaves(selected))
+        elif node.is_leaf:
+            menu.addAction("Ocultar esta folha", lambda: fp.hide_leaves([node.name]))
+        else:
+            menu.addAction(f"Ocultar estas {len(leaves)} folhas", lambda: fp.hide_leaves(leaves))
+        if node.parent is None or self.tree is None:
+            return
+        edits = self.style_panel.edits
+        if edits.short_branch(leaves) is not None:
+            menu.addAction("Desfazer encurtamento do ramo", lambda: self.unshorten_branch(leaves))
+        elif node.length:
+            menu.addAction("Encurtar este ramo (marca //)", lambda: self.shorten_branch(leaves))
+
+    def shorten_branch(self, leaves: frozenset[str]) -> None:
+        """Encurta o ramo; o comprimento inicial é o maior dos outros ramos (editável no painel)."""
+        tree = self.display_tree or self.tree
+        if tree is None:
+            return
+        from jabuti.models.document import resolve_nodes
+
+        nodes = resolve_nodes(tree, [leaves])
+        target = nodes[0] if nodes else None
+        others = [n.length for n in tree.root.traverse_preorder()
+                  if n is not tree.root and n is not target and n.length is not None]
+        current = target.length if target is not None and target.length else 0.0
+        default = max(others, default=current / 2)
+        if default >= current:
+            default = current / 2
+        self.style_panel.edits.set_short(leaves, round(default, 6))
+        self.figure_panel.refresh_pruning()
+        self.figure_panel.sections["pruning"].set_expanded(True)
+        self.render_live()
+        self.statusBar().showMessage("Ramo encurtado (comprimento ajustável no painel Figura → "
+                                     "Enraizamento e poda).", 8000)
+
+    def unshorten_branch(self, leaves: frozenset[str]) -> None:
+        self.style_panel.edits.unshort(leaves)
+        self.figure_panel.refresh_pruning()
+        self.render_live()
+
+    def root_on_selection(self) -> None:
+        names = list(self.canvas.selected)
+        if not names:
+            self.statusBar().showMessage("Selecione folhas (Cmd/Shift+clique ou busca) para enraizar no grupo.", 8000)
+            return
+        if self.tree_tab.root_on_group(names):
+            self.statusBar().showMessage(f"Enraizado no ancestral comum de {len(names)} folha(s).", 8000)
 
     # ------------------------------------------------- rótulos e seleção
     def _label_menu(self, menu: QMenu, node, leaves: frozenset[str]) -> None:  # type: ignore[no-untyped-def]
@@ -467,6 +532,8 @@ class MainWindow(QMainWindow):
     def _selection_changed(self, names: list) -> None:
         lp = self.style_panel.label_panel
         lp.set_selection(names)
+        self.figure_panel.set_selection(names)
+        self.tree_tab.set_group(names)
         if len(names) == 1:
             self.statusBar().showMessage(lp.describe_leaf(names[0]), 8000)
         elif names:
@@ -499,9 +566,11 @@ class MainWindow(QMainWindow):
                 groups.append(ctx_group)
             label_groups = self.style_panel.label_groups
             groups.extend(self._label_legend(label_groups))
+            if self.display_tree.broken and style.figure.break_legend:
+                groups.append(LegendGroup("Escala", [(f"// {style.figure.break_legend_text}", None)]))
             result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
                                           edits.collapsed, columns, meta_colors, context, label_groups,
-                                          legend=groups)
+                                          legend=groups, hidden=edits.hidden)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
@@ -512,7 +581,10 @@ class MainWindow(QMainWindow):
         self.style_panel.label_panel.refresh()
         if self.search_box.text().strip():
             self.do_search()
-        msg = f"{len(self.tree.leaves())} folhas desenhadas."
+        n_hidden = len(edits.hidden & set(self.tree.leaf_names()))
+        msg = f"{len(self.display_tree.leaves())} folhas desenhadas."
+        if n_hidden:
+            msg += f" {n_hidden} oculta(s)."
         if self._render_notes:
             msg += " Obs.: " + "; ".join(self._render_notes) + "."
         self.statusBar().showMessage(msg)
@@ -531,6 +603,13 @@ class MainWindow(QMainWindow):
         warnings = list(loaded.warnings) + sp.load_style(loaded.style) + self.figure_panel.load_style(loaded.style)
         sp.load_detection(loaded.detection)
         sp.load_tree_state(loaded.clade_set, loaded.edits)
+        if loaded.edits is not None and self.tree is not None:
+            names = set(self.tree.leaf_names())
+            unknown = sp.edits.hidden - names
+            if unknown:
+                sp.edits.hidden -= unknown
+                warnings.append(f"{len(unknown)} folha(s) oculta(s) no preset não existem na árvore aberta.")
+        self.figure_panel.refresh_pruning()
         if loaded.label_groups is not None:
             groups = loaded.label_groups
             if self.tree is not None:
@@ -600,7 +679,10 @@ class MainWindow(QMainWindow):
         self.canvas.set_selection(matches)   # resultados da busca viram a seleção
         if not matches:
             hidden = self.tree is not None and any(q.strip().lower() in n.lower() for n in self.tree.leaf_names())
-            if hidden:
+            pruned = [n for n in self.style_panel.edits.hidden if q.strip().lower() in n.lower()]
+            if pruned:
+                self.statusBar().showMessage(f"“{q}” está oculta (painel Figura → Enraizamento e poda → Restaurar).")
+            elif hidden:
                 self.statusBar().showMessage(f"“{q}” está dentro de um clado colapsado (clique direito → Expandir).")
             else:
                 self.statusBar().showMessage(f"Nenhuma folha contém “{q}”.")

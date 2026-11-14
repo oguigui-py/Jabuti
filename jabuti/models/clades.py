@@ -146,16 +146,21 @@ def mrca(tree: Tree, names: frozenset[str]) -> Node | None:
     return next(n for n in path if id(n) in common)
 
 
-def resolve_clades(tree: Tree, clades: list[Clade], palette: list[str]) -> list[ResolvedClade]:
+def resolve_clades(tree: Tree, clades: list[Clade], palette: list[str],
+                   hidden: set[str] | frozenset[str] = frozenset()) -> list[ResolvedClade]:
+    """Nó de cada clado na árvore atual. Folhas ocultas (``hidden``) não contam."""
     present = set(tree.leaf_names())
     out: list[ResolvedClade] = []
     for i, clade in enumerate(clades):
         color = clade.color or palette[i % len(palette)]
-        missing = clade.leaves - present
-        node = mrca(tree, clade.leaves) if clade.leaves and not missing else None
-        if missing:
+        target = clade.leaves - set(hidden)
+        missing = target - present
+        node = mrca(tree, target) if target and not missing else None
+        if not target:
+            out.append(ResolvedClade(clade, None, color, False, "todas as folhas estão ocultas"))
+        elif missing:
             out.append(ResolvedClade(clade, None, color, False, f"{len(missing)} folha(s) ausente(s)"))
-        elif node is None or frozenset(l.name for l in node.leaves()) != clade.leaves:
+        elif node is None or frozenset(l.name for l in node.leaves()) != target:
             out.append(ResolvedClade(clade, None, color, False, "não monofilético nesta raiz"))
         else:
             out.append(ResolvedClade(clade, node, color, True))

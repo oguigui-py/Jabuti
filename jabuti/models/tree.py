@@ -100,6 +100,7 @@ class Tree:
         self.root = root
         self.root.parent = None
         self.root.length = None
+        self.broken: set[Node] = set()   # ramos encurtados na exibição (marca "//")
 
     def copy(self) -> Tree:
         """Cópia profunda iterativa (deepcopy recursivo estoura em árvores grandes)."""
@@ -208,6 +209,52 @@ class Tree:
         if leaf is None:
             raise ValueError(f"Folha '{leaf_name}' não encontrada na árvore.")
         self.reroot_at_edge(leaf)
+
+    def group_extras(self, names: set[str] | frozenset[str]) -> list[str]:
+        """Folhas extras que entram no clado ao enraizar no grupo (vazio = monofilético).
+
+        Não altera a árvore."""
+        return self.copy().reroot_on_group(names)
+
+    def reroot_on_group(self, names: set[str] | frozenset[str]) -> list[str]:
+        """Enraíza no ramo que separa o grupo do resto (no ancestral comum do grupo).
+
+        A bipartição é calculada sem depender da raiz atual: enraíza antes numa folha de
+        fora do grupo. Devolve as folhas extras que entram junto, se o grupo não for
+        monofilético (ordenadas). Os suportes acompanham os ramos (bipartições)."""
+        group = set(names)
+        all_names = set(self.leaf_names())
+        unknown = group - all_names
+        if unknown:
+            raise ValueError(f"Folha(s) não encontrada(s): {', '.join(sorted(unknown)[:5])}.")
+        if not group:
+            raise ValueError("Selecione pelo menos uma folha para enraizar.")
+        if group == all_names:
+            raise ValueError("O grupo contém todas as folhas: escolha um subconjunto.")
+        outside = next(l for l in self.leaves() if l.name not in group)
+        self.reroot_at_edge(outside)
+        node = self._mrca(group)
+        extras = sorted(l.name for l in node.leaves() if l.name not in group)
+        root = self.root
+        if node.parent is root:
+            # a bipartição é o próprio ramo da raiz: raiz no meio dele
+            sib = next(c for c in root.children if c is not node)
+            if node.length is not None or sib.length is not None:
+                total = _len(node) + _len(sib)
+                node.length = sib.length = total / 2
+            if not node.supports and sib.supports:
+                node.supports = list(sib.supports)
+        else:
+            self.reroot_at_edge(node)
+        return extras
+
+    def _mrca(self, names: set[str]) -> Node:
+        leaves = [l for l in self.leaves() if l.name in names]
+        path = [leaves[0], *leaves[0].ancestors()]
+        common = set(map(id, path))
+        for leaf in leaves[1:]:
+            common &= set(map(id, [leaf, *leaf.ancestors()]))
+        return next(n for n in path if id(n) in common)
 
     def reroot_midpoint(self) -> None:
         leaves = self.leaves()

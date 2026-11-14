@@ -98,6 +98,25 @@ desenho é exatamente o de antes. As opções vão para os presets (os dados car
 Exemplos sintéticos: `examples/traits.tsv` (tamanho do genoma, nº de contigs com `NA` e
 contagens de CAZy por classe) e `examples/cazy_counts.tsv` (matriz de 31 famílias CAZy).
 
+### Enraizamento e poda
+
+- **Enraizar no grupo selecionado** — selecione folhas (Cmd/Shift+clique nos nomes ou pela
+  busca) e use o botão do painel, o clique direito ou *No grupo selecionado* na aba Árvore. A
+  raiz vai para o ramo do ancestral comum (calculado sem depender da raiz atual); se o grupo não
+  for monofilético, uma confirmação lista as folhas extras que entram. Os suportes acompanham as
+  bipartições, como nos outros enraizamentos.
+- **Ocultar folhas** — *Ocultar folhas selecionadas* (ou clique direito → *Ocultar*) tira as
+  folhas do desenho e das colunas de dados (mínimos/máximos automáticos também passam a
+  ignorá-las) e junta os ramos que ficam com um só filho, somando os comprimentos. A lista de
+  ocultas tem *Restaurar selecionadas* e *Restaurar todas*; o arquivo original não muda e pelo
+  menos 2 folhas continuam visíveis. Clados, colapsos e grupos de rótulo ignoram as ocultas.
+- **Ramo encurtado** — clique direito numa folha ou nó → *Encurtar este ramo*. O ramo passa a
+  ser desenhado com o comprimento escolhido no painel (inicialmente o maior dos outros ramos) e
+  ganha a marca **//** (em todos os layouts). *Nota na legenda* acrescenta “outgroup branch not
+  to scale” (texto editável). A barra de escala continua valendo para os demais ramos.
+
+Folhas ocultas e ramos encurtados vão para os presets, junto com clados e colapsos.
+
 ## Personalização (painel **Estilo**, à direita)
 
 Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PNG.

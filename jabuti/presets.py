@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from jabuti.models.clades import Clade, CladeSet
-from jabuti.models.document import LADDERIZE, TreeEdits
+from jabuti.models.document import LADDERIZE, ShortBranch, TreeEdits
 from jabuti.models.label_groups import SOURCES, LabelGroup, LabelGroupSet, LabelLook
 from jabuti.parsers.errors import JabutiParseError, read_text
 from jabuti.models.colormaps import COLORMAPS, SCALES
@@ -213,6 +213,8 @@ def preset_to_dict(
             "ladderize": edits.ladderize,
             "rotations": [sorted(s) for s in edits.rotations],
             "collapsed": [sorted(s) for s in edits.collapsed],
+            "hidden": sorted(edits.hidden),
+            "shortened": [{"leaves": sorted(b.leaves), "max_length": b.max_length} for b in edits.shortened],
         }
     return out
 
@@ -311,6 +313,19 @@ def preset_from_dict(data: Any) -> LoadedPreset:
                 warnings.append(f"Valor inválido em “edits.ladderize”: {lad!r}.")
             edits.rotations = _leafsets(raw.get("rotations", []), "edits.rotations", warnings)
             edits.collapsed = _leafsets(raw.get("collapsed", []), "edits.collapsed", warnings)
+            hidden = raw.get("hidden", [])
+            if isinstance(hidden, list) and all(isinstance(x, str) for x in hidden):
+                edits.hidden = set(hidden)
+            else:
+                warnings.append("“edits.hidden” deveria ser uma lista de nomes de folhas.")
+            for i, b in enumerate(raw.get("shortened", []) if isinstance(raw.get("shortened", []), list) else []):
+                leaves = b.get("leaves") if isinstance(b, dict) else None
+                length = b.get("max_length") if isinstance(b, dict) else None
+                if (isinstance(leaves, list) and leaves and all(isinstance(x, str) for x in leaves)
+                        and isinstance(length, (int, float)) and not isinstance(length, bool) and length >= 0):
+                    edits.shortened.append(ShortBranch(frozenset(leaves), float(length)))
+                else:
+                    warnings.append(f"“edits.shortened[{i}]” ignorado (folhas e comprimento ≥ 0 esperados).")
     label_groups: LabelGroupSet | None = None
     if "label_groups" in data:
         label_groups = _label_groups(data["label_groups"], warnings)
