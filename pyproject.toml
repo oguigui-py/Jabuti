@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jabuti"
+version = "0.1.0"
+description = "Visualizador offline de árvores filogenéticas (estilo iTOL simplificado)"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.6",
+    "biopython>=1.81",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-qt>=4", "pyinstaller>=6"]
+
+[project.gui-scripts]
+jabuti = "jabuti.app:main"
+
+[tool.setuptools.packages.find]
+include = ["jabuti*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"

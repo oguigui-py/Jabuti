@@ -1,0 +1,36 @@
+# Ambientes e caches Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# Builds (PyInstaller)
+build/
+dist/
+*.spec.bak
+
+# Sistema / editores
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Dados reais — nunca versionar
+data/
+*.treefile
+*.contree
+*.nwk
+*.newick
+*.gff
+*.gff3
+*.gbk
+*.fna
+*.faa
+# ...exceto os exemplos pequenos usados nos testes
+!tests/data/
+!tests/data/**
+!examples/
+!examples/**

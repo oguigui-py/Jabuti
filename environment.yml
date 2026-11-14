@@ -1,0 +1,13 @@
+name: jabuti
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pyside6>=6.6
+  - biopython>=1.81
+  - pytest
+  - pytest-qt
+  - pip
+  - pip:
+      - pyinstaller>=6
+      - -e .
