@@ -1,0 +1,17 @@
+##gff-version 3
+contig_1	synthetic	CDS	100	1718	.	+	0	ID=cds1;locus_tag=A18_00001;product=hypothetical protein
+contig_1	synthetic	gene	1979	3260	.	-	.	ID=gene2;locus_tag=A18_00002;gene=nifH
+contig_1	synthetic	CDS	1979	3260	.	-	0	ID=cds2;Parent=gene2;product=nitrogenase iron protein NifH
+contig_1	synthetic	gene	3508	4393	.	+	.	ID=gene3;locus_tag=A18_00003;gene=nifD
+contig_1	synthetic	CDS	3508	4393	.	+	0	ID=cds3;Parent=gene3;product=nitrogenase molybdenum-iron protein alpha chain
+contig_1	synthetic	gene	4547	5332	.	+	.	ID=gene4;locus_tag=A18_00004;gene=nifK
+contig_1	synthetic	CDS	4547	5332	.	+	0	ID=cds4;Parent=gene4;product=nitrogenase molybdenum-iron protein beta chain
+contig_1	synthetic	CDS	5537	7275	.	+	0	ID=cds5;locus_tag=A18_00005;product=hypothetical protein
+contig_1	synthetic	gene	7468	8557	.	-	.	ID=gene6;locus_tag=A18_00006;gene=nodA
+contig_1	synthetic	CDS	7468	8557	.	-	0	ID=cds6;Parent=gene6;product=nodulation protein A
+contig_1	synthetic	gene	8719	10485	.	+	.	ID=gene7;locus_tag=A18_00007;gene=nodB
+contig_1	synthetic	CDS	8719	10485	.	+	0	ID=cds7;Parent=gene7;product=chitooligosaccharide deacetylase NodB
+contig_1	synthetic	CDS	10575	12022	.	+	0	ID=cds8;locus_tag=A18_00008;product=hypothetical protein
+contig_1	synthetic	gene	12294	13021	.	-	.	ID=gene9;locus_tag=A18_00009;gene=acdS
+contig_1	synthetic	CDS	12294	13021	.	-	0	ID=cds9;Parent=gene9;product=1-aminocyclopropane-1-carboxylate deaminase
+contig_1	synthetic	CDS	13193	14969	.	-	0	ID=cds10;locus_tag=A18_00010;product=hypothetical protein

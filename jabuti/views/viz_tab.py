@@ -98,7 +98,7 @@ class VizTab(QWidget):
 
     def render_style(self) -> RenderStyle:
         return RenderStyle(
-            layout=self.layout_cb.currentData(),
+            layout=LayoutKind(self.layout_cb.currentData()),  # o Qt devolve str puro
             branch_scale=self.branch_scale.value() / 100,
             leaf_spacing=self.spacing.value(),
             use_lengths=self.use_lengths.isChecked(),

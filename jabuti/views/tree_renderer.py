@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from jabuti.layout.circular import CircGeometry, circular_geometry, circular_layout
 from jabuti.layout.rectangular import rectangular_layout, visible_nodes
 from jabuti.models.clades import Clade, ResolvedClade, assign_nodes, resolve_clades
+from jabuti.models.annotations import LeafColumn
 from jabuti.models.document import TreeEdits, collapsed_nodes
 from jabuti.models.tree import SUPPORT_ALL, Node, Tree, support_value
 from jabuti.style import GuideStyle, LayoutKind, RenderStyle
@@ -35,6 +36,9 @@ TAG_TIP_SYMBOL = "tip-symbol"
 TAG_SUPPORT_SYMBOL = "support-symbol"
 TAG_SCALE = "scale-bar"
 TAG_COLLAPSED = "collapsed"
+TAG_HEATMAP = "heatmap"
+TAG_META_STRIP = "metadata-strip"
+TAG_COLUMN_HEADER = "column-header"
 
 
 @dataclass
@@ -160,8 +164,10 @@ class TreeRenderer:
         style: RenderStyle,
         clades: list[Clade] | None = None,
         collapsed: list[frozenset[str]] | None = None,
+        columns: list[LeafColumn] | None = None,
     ) -> RenderResult:
         self.scene.clear()
+        self._columns = list(columns or [])
         self.style = style
         bg = style.background
         self.scene.setBackgroundBrush(QBrush(QColor(bg)) if bg else QBrush(Qt.BrushStyle.NoBrush))
@@ -235,6 +241,34 @@ class TreeRenderer:
     def _visible_clades(self, res: RenderResult) -> list[ResolvedClade]:
         return [rc for rc in res.clades
                 if rc.valid and rc.clade.visible and rc.node is not None and rc.node in self._visible]
+
+    def _tips(self, lay) -> list[tuple[Node, list[str]]]:  # type: ignore[no-untyped-def]
+        """Pontas visíveis: folhas e clados colapsados (com as folhas que representam)."""
+        tips = [(l, [l.name]) for l in lay.leaf_order]
+        tips += [(n, [l.name for l in n.leaves()]) for n in lay.collapsed]
+        return tips
+
+    def _cell_color(self, col: LeafColumn, names: list[str]) -> str:
+        return col.color_for(names[0]) if len(names) == 1 else col.color_for_group(names)
+
+    def _flush_cells(self, by_color: dict[str, QPainterPath], col: LeafColumn) -> None:
+        hm = self.style.heatmap
+        pen = QPen(QColor("#bfbfbf"), 0.5) if hm.borders else QPen(Qt.PenStyle.NoPen)
+        for color, path in by_color.items():
+            item = QGraphicsPathItem(path)
+            item.setBrush(QBrush(QColor(color)))
+            item.setPen(pen)
+            item.setData(1, TAG_HEATMAP if col.kind == "genes" else TAG_META_STRIP)
+            item.setData(2, col.key)
+            self.scene.addItem(item)
+
+    def _cell_text(self, text: str, center: QPointF, bg: str) -> None:
+        c = QColor(bg)
+        lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
+        t = self._text(text, max(self.style.label.size * 0.7, 4), "#ffffff" if lum < 140 else "#202020")
+        t.setData(1, TAG_HEATMAP)
+        br = t.boundingRect()
+        t.setPos(center.x() - br.width() / 2, center.y() - br.height() / 2)
 
     def _collapsed_label(self, node: Node) -> str:
         n = len(node.leaves())
@@ -424,6 +458,29 @@ class TreeRenderer:
                 path.addRect(QRectF(x, y0, cs.strip_width, y1 - y0))
                 self._fill(path, rc.color, 1.0, TAG_CLADE_STRIP, 0)
             x += cs.strip_width + pad
+        if self._columns:
+            hm = style.heatmap
+            cw = sy * hm.cell_width
+            top = lay.span[tree.root][0] * sy
+            for col in self._columns:
+                by_color: dict[str, QPainterPath] = {}
+                for node, names in self._tips(lay):
+                    a, b = lay.span[node]
+                    color = self._cell_color(col, names)
+                    rect = QRectF(x, a * sy, cw, (b - a) * sy)
+                    by_color.setdefault(color, QPainterPath()).addRect(rect)
+                    if len(names) == 1 and names[0] in col.texts:
+                        self._cell_text(col.texts[names[0]], rect.center(), color)
+                self._flush_cells(by_color, col)
+                if hm.show_headers:
+                    h = self._text(col.header, max(style.label.size * 0.85, 4))
+                    h.setData(1, TAG_COLUMN_HEADER)
+                    hh = h.boundingRect().height()
+                    h.setTransformOriginPoint(0, hh)
+                    h.setRotation(-60)
+                    h.setPos(x + cw / 2 - hh * 0.3, top - 3 - hh)
+                x += cw
+            x += pad
         if cs.background and visible:
             for rc in visible:
                 y0, y1 = y_range(rc.node)
@@ -471,6 +528,8 @@ class TreeRenderer:
         cs = style.clades
         visible = self._visible_clades(res)
         strip = cs.outer_strip and bool(visible)
+        col_w = spacing * style.heatmap.cell_width
+        ring_widths = ([cs.strip_width] if strip else []) + [col_w] * len(self._columns)
 
         # largura máxima dos rótulos (para reservar espaço quando não alinhados)
         max_label_w = 0.0
@@ -486,7 +545,7 @@ class TreeRenderer:
             base_width=style.base_width,
             branch_scale=style.branch_scale,
             align_tips=style.align_tips,
-            ring_widths=(cs.strip_width,) if strip else (),
+            ring_widths=tuple(ring_widths),
             inner_extent=0.0 if style.align_tips else max_label_w + pad,
             marker=self._marker,
         )
@@ -569,10 +628,22 @@ class TreeRenderer:
             return lay.span[node]
 
         if strip:
+            r0, r1 = geom.ring_bounds(0)
             for rc in visible:
                 th0, th1 = th_range(rc.node)
-                self._fill(annular_sector(geom.rings_start, geom.rings_end, th0, th1),
-                           rc.color, 1.0, TAG_CLADE_STRIP, 0)
+                self._fill(annular_sector(r0, r1, th0, th1), rc.color, 1.0, TAG_CLADE_STRIP, 0)
+        first_col_ring = 1 if strip else 0
+        for i, col in enumerate(self._columns):
+            r0, r1 = geom.ring_bounds(first_col_ring + i)
+            by_color: dict[str, QPainterPath] = {}
+            for node, names in self._tips(lay):
+                a, b = lay.span[node]
+                color = self._cell_color(col, names)
+                by_color.setdefault(color, QPainterPath()).addPath(annular_sector(r0, r1, a, b))
+                if len(names) == 1 and names[0] in col.texts:
+                    mid = (a + b) / 2
+                    self._cell_text(col.texts[names[0]], pt((r0 + r1) / 2, mid), color)
+            self._flush_cells(by_color, col)
         if cs.background and visible:
             for rc in visible:
                 th0, th1 = th_range(rc.node)

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from jabuti import __version__
+from jabuti.models.annotations import presence_columns, presence_legend
 from jabuti.models.document import apply_edits
 from jabuti.presets import (
     LoadedPreset,
@@ -33,11 +34,12 @@ from jabuti.presets import (
     preset_to_dict,
     save_preset,
 )
-from jabuti.style import RenderStyle
+from jabuti.style import LayoutKind, RenderStyle
 from jabuti.models.tree import Tree
 from jabuti.views.canvas import TreeCanvas
 from jabuti.views.style_panel import StylePanel
 from jabuti.views.errors import show_error
+from jabuti.views.gff_tab import GffTab
 from jabuti.views.export import export_pdf, export_png, export_svg
 from jabuti.views.tree_renderer import TreeRenderer
 from jabuti.views.tree_tab import TreeTab
@@ -84,7 +86,8 @@ class MainWindow(QMainWindow):
         self.viz_tab = VizTab()
         self.tabs = QTabWidget()
         self.tabs.addTab(_scroll(self.tree_tab), "Árvore")
-        self.tabs.addTab(_placeholder("Carregamento de GFF3 e busca de genes — próxima etapa."), "GFF")
+        self.gff_tab = GffTab()
+        self.tabs.addTab(_scroll(self.gff_tab), "GFF")
         self.tabs.addTab(_placeholder("Metadados TSV/CSV — próxima etapa."), "Metadados")
         self.tabs.addTab(_scroll(self.viz_tab), "Visualização")
         self.tabs.setMinimumWidth(320)
@@ -140,6 +143,8 @@ class MainWindow(QMainWindow):
         self.style_panel.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.canvas.node_context_requested.connect(self.show_node_menu)
         self.style_panel.preset_action.connect(self.on_preset_action)
+        self.gff_tab.changed.connect(self._live_timer.start)
+        self.gff_tab.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
 
         self.tree_tab.tree_changed.connect(self.on_tree_changed)
         self.viz_tab.generate_requested.connect(self.generate)
@@ -167,6 +172,7 @@ class MainWindow(QMainWindow):
     def on_tree_changed(self, tree: Tree) -> None:
         self.tree = tree
         self.style_panel.set_tree(tree, self.viz_tab.use_lengths.isChecked())
+        self.gff_tab.set_tree_leaves(tree.leaf_names())
         # clados automáticos acompanham a nova raiz; manuais são resolvidos por MRCA
         if self.style_panel.clade_set.auto_mode:
             self.style_panel.detect()
@@ -175,6 +181,22 @@ class MainWindow(QMainWindow):
 
     def current_style(self):  # type: ignore[no-untyped-def]
         return self.style_panel.apply_to(self.viz_tab.render_style())
+
+    def annotation_columns(self, style: RenderStyle):  # type: ignore[no-untyped-def]
+        """Colunas/anéis de anotação (heatmap de genes) e grupos de legenda."""
+        columns, groups = [], []
+        hm = style.heatmap
+        if self.gff_tab.queries and self.gff_tab.genomes:
+            cols = presence_columns(self.gff_tab.matrix(), hm.present_color, hm.absent_color,
+                                    hm.missing_color, hm.show_counts)
+            columns += cols
+            groups.append(presence_legend(hm.present_color, hm.absent_color, hm.missing_color))
+            if style.layout == LayoutKind.CIRCULAR:
+                from jabuti.models.annotations import LegendGroup
+
+                groups.append(LegendGroup("Anéis de genes (de dentro para fora)",
+                                          [(f"{i + 1}. {c.header}", hm.present_color) for i, c in enumerate(cols)]))
+        return columns, groups
 
     def render_live(self) -> None:
         """Redesenha preservando zoom e posição (mudanças no painel de estilo)."""
@@ -222,14 +244,15 @@ class MainWindow(QMainWindow):
         edits = self.style_panel.edits
         try:
             self.display_tree = apply_edits(self.tree, edits)
+            columns, groups = self.annotation_columns(style)
             result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
-                                          edits.collapsed)
+                                          edits.collapsed, columns)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
         self.canvas.show_transparency(style.background is None)
         self.canvas.set_result(result)
-        self.style_panel.update_status(result.clades)
+        self.style_panel.update_status(result.clades, groups)
         if self.search_box.text().strip():
             self.do_search()
         self.statusBar().showMessage(f"{len(self.tree.leaves())} folhas desenhadas.")

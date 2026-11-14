@@ -48,6 +48,10 @@ from jabuti.views.widgets.swatches import BASE_COLORS, SwatchRow, SwatchStrip
 
 GUIDE_COLORS = {"Cinza claro": "#a0a0a0", "Cinza": "#6b6b6b", "Preto": "#202020",
                 **{k: v for k, v in BASE_COLORS.items() if k in ("Azul", "Vermelho", "Verde")}}
+HEAT_PRESENT = {"Azul": "#2b6cb0", "Verde": "#2e7d32", "Vermelho": "#b22222", "Roxo": "#5e3c99",
+                "Preto": "#202020"}
+HEAT_ABSENT = {"Branco": "#ffffff", "Cinza muito claro": "#f2f2f2", "Amarelo claro": "#fff7d6"}
+HEAT_MISSING = {"Cinza": "#d9d9d9", "Cinza médio": "#a6a6a6", "Branco": "#ffffff"}
 BACKGROUNDS = {"Branco": "#ffffff", "Cinza muito claro": "#f4f4f4", "Creme": "#fbf7ee",
                "Azul muito claro": "#eef3f9", "Cinza escuro": "#2b2b2b"}
 
@@ -68,7 +72,7 @@ class LegendWidget(QFrame):
         self.entries: list[tuple[str, str]] = []
         self.set_entries([])
 
-    def set_entries(self, entries: list[tuple[str, str]]) -> None:
+    def set_entries(self, entries: list[tuple[str, str]], groups: list | None = None) -> None:
         while self._lay.count():
             item = self._lay.takeAt(0)
             w = item.widget()
@@ -77,22 +81,30 @@ class LegendWidget(QFrame):
                 w.setParent(None)
                 w.deleteLater()
         self.entries = list(entries)
-        if not entries:
+        self.groups = list(groups or [])
+        sections = ([("Clados", self.entries)] if self.entries else []) + [(g.title, g.entries) for g in self.groups]
+        if not sections:
             lbl = QLabel(self.EMPTY_TEXT)
             lbl.setWordWrap(True)
             lbl.setStyleSheet("color: #888;")
             self._lay.addWidget(lbl)
             return
-        for text, color in entries:
-            row = QWidget()
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(0, 0, 0, 0)
-            sw = QLabel()
-            sw.setFixedSize(14, 14)
-            sw.setStyleSheet(f"background: {color}; border: 1px solid #777;")
-            rl.addWidget(sw)
-            rl.addWidget(QLabel(text), 1)
-            self._lay.addWidget(row)
+        for title, items in sections:
+            if len(sections) > 1 or self.groups:
+                self._lay.addWidget(QLabel(f"<i>{title}</i>"))
+            for text, color in items:
+                self._add_row(text, color)
+
+    def _add_row(self, text: str, color: str) -> None:
+        row = QWidget()
+        rl = QHBoxLayout(row)
+        rl.setContentsMargins(0, 0, 0, 0)
+        sw = QLabel()
+        sw.setFixedSize(14, 14)
+        sw.setStyleSheet(f"background: {color}; border: 1px solid #777;")
+        rl.addWidget(sw)
+        rl.addWidget(QLabel(text), 1)
+        self._lay.addWidget(row)
 
 
 class StylePanel(QWidget):
@@ -117,6 +129,7 @@ class StylePanel(QWidget):
         self._add_section(lay, "labels", "Rótulos", self._build_labels(), False)
         self._add_section(lay, "symbols", "Símbolos e suporte", self._build_symbols(), False)
         self._add_section(lay, "scale", "Barra de escala", self._build_scale_bar(), False)
+        self._add_section(lay, "heatmap", "Heatmap de genes", self._build_heatmap(), False)
         self._add_section(lay, "tree", "Árvore e fundo", self._build_tree_bg(), False)
         self._add_section(lay, "presets", "Presets", self._build_presets(), False)
         self._add_section(lay, "meta", "Metadados e legenda", self._build_meta(), True)
@@ -479,6 +492,35 @@ class StylePanel(QWidget):
             self.support_mode.setCurrentIndex(0)
         self.support_which.blockSignals(False)
 
+    def _build_heatmap(self) -> QWidget:
+        w = QWidget()
+        f = QFormLayout(w)
+        f.setContentsMargins(8, 0, 0, 6)
+        self.hm_present = SwatchRow(HEAT_PRESENT, selected="#2b6cb0")
+        self.hm_absent = SwatchRow(HEAT_ABSENT, selected="#ffffff")
+        self.hm_missing = SwatchRow(HEAT_MISSING, selected="#d9d9d9")
+        for row in (self.hm_present, self.hm_absent, self.hm_missing):
+            row.color_changed.connect(self._emit)
+        f.addRow("Presente:", self.hm_present)
+        f.addRow("Ausente:", self.hm_absent)
+        f.addRow("Sem GFF:", self.hm_missing)
+        self.hm_width = self._spin(0.3, 5, 1.0, 0.1)
+        f.addRow("Largura da célula:", self.hm_width)
+        self.hm_counts = QCheckBox("Mostrar nº de cópias (> 1)")
+        self.hm_headers = QCheckBox("Nomes das colunas (retangular)")
+        self.hm_headers.setChecked(True)
+        self.hm_borders = QCheckBox("Bordas das células")
+        self.hm_borders.setChecked(True)
+        for cb in (self.hm_counts, self.hm_headers, self.hm_borders):
+            cb.toggled.connect(self._emit)
+            f.addRow(cb)
+        hint = QLabel("As colunas vêm das buscas na aba GFF. No circular viram anéis (de dentro para fora "
+                      "na ordem da lista; veja a legenda).")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #888;")
+        f.addRow(hint)
+        return w
+
     def _build_tree_bg(self) -> QWidget:
         w = QWidget()
         f = QFormLayout(w)
@@ -657,6 +699,15 @@ class StylePanel(QWidget):
             if sb.length is not None:
                 self.scale_len.setValue(sb.length)
 
+            hm = style.heatmap
+            self.hm_present.set_color(hm.present_color)
+            self.hm_absent.set_color(hm.absent_color)
+            self.hm_missing.set_color(hm.missing_color)
+            self.hm_width.setValue(hm.cell_width)
+            self.hm_counts.setChecked(hm.show_counts)
+            self.hm_headers.setChecked(hm.show_headers)
+            self.hm_borders.setChecked(hm.borders)
+
             self.bg_transparent.setChecked(style.background is None)
             if style.background:
                 self.bg_row.set_color(style.background)
@@ -801,12 +852,12 @@ class StylePanel(QWidget):
             self.clade_list.refresh()
             self.changed.emit()
 
-    def update_status(self, resolved: list[ResolvedClade]) -> None:
+    def update_status(self, resolved: list[ResolvedClade], groups: list | None = None) -> None:
         """Chamado após cada desenho: cores efetivas, ⚠ e legenda (sem emitir changed)."""
         self.clade_list.palette = self.palette_colors()
         self.clade_list.set_status(resolved)
         self.legend.set_entries(
-            [(rc.clade.name, rc.color) for rc in resolved if rc.valid and rc.clade.visible]
+            [(rc.clade.name, rc.color) for rc in resolved if rc.valid and rc.clade.visible], groups
         )
 
     def _palette_changed(self) -> None:
@@ -884,5 +935,13 @@ class StylePanel(QWidget):
         sb.position = self.scale_pos.currentData()
         sb.length = None if self.scale_auto.isChecked() else self.scale_len.value()
         style.background = None if self.bg_transparent.isChecked() else self.bg_row.color()
+        hm = style.heatmap
+        hm.present_color = self.hm_present.color()
+        hm.absent_color = self.hm_absent.color()
+        hm.missing_color = self.hm_missing.color()
+        hm.cell_width = self.hm_width.value()
+        hm.show_counts = self.hm_counts.isChecked()
+        hm.show_headers = self.hm_headers.isChecked()
+        hm.borders = self.hm_borders.isChecked()
         style.color_by = self.color_by.currentData()
         return style

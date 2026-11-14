@@ -1,0 +1,13 @@
+##gff-version 3
+contig_1	synthetic	CDS	100	1447	.	+	0	ID=cds1;locus_tag=A16_00001;product=hypothetical protein
+contig_1	synthetic	gene	1731	3326	.	-	.	ID=gene2;locus_tag=A16_00002;gene=nifH
+contig_1	synthetic	CDS	1731	3326	.	-	0	ID=cds2;Parent=gene2;product=nitrogenase iron protein NifH
+contig_1	synthetic	gene	3368	4293	.	+	.	ID=gene3;locus_tag=A16_00003;gene=nifD
+contig_1	synthetic	CDS	3368	4293	.	+	0	ID=cds3;Parent=gene3;product=nitrogenase molybdenum-iron protein alpha chain
+contig_1	synthetic	gene	4574	6097	.	-	.	ID=gene4;locus_tag=A16_00004;gene=nifK
+contig_1	synthetic	CDS	4574	6097	.	-	0	ID=cds4;Parent=gene4;product=nitrogenase molybdenum-iron protein beta chain
+contig_1	synthetic	CDS	6281	7169	.	-	0	ID=cds5;locus_tag=A16_00005;product=hypothetical protein
+contig_1	synthetic	CDS	7525	8817	.	-	0	ID=cds6;locus_tag=A16_00006;product=hypothetical protein
+contig_1	synthetic	gene	8958	10151	.	-	.	ID=gene7;locus_tag=A16_00007;gene=acdS
+contig_1	synthetic	CDS	8958	10151	.	-	0	ID=cds7;Parent=gene7;product=1-aminocyclopropane-1-carboxylate deaminase
+contig_1	synthetic	CDS	10371	11104	.	-	0	ID=cds8;locus_tag=A16_00008;product=hypothetical protein

@@ -1,0 +1,7 @@
+##gff-version 3
+contig_1	synthetic	CDS	100	892	.	-	0	ID=cds1;locus_tag=A09_00001;product=hypothetical protein
+contig_1	synthetic	CDS	1321	2615	.	-	0	ID=cds2;locus_tag=A09_00002;product=hypothetical protein
+contig_1	synthetic	CDS	2895	4629	.	-	0	ID=cds3;locus_tag=A09_00003;product=hypothetical protein
+contig_1	synthetic	gene	4934	6212	.	-	.	ID=gene4;locus_tag=A09_00004;gene=acdS
+contig_1	synthetic	CDS	4934	6212	.	-	0	ID=cds4;Parent=gene4;product=1-aminocyclopropane-1-carboxylate deaminase
+contig_1	synthetic	CDS	6504	7235	.	+	0	ID=cds5;locus_tag=A09_00005;product=hypothetical protein

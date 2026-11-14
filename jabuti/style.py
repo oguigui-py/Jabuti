@@ -124,6 +124,19 @@ class CladeStyle:
 
 
 @dataclass
+class HeatmapStyle:
+    """Colunas/anéis de presença e ausência de genes (aba GFF)."""
+
+    present_color: str = "#2b6cb0"
+    absent_color: str = "#ffffff"
+    missing_color: str = "#d9d9d9"   # folha sem GFF mapeado ("sem dado")
+    cell_width: float = 1.0           # em múltiplos do espaço entre folhas
+    show_counts: bool = False         # nº de cópias quando > 1
+    show_headers: bool = True         # nomes das colunas (retangular)
+    borders: bool = True
+
+
+@dataclass
 class RenderStyle:
     layout: LayoutKind = LayoutKind.RECTANGULAR
     branch_scale: float = 1.0      # multiplicador horizontal / radial
@@ -137,6 +150,7 @@ class RenderStyle:
     support: SupportStyle = field(default_factory=SupportStyle)
     symbols: SymbolStyle = field(default_factory=SymbolStyle)
     scale_bar: ScaleBarStyle = field(default_factory=ScaleBarStyle)
+    heatmap: HeatmapStyle = field(default_factory=HeatmapStyle)
     clades: CladeStyle = field(default_factory=CladeStyle)
     background: str | None = "#ffffff"  # cor de fundo; None = transparente
     color_by: str | None = None    # coluna de metadados (Fase 2)

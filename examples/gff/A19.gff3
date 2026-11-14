@@ -1,0 +1,9 @@
+##gff-version 3
+contig_1	synthetic	CDS	100	1584	.	-	0	ID=cds1;locus_tag=A19_00001;product=hypothetical protein
+contig_1	synthetic	CDS	1775	2524	.	-	0	ID=cds2;locus_tag=A19_00002;product=hypothetical protein
+contig_1	synthetic	CDS	2974	3885	.	+	0	ID=cds3;locus_tag=A19_00003;product=hypothetical protein
+contig_1	synthetic	gene	4284	5820	.	+	.	ID=gene4;locus_tag=A19_00004;gene=hupL
+contig_1	synthetic	CDS	4284	5820	.	+	0	ID=cds4;Parent=gene4;product=uptake hydrogenase large subunit
+contig_1	synthetic	gene	6132	6812	.	+	.	ID=gene5;locus_tag=A19_00005;gene=acdS
+contig_1	synthetic	CDS	6132	6812	.	+	0	ID=cds5;Parent=gene5;product=1-aminocyclopropane-1-carboxylate deaminase
+contig_1	synthetic	CDS	6906	7982	.	+	0	ID=cds6;locus_tag=A19_00006;product=hypothetical protein

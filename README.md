@@ -10,6 +10,21 @@ externo, estilo iTOL), clados coloridos, estilos de linha, rótulos e símbolos,
 **Próximas fases:** GFF3 + busca de genes (heatmap de presença/ausência), metadados TSV/CSV,
 anotações iTOL simples e builds `.app` / `.exe`.
 
+## GFF3 e heatmap de genes (aba **GFF**)
+
+- *Adicionar GFF3…* aceita vários arquivos (`.gff`, `.gff3`, também `.gz`; Prokka, Bakta, NCBI).
+  O nome do arquivo é casado com a folha automaticamente (ignora maiúsculas e `_`/espaço/`.`/`-`,
+  aceita prefixo ou sufixo único: `LB400.gff3` ↔ `Paraburkholderia_xenovorans_LB400`).
+  O mapeamento é editável por linha (✓ automático, ✎ manual, ⚠ sem folha).
+- *Buscar genes* por produto, nome/gene e/ou `locus_tag`, em texto ou regex. *Prévia* lista os
+  genes encontrados; *Adicionar coluna* cria uma coluna do heatmap (ordem ajustável).
+- O heatmap fica à direita dos rótulos no retangular e em anéis entre as pontas e os rótulos no
+  circular. Folha sem GFF aparece como **sem GFF** (cinza), diferente de **ausente** (branco);
+  clados colapsados com valores diferentes aparecem como “misto”. Cores, largura, nº de cópias,
+  nomes das colunas e bordas ficam na seção *Heatmap de genes* do painel.
+
+Exemplos sintéticos: `examples/gff/*.gff3` (22 genomas) para `examples/paraburkholderia_40.treefile`.
+
 ## Personalização (painel **Estilo**, à direita)
 
 Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PNG.

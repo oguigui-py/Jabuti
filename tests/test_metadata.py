@@ -96,3 +96,9 @@ def test_match_names_ambiguous_prefix_is_not_matched():
 def test_match_names_exact_wins_and_no_leaf_reuse():
     m = match_names(["A", "a"], ["A"])
     assert m == {"A": "A"}
+
+
+def test_match_names_suffix():
+    leaves = ["Paraburkholderia_xenovorans_LB400", "Paraburkholderia_phymatum_STM815", "X_1", "Y_1"]
+    m = match_names(["LB400", "STM815", "1"], leaves)
+    assert m == {"LB400": "Paraburkholderia_xenovorans_LB400", "STM815": "Paraburkholderia_phymatum_STM815"}
