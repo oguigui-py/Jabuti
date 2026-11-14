@@ -22,8 +22,8 @@ def _source(scene: QGraphicsScene) -> QRectF:
 
 
 def _hidden_highlights(scene: QGraphicsScene) -> list:
-    """Destaques de busca não vão para o arquivo exportado."""
-    items = [it for it in scene.items() if it.data(0) == "highlight" and it.isVisible()]
+    """Destaques de busca e a seleção não vão para o arquivo exportado."""
+    items = [it for it in scene.items() if it.data(0) in ("highlight", "selection") and it.isVisible()]
     for it in items:
         it.setVisible(False)
     return items

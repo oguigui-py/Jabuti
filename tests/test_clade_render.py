@@ -7,6 +7,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from jabuti.models.clades import Clade  # noqa: E402
+from jabuti.views.clade_list import COL_VIS  # noqa: E402
 from jabuti.parsers.newick import parse_newick_string  # noqa: E402
 from jabuti.style import PALETTES, CladeStyle, LayoutKind, RenderStyle  # noqa: E402
 
@@ -233,7 +234,7 @@ def test_gui_rename_and_hide(window):
     window.render_live()
     sp.clade_list.item(0, 1).setText("Paraburkholderia s.s.")
     assert sp.clade_set.clades[0].name == "Paraburkholderia s.s."
-    sp.clade_list.cellWidget(0, 3).setChecked(False)
+    sp.clade_list.cellWidget(0, COL_VIS).setChecked(False)
     window.render_live()
     assert all(name != "Paraburkholderia s.s." for name, _ in sp.legend.entries)
 

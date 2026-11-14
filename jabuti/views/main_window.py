@@ -145,6 +145,8 @@ class MainWindow(QMainWindow):
         self.style_panel.changed.connect(self._live_timer.start)
         self.style_panel.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.canvas.node_context_requested.connect(self.show_node_menu)
+        self.canvas.selection_changed.connect(self._selection_changed)
+        self.style_panel.label_panel.select_leaves.connect(self._select_from_panel)
         self.style_panel.preset_action.connect(self.on_preset_action)
         self.gff_tab.changed.connect(self._live_timer.start)
         self.metadata_tab.changed.connect(self._live_timer.start)
@@ -205,6 +207,7 @@ class MainWindow(QMainWindow):
         self.style_panel.set_tree(tree, self.viz_tab.use_lengths.isChecked())
         self.gff_tab.set_tree_leaves(tree.leaf_names())
         self.metadata_tab.set_tree_leaves(tree.leaf_names())
+        self.style_panel.label_panel.set_leaf_names(tree.leaf_names())
         # clados automáticos acompanham a nova raiz; manuais são resolvidos por MRCA
         if self.style_panel.clade_set.auto_mode:
             self.style_panel.detect()
@@ -294,6 +297,7 @@ class MainWindow(QMainWindow):
             menu.addAction("Definir como clado", lambda: sp.add_manual_clade(leaves))
         else:
             menu.addAction(f"Remover clado “{existing.name}”", lambda: sp.remove_clade_with(leaves))
+        self._label_menu(menu, node, leaves)
         if not node.is_leaf:
             menu.addSeparator()
             menu.addAction("Girar nó (inverter filhos)", lambda: sp.rotate(leaves))
@@ -302,6 +306,64 @@ class MainWindow(QMainWindow):
             elif node.parent is not None:
                 menu.addAction("Colapsar em triângulo", lambda: sp.collapse(leaves))
         return menu
+
+    # ------------------------------------------------- rótulos e seleção
+    def _label_menu(self, menu: QMenu, node, leaves: frozenset[str]) -> None:  # type: ignore[no-untyped-def]
+        """Estilo rápido de rótulos: a seleção atual, ou as folhas do nó clicado."""
+        lp = self.style_panel.label_panel
+        selected = list(self.canvas.selected)
+        if selected:
+            target, title = selected, f"Estilizar rótulos selecionados ({len(selected)})"
+        else:
+            target = sorted(leaves)
+            title = "Estilizar rótulo desta folha" if node.is_leaf else f"Estilizar rótulos deste nó ({len(leaves)})"
+        menu.addSeparator()
+        sub = menu.addMenu(title)
+        from jabuti.models.label_groups import HIGHLIGHT_COLORS
+        from jabuti.views.widgets.swatches import color_menu
+
+        bg = color_menu(sub, HIGHLIGHT_COLORS, lambda c: c and lp.style_leaves(target, background=c),
+                        allow_auto=False)
+        bg.setTitle("Fundo (marca-texto)")
+        sub.addMenu(bg)
+        tx = color_menu(sub, self.style_panel.palette_colors(), lambda c: c and lp.style_leaves(target, text_color=c),
+                        allow_auto=False)
+        tx.setTitle("Cor do texto")
+        sub.addMenu(tx)
+        sub.addAction("Negrito", lambda: lp.style_leaves(target, bold=True))
+        sub.addAction("Criar grupo (editar no painel)…", lambda: self._create_label_group(target))
+        if selected:
+            menu.addAction("Limpar seleção", self.canvas.clear_selection)
+
+    def _create_label_group(self, leaves) -> None:  # type: ignore[no-untyped-def]
+        sp = self.style_panel
+        if sp.label_panel.create_group(leaves, "selection") is not None:
+            sp.sections["labels"].set_expanded(True)
+
+    def _label_legend(self, label_groups) -> list:  # type: ignore[no-untyped-def]
+        if not label_groups.show_in_legend:
+            return []
+        entries = [(g.name, g.look.background or g.look.text_color or self.current_style().label.color)
+                   for g in label_groups.groups if g.visible]
+        return [LegendGroup("Grupos de rótulos", entries)] if entries else []
+
+    def _selection_changed(self, names: list) -> None:
+        lp = self.style_panel.label_panel
+        lp.set_selection(names)
+        if len(names) == 1:
+            self.statusBar().showMessage(lp.describe_leaf(names[0]), 8000)
+        elif names:
+            self.statusBar().showMessage(f"{len(names)} folhas selecionadas (clique direito → Estilizar rótulos).",
+                                         8000)
+
+    def _select_from_panel(self, names: list) -> None:
+        self.canvas.set_selection(names)
+        drawn = len(self.canvas.selected)
+        hidden = len(names) - drawn
+        msg = f"{drawn} folha(s) selecionada(s)."
+        if hidden:
+            msg += f" {hidden} estão dentro de clados colapsados."
+        self.statusBar().showMessage(msg, 8000)
 
     def generate(self) -> None:
         if self.tree is None:
@@ -318,14 +380,17 @@ class MainWindow(QMainWindow):
             context, ctx_group = self.context_tracks(style)
             if ctx_group is not None:
                 groups.append(ctx_group)
+            label_groups = self.style_panel.label_groups
+            groups.extend(self._label_legend(label_groups))
             result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
-                                          edits.collapsed, columns, meta_colors, context)
+                                          edits.collapsed, columns, meta_colors, context, label_groups)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
         self.canvas.show_transparency(style.background is None)
         self.canvas.set_result(result)
         self.style_panel.update_status(result.clades, groups)
+        self.style_panel.label_panel.refresh()
         if self.search_box.text().strip():
             self.do_search()
         msg = f"{len(self.tree.leaves())} folhas desenhadas."
@@ -338,7 +403,7 @@ class MainWindow(QMainWindow):
         sp = self.style_panel
         style = self.current_style()
         if include_tree_state:
-            return preset_to_dict(style, sp.clade_set, sp.edits, sp.detection_dict())
+            return preset_to_dict(style, sp.clade_set, sp.edits, sp.detection_dict(), sp.label_groups)
         return preset_to_dict(style, detection=sp.detection_dict())
 
     def apply_preset(self, loaded: LoadedPreset) -> list[str]:
@@ -347,6 +412,17 @@ class MainWindow(QMainWindow):
         warnings = list(loaded.warnings) + sp.load_style(loaded.style)
         sp.load_detection(loaded.detection)
         sp.load_tree_state(loaded.clade_set, loaded.edits)
+        if loaded.label_groups is not None:
+            groups = loaded.label_groups
+            if self.tree is not None:
+                groups, ignored, dropped = groups.restricted_to(self.tree.leaf_names())
+                if ignored:
+                    note = f"{ignored} folha(s) de grupos de rótulo ignoradas (não existem na árvore aberta)"
+                    if dropped:
+                        note += f"; {dropped} grupo(s) ficaram vazios e foram descartados"
+                    warnings.append(note + ".")
+                    self._label_note = note + "."
+            sp.label_panel.load_groups(groups)
         if self.tree is not None:
             self.render_live()
         return warnings
@@ -354,7 +430,8 @@ class MainWindow(QMainWindow):
     def _report_preset(self, what: str, warnings: list[str]) -> None:
         if warnings:
             show_error(self, Exception(f"{what} com avisos:\n• " + "\n• ".join(warnings[:12])), "Preset")
-        self.statusBar().showMessage(what, 8000)
+        note, self._label_note = getattr(self, "_label_note", ""), ""
+        self.statusBar().showMessage(f"{what} — {note}" if note else what, 12000)
 
     def _load_user_default(self) -> None:
         path = user_default_preset_path()
@@ -367,7 +444,7 @@ class MainWindow(QMainWindow):
             show_error(self, exc, "Meu padrão não pôde ser lido")
             return
         # o padrão pessoal traz só estilo e detecção
-        self.apply_preset(loaded._replace(clade_set=None, edits=None))
+        self.apply_preset(loaded._replace(clade_set=None, edits=None, label_groups=None))
 
     def on_preset_action(self, action: str) -> None:
         try:
@@ -401,6 +478,7 @@ class MainWindow(QMainWindow):
             self.canvas.clear_highlights()
             return
         matches = self.canvas.search(q)
+        self.canvas.set_selection(matches)   # resultados da busca viram a seleção
         if not matches:
             hidden = self.tree is not None and any(q.strip().lower() in n.lower() for n in self.tree.leaf_names())
             if hidden:

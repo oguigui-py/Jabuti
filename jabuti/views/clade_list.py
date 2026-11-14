@@ -1,4 +1,4 @@
-"""Tabela de clados: cor, nome (editável), nº de folhas, visível, remover."""
+"""Tabela de clados: cor, nome (editável), nº de folhas, estilizar rótulos, visível, remover."""
 
 from __future__ import annotations
 
@@ -16,23 +16,40 @@ from PySide6.QtWidgets import (
 from jabuti.models.clades import Clade, CladeSet, ResolvedClade
 from jabuti.views.widgets.swatches import color_menu, swatch_button
 
-COL_COLOR, COL_NAME, COL_N, COL_VIS, COL_DEL = range(5)
+COL_COLOR, COL_NAME, COL_N, COL_LABELS, COL_VIS, COL_DEL = range(6)
 
+
+
+def drop_cell_widgets(table, cols) -> None:  # type: ignore[no-untyped-def]
+    """Solta e esconde já os widgets das células: o Qt só os apaga no próximo
+    ciclo do loop e, até lá, eles continuariam visíveis sob os novos."""
+    for row in range(table.rowCount()):
+        for col in cols:
+            w = table.cellWidget(row, col)
+            if w is not None:
+                table.removeCellWidget(row, col)
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
 
 class CladeList(QTableWidget):
     changed = Signal()
+    style_labels_requested = Signal(object)  # Clade
 
     def __init__(self, clade_set: CladeSet, parent: QWidget | None = None) -> None:
-        super().__init__(0, 5, parent)
+        super().__init__(0, 6, parent)
         self.clade_set = clade_set
         self.palette: list[str] = ["#4e79a7"]
         self._resolved: dict[int, ResolvedClade] = {}
         self._filling = False
-        self.setHorizontalHeaderLabels(["", "Nome", "Folhas", "Ver", ""])
+        self.setHorizontalHeaderLabels(["", "Nome", "Folhas", "Aa", "Ver", ""])
         h = self.horizontalHeader()
         h.setSectionResizeMode(COL_NAME, QHeaderView.ResizeMode.Stretch)
-        for c in (COL_COLOR, COL_N, COL_VIS, COL_DEL):
-            h.setSectionResizeMode(c, QHeaderView.ResizeMode.ResizeToContents)
+        h.setSectionResizeMode(COL_N, QHeaderView.ResizeMode.ResizeToContents)
+        # colunas com widgets: largura fixa (ResizeToContents ignora os widgets e eles se sobrepõem)
+        for c, w in ((COL_COLOR, 26), (COL_LABELS, 30), (COL_VIS, 30), (COL_DEL, 26)):
+            h.setSectionResizeMode(c, QHeaderView.ResizeMode.Fixed)
+            self.setColumnWidth(c, w)
         self.verticalHeader().setVisible(False)
         self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked | QAbstractItemView.EditTrigger.EditKeyPressed)
@@ -54,6 +71,7 @@ class CladeList(QTableWidget):
     def refresh(self) -> None:
         self._filling = True
         clades = self.clade_set.clades
+        drop_cell_widgets(self, (COL_COLOR, COL_LABELS, COL_VIS, COL_DEL))
         self.setRowCount(len(clades))
         for row, clade in enumerate(clades):
             color = self.color_of(row, clade)
@@ -75,6 +93,13 @@ class CladeList(QTableWidget):
             n.setFlags(n.flags() & ~Qt.ItemFlag.ItemIsEditable)
             n.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.setItem(row, COL_N, n)
+
+            aa = QToolButton()
+            aa.setText("Aa")
+            aa.setToolTip("Estilizar os rótulos deste clado (grupo de rótulos próprio, sem mudar os ramos)")
+            aa.setAutoRaise(True)
+            aa.clicked.connect(lambda _=False, c=clade: self.style_labels_requested.emit(c))
+            self.setCellWidget(row, COL_LABELS, aa)
 
             vis = QCheckBox()
             vis.setChecked(clade.visible)

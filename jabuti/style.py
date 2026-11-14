@@ -112,7 +112,9 @@ class ScaleBarStyle:
 class CladeStyle:
     palette: str = "Tableau 10"
     color_branches: bool = True
-    color_labels: bool = True
+    color_labels: bool = True       # "Aplicar a rótulos (texto)"
+    label_background: bool = False  # "Aplicar a rótulos (fundo)": marca-texto na cor do clado
+    label_background_alpha: float = 0.35
     background: bool = False       # cunha/retângulo translúcido atrás do clado
     background_alpha: float = 0.18
     outer_strip: bool = False      # faixa de cor no anel externo / coluna

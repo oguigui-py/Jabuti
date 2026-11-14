@@ -17,6 +17,7 @@ from typing import Any
 
 from jabuti.models.clades import Clade, CladeSet
 from jabuti.models.document import LADDERIZE, TreeEdits
+from jabuti.models.label_groups import SOURCES, LabelGroup, LabelGroupSet, LabelLook
 from jabuti.parsers.errors import JabutiParseError, read_text
 from jabuti.style import (
     GUIDE_KINDS,
@@ -147,6 +148,7 @@ def preset_to_dict(
     clade_set: CladeSet | None = None,
     edits: TreeEdits | None = None,
     detection: dict[str, Any] | None = None,
+    label_groups: LabelGroupSet | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {
         "app": "jabuti",
@@ -161,6 +163,15 @@ def preset_to_dict(
             for c in clade_set.clades
         ]
         out["clade_auto_mode"] = clade_set.auto_mode
+    if label_groups is not None:
+        out["label_groups"] = {
+            "show_in_legend": label_groups.show_in_legend,
+            "groups": [
+                {"name": g.name, "leaves": sorted(g.leaves), "source": g.source, "visible": g.visible,
+                 "look": g.look.to_dict()}
+                for g in label_groups.groups
+            ],
+        }
     if edits is not None:
         out["edits"] = {
             "ladderize": edits.ladderize,
@@ -176,6 +187,7 @@ class LoadedPreset(typing.NamedTuple):
     clade_set: CladeSet | None      # None = o preset não traz clados
     edits: TreeEdits | None         # None = o preset não traz edições
     warnings: list[str]
+    label_groups: LabelGroupSet | None = None  # None = o preset não traz grupos de rótulos
 
 
 def _leafsets(raw: Any, key: str, warnings: list[str]) -> list[frozenset[str]]:
@@ -263,7 +275,44 @@ def preset_from_dict(data: Any) -> LoadedPreset:
                 warnings.append(f"Valor inválido em “edits.ladderize”: {lad!r}.")
             edits.rotations = _leafsets(raw.get("rotations", []), "edits.rotations", warnings)
             edits.collapsed = _leafsets(raw.get("collapsed", []), "edits.collapsed", warnings)
-    return LoadedPreset(style, detection, clade_set, edits, warnings)
+    label_groups: LabelGroupSet | None = None
+    if "label_groups" in data:
+        label_groups = _label_groups(data["label_groups"], warnings)
+    return LoadedPreset(style, detection, clade_set, edits, warnings, label_groups)
+
+
+def _label_groups(raw: Any, warnings: list[str]) -> LabelGroupSet:
+    out = LabelGroupSet()
+    if not isinstance(raw, dict):
+        warnings.append("“label_groups” deveria ser um objeto.")
+        return out
+    if isinstance(raw.get("show_in_legend"), bool):
+        out.show_in_legend = raw["show_in_legend"]
+    items = raw.get("groups", [])
+    if not isinstance(items, list):
+        warnings.append("“label_groups.groups” deveria ser uma lista.")
+        return out
+    for i, g in enumerate(items):
+        key = f"label_groups.groups[{i}]"
+        if not isinstance(g, dict):
+            warnings.append(f"“{key}” ignorado.")
+            continue
+        leaves = g.get("leaves")
+        if not (isinstance(leaves, list) and leaves and all(isinstance(x, str) for x in leaves)):
+            warnings.append(f"“{key}” sem lista de folhas válida; ignorado.")
+            continue
+        look = _from_dict(LabelLook, g.get("look", {}), f"{key}.look", warnings)
+        look.background_alpha = min(look.background_alpha, 1.0)
+        look.size_scale = min(max(look.size_scale, 0.5), 2.0)
+        source = g.get("source") if g.get("source") in SOURCES else "selection"
+        out.groups.append(LabelGroup(
+            name=str(g.get("name") or f"Grupo {i + 1}"),
+            leaves=frozenset(leaves),
+            look=look,
+            visible=g.get("visible") is not False,
+            source=source,
+        ))
+    return out
 
 
 def save_preset(path: str | Path, data: dict[str, Any]) -> Path:

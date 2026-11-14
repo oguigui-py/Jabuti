@@ -56,8 +56,10 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
   (UFBoot, SH-aLRT ou ambos), *distância da raiz* (slider com linha de corte) ou *manual*
   (clique direito num nó → “Definir como clado”). Cada clado recebe uma cor da paleta; trocar
   a paleta recolore, e clicar na amostra do clado escolhe uma cor própria. A cor pode ir para
-  ramos, rótulos, faixa de fundo translúcida e faixa externa (anel no circular, coluna no
-  retangular), com nome do clado opcional (curvo ou radial no circular). Lista com renomear
+  ramos, rótulos (texto), rótulos (fundo, estilo marca-texto, com opacidade própria), faixa de
+  fundo translúcida e faixa externa (anel no circular, coluna no retangular) — opções
+  independentes e combináveis —, com nome do clado opcional (curvo ou radial no circular).
+  O botão **Aa** na lista cria um grupo de rótulos com as folhas do clado. Lista com renomear
   (duplo clique), ocultar e remover; folhas fora de clados usam a cor neutra.
   Clados manuais sobrevivem a reenraizamentos (⚠ se deixarem de ser monofiléticos).
   Em árvores não enraizadas (raiz com 3 filhos) o k pode ser ultrapassado no menor corte possível.
@@ -67,6 +69,25 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
   pequenos ou maiores, ou nenhuma; cor, espessura e opacidade.
 - **Rótulos** — mostrar/ocultar, fonte (padrão do sistema ou qualquer família instalada),
   tamanho, negrito e itálico (ligado por padrão, para nomes de espécie).
+  **Grupos de destaque**: estilo próprio só para os nomes de algumas folhas, sem mexer nos
+  ramos — cor do texto, fundo colorido (marca-texto) com opacidade, margem interna e cantos
+  arredondados, negrito, itálico e tamanho relativo. Campos deixados vazios herdam a cor de
+  metadados/clado/padrão. Três jeitos de criar um grupo:
+  - *por clado*: botão **Aa** na lista de clados;
+  - *por seleção*: Cmd/Ctrl+clique nos nomes (alterna), Shift+clique (intervalo, também no
+    circular), clique simples (só aquela folha), Esc ou clique no vazio (limpa); a busca
+    (Cmd+F) também seleciona os resultados. Clique direito → *Estilizar rótulos selecionados*
+    (fundo, cor do texto, negrito ou *Criar grupo*) ou o botão *Criar grupo da seleção*;
+  - *por padrão de texto*: texto simples (“contém”) ou regex (ex.: `xenovorans`, `^LB400`),
+    com a contagem de folhas que casam antes de aplicar.
+
+  Cada folha fica em um único grupo efetivo: em conflito vale o criado por último (a coluna
+  *Folhas* mostra “valendo/total”, e selecionar uma folha diz na barra de status qual grupo
+  vale). Lista com origem, renomear, amostras de texto/fundo, ver, remover e *Limpar tudo*;
+  opção de mostrar os grupos na legenda. Os fundos giram junto com o texto no circular
+  (inclusive na metade invertida), nunca invadem as folhas vizinhas e empurram heatmap e
+  anéis para fora; seguem as folhas após reenraizar, ladderize e colapsar. A seleção (contorno
+  azul) não vai para o arquivo exportado.
 - **Símbolos e suporte** — símbolo nas pontas (círculo, quadrado, losango ou nenhum; tamanho;
   cor fixa ou do clado). Suporte dos nós como números (com limiar para ocultar) ou como
   símbolos: círculo cheio se ≥ limiar e vazado abaixo, com tamanho opcionalmente proporcional
@@ -77,7 +98,9 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
   Clique direito num nó: *girar nó* (inverter filhos), *colapsar em triângulo* (com nome do
   clado e nº de folhas) ou *expandir*. Rotações e colapsos também sobrevivem a reenraizamentos.
 - **Presets** — *Salvar/Carregar preset* grava todas as configurações visuais em JSON, inclusive
-  clados (por nomes de folhas), parâmetros de detecção, ladderize, rotações e colapsos.
+  clados e grupos de rótulos (por nomes de folhas), parâmetros de detecção, ladderize,
+  rotações e colapsos. Folhas de grupos de rótulo que não existem na árvore aberta são
+  ignoradas, com a contagem na barra de status.
   *Salvar como meu padrão* guarda só estilo e detecção, aplicados ao abrir o app;
   *Restaurar padrão* volta ao padrão de fábrica do estilo sem apagar clados nem edições.
   Opções desconhecidas são ignoradas e valores inválidos geram aviso (o padrão é mantido);

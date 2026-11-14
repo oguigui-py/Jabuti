@@ -46,6 +46,8 @@ from jabuti.style import (
 )
 from jabuti.views.clade_list import CladeList
 from jabuti.views.widgets.collapsible import CollapsibleSection
+from jabuti.views.label_groups_panel import LabelGroupsPanel
+from jabuti.models.label_groups import LabelGroupSet, LabelLook
 from jabuti.views.widgets.swatches import BASE_COLORS, SwatchRow, SwatchStrip
 
 GUIDE_COLORS = {"Cinza claro": "#a0a0a0", "Cinza": "#6b6b6b", "Preto": "#202020",
@@ -117,6 +119,7 @@ class StylePanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.clade_set = CladeSet()
+        self.label_groups = LabelGroupSet()
         self.edits = TreeEdits()
         self._pending_meta = None   # escolhas de metadados de um preset, à espera das colunas
         self.tree: Tree | None = None
@@ -230,13 +233,16 @@ class StylePanel(QWidget):
         v.addWidget(QLabel("Aplicar cor em:"))
         grid = QGridLayout()
         self.opt_branches = QCheckBox("Ramos")
-        self.opt_labels = QCheckBox("Rótulos")
+        self.opt_labels = QCheckBox("Rótulos (texto)")
+        self.opt_label_bg = QCheckBox("Rótulos (fundo)")
+        self.opt_label_bg.setToolTip("Marca-texto atrás dos nomes, na cor do clado (não muda os ramos)")
         self.opt_background = QCheckBox("Faixa de fundo")
         self.opt_strip = QCheckBox("Faixa externa")
         self.opt_strip.setToolTip("Faixa de cor no anel externo (circular) ou coluna ao lado dos rótulos (retangular)")
         self.opt_branches.setChecked(True)
         self.opt_labels.setChecked(True)
-        for i, cb in enumerate((self.opt_branches, self.opt_labels, self.opt_background, self.opt_strip)):
+        for i, cb in enumerate((self.opt_branches, self.opt_labels, self.opt_label_bg, self.opt_background,
+                                self.opt_strip)):
             grid.addWidget(cb, i // 2, i % 2)
             cb.toggled.connect(lambda _on: self.changed.emit())
         v.addLayout(grid)
@@ -266,7 +272,20 @@ class StylePanel(QWidget):
         extra.addWidget(self.strip_width)
         extra.addWidget(QLabel("Fundo:"))
         extra.addWidget(self.bg_alpha)
+        self.label_bg_alpha = QSpinBox()
+        self.label_bg_alpha.setRange(5, 100)
+        self.label_bg_alpha.setSingleStep(5)
+        self.label_bg_alpha.setValue(35)
+        self.label_bg_alpha.setSuffix(" %")
+        self.label_bg_alpha.setToolTip("Opacidade do fundo dos rótulos (cor do clado)")
+        self.label_bg_alpha.valueChanged.connect(self._emit)
+        extra.addStretch(1)
         v.addLayout(extra)
+        lbg = QHBoxLayout()
+        lbg.addWidget(QLabel("Opacidade do fundo dos rótulos:"))
+        lbg.addWidget(self.label_bg_alpha)
+        lbg.addStretch(1)
+        v.addLayout(lbg)
 
         v.addWidget(QLabel("Fora de clados (neutro):"))
         self.neutral = SwatchRow(selected="#8a8a8a")
@@ -276,6 +295,7 @@ class StylePanel(QWidget):
         self.clade_list = CladeList(self.clade_set)
         self.clade_list.palette = self.palette_colors()
         self.clade_list.changed.connect(self.changed.emit)
+        self.clade_list.style_labels_requested.connect(self.style_clade_labels)
         v.addWidget(self.clade_list)
 
         # sinais
@@ -406,7 +426,24 @@ class StylePanel(QWidget):
         self.label_row = SwatchRow()
         self.label_row.color_changed.connect(self._emit)
         f.addRow("Cor padrão:", self.label_row)
+        hint = QLabel("<b>Grupos de destaque</b> — estilo próprio para alguns nomes (texto, fundo "
+                      "marca-texto, negrito…), sem mexer nos ramos. Em conflito vale o grupo mais recente.")
+        hint.setWordWrap(True)
+        f.addRow(hint)
+        self.label_panel = LabelGroupsPanel(self.label_groups)
+        self.label_panel.changed.connect(self.changed.emit)
+        self.label_panel.status_message.connect(self.status_message.emit)
+        f.addRow(self.label_panel)
         return w
+
+    def style_clade_labels(self, clade) -> None:  # type: ignore[no-untyped-def]
+        """Grupo de rótulos com as folhas do clado; fundo inicial na cor do clado."""
+        idx = next((i for i, c in enumerate(self.clade_set.clades) if c is clade), 0)
+        color = self.clade_list.color_of(idx, clade)
+        g = self.label_panel.create_group(clade.leaves, "clade", name=clade.name,
+                                          look=LabelLook(background=color, background_alpha=0.35))
+        if g is not None:
+            self.sections["labels"].set_expanded(True)
 
     def _build_symbols(self) -> QWidget:
         w = QWidget()
@@ -653,6 +690,8 @@ class StylePanel(QWidget):
             self.palette_buttons.get(cs.palette, next(iter(self.palette_buttons.values()))).setChecked(True)
             self.opt_branches.setChecked(cs.color_branches)
             self.opt_labels.setChecked(cs.color_labels)
+            self.opt_label_bg.setChecked(cs.label_background)
+            self.label_bg_alpha.setValue(round(cs.label_background_alpha * 100))
             self.opt_background.setChecked(cs.background)
             self.opt_strip.setChecked(cs.outer_strip)
             self.opt_names.setChecked(cs.show_names)
@@ -983,6 +1022,8 @@ class StylePanel(QWidget):
         cs.palette = self.palette_name()
         cs.color_branches = self.opt_branches.isChecked()
         cs.color_labels = self.opt_labels.isChecked()
+        cs.label_background = self.opt_label_bg.isChecked()
+        cs.label_background_alpha = self.label_bg_alpha.value() / 100
         cs.background = self.opt_background.isChecked()
         cs.outer_strip = self.opt_strip.isChecked()
         cs.show_names = self.opt_names.isChecked()

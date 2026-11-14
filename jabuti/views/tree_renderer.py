@@ -20,6 +20,7 @@ from jabuti.layout.rectangular import rectangular_layout, visible_nodes
 from jabuti.models.clades import Clade, ResolvedClade, assign_nodes, resolve_clades
 from jabuti.models.annotations import ContextGene, LeafColumn, context_extent
 from jabuti.models.document import TreeEdits, collapsed_nodes
+from jabuti.models.label_groups import LabelGroup, LabelGroupSet
 from jabuti.models.tree import SUPPORT_ALL, Node, Tree, support_value
 from jabuti.style import GuideStyle, LayoutKind, RenderStyle
 
@@ -40,6 +41,7 @@ TAG_HEATMAP = "heatmap"
 TAG_META_STRIP = "metadata-strip"
 TAG_COLUMN_HEADER = "column-header"
 TAG_CONTEXT = "gene-context"
+TAG_LABEL_BG = "label-background"
 
 
 @dataclass
@@ -48,6 +50,26 @@ class RenderResult:
     leaf_points: dict[str, QPointF] = field(default_factory=dict)
     node_points: dict[Node, QPointF] = field(default_factory=dict)
     clades: list[ResolvedClade] = field(default_factory=list)
+    label_backgrounds: dict[str, QGraphicsPathItem] = field(default_factory=dict)
+    label_groups: dict[str, LabelGroup] = field(default_factory=dict)  # folha -> grupo efetivo
+
+
+@dataclass
+class _LabelSpec:
+    """Como desenhar o rótulo de uma folha (fonte, cor, fundo)."""
+
+    font: QFont
+    color: str
+    width: float                    # largura do texto
+    bg: str | None = None
+    bg_alpha: float = 1.0
+    pad: float = 0.0                # margem interna do fundo (0 sem fundo)
+    radius: float = 0.0
+
+    @property
+    def extent(self) -> float:
+        """Largura ocupada, incluindo o fundo."""
+        return self.width + 2 * self.pad
 
 
 def _fmt_support(values: list[float], index: int) -> str:
@@ -168,6 +190,7 @@ class TreeRenderer:
         columns: list[LeafColumn] | None = None,
         meta_colors: dict[str, str] | None = None,
         context: dict[str, list[ContextGene]] | None = None,
+        label_groups: LabelGroupSet | None = None,
     ) -> RenderResult:
         self.scene.clear()
         self._context = context or {}
@@ -192,6 +215,8 @@ class TreeRenderer:
         self._marker = sym.size if sym.shape != "none" else 0.0
         self.geometry = None
         res = RenderResult()
+        self._groups = label_groups.effective(tree.leaf_names()) if label_groups is not None else {}
+        res.label_groups = dict(self._groups)
         res.clades = resolve_clades(tree, clades or [], style.palette_colors())
         self._assign = assign_nodes(tree, res.clades)
         self._has_clades = bool(self._assign)
@@ -258,6 +283,70 @@ class TreeRenderer:
             rc = self._clade_of(leaf)
             return rc.color if rc else cs.neutral_color
         return self.style.label.color
+
+    def _label_spec(self, leaf: Node) -> _LabelSpec:
+        """Grupo de rótulo > metadados > clado > padrão (campos vazios do grupo herdam)."""
+        g = self._groups.get(leaf.name)
+        look = g.look if g is not None else None
+        font, fm = self._leaf_font, self._leaf_fm
+        if look is not None and (look.bold is not None or look.italic is not None or look.size_scale != 1.0):
+            font = QFont(self._leaf_font)
+            if look.bold is not None:
+                font.setBold(look.bold)
+            if look.italic is not None:
+                font.setItalic(look.italic)
+            font.setPointSizeF(max(self.style.label.size * look.size_scale, 1.0))
+            fm = QFontMetricsF(font)
+        color = look.text_color if look is not None and look.text_color else self._label_color(leaf)
+        spec = _LabelSpec(font, color, fm.horizontalAdvance(leaf.name))
+        cs = self.style.clades
+        if look is not None and look.background:
+            spec.bg, spec.bg_alpha = look.background, look.background_alpha
+        elif cs.label_background and self._has_clades:
+            rc = self._clade_of(leaf)
+            if rc is not None:
+                spec.bg, spec.bg_alpha = rc.color, cs.label_background_alpha
+        if spec.bg:
+            spec.pad = look.padding if look is not None else 2.0
+            spec.radius = look.radius if look is not None else 3.0
+        return spec
+
+    def _leaf_text(self, leaf: Node, spec: _LabelSpec) -> QGraphicsSimpleTextItem:
+        item = QGraphicsSimpleTextItem(leaf.name)
+        item.setFont(spec.font)
+        item.setBrush(QBrush(QColor(spec.color)))
+        self.scene.addItem(item)
+        return item
+
+    def _label_background(self, leaf: Node, item: QGraphicsSimpleTextItem, spec: _LabelSpec,
+                          max_h: float, res: RenderResult) -> QGraphicsPathItem | None:
+        """Fundo (marca-texto) atrás de um rótulo já posicionado: mesma origem de
+        transformação, rotação e posição do texto, então gira junto no circular.
+        A altura fica limitada a ``max_h`` para não invadir as folhas vizinhas."""
+        if not spec.bg:
+            return None
+        br = item.boundingRect()
+        h = br.height()
+        full = h + 2 * spec.pad
+        height = min(full, max_h) if max_h > 0 else full
+        rect = QRectF(-spec.pad, h / 2 - height / 2, br.width() + 2 * spec.pad, height)
+        r = max(min(spec.radius, height / 2, rect.width() / 2), 0.0)
+        path = QPainterPath()
+        path.addRoundedRect(rect, r, r)
+        bg = QGraphicsPathItem(path)
+        c = QColor(spec.bg)
+        c.setAlphaF(max(0.0, min(spec.bg_alpha, 1.0)))
+        bg.setBrush(QBrush(c))
+        bg.setPen(QPen(Qt.PenStyle.NoPen))
+        bg.setTransformOriginPoint(item.transformOriginPoint())
+        bg.setRotation(item.rotation())
+        bg.setPos(item.pos())
+        bg.setZValue(-1)
+        bg.setData(1, TAG_LABEL_BG)
+        bg.setData(2, leaf.name)
+        self.scene.addItem(bg)
+        res.label_backgrounds[leaf.name] = bg
+        return bg
 
     def _prepare_widths(self, tree: Tree) -> None:
         b = self.style.branch
@@ -543,11 +632,15 @@ class TreeRenderer:
             res.leaf_points[leaf.name] = p
             if not style.label.show:
                 continue
-            item = self._text(leaf.name, color=self._label_color(leaf), leaf=True)
+            spec = self._label_spec(leaf)
+            item = self._leaf_text(leaf, spec)
             h = item.boundingRect().height()
-            item.setPos(p.x() + pad + self._marker / 2, p.y() - h / 2)
+            item.setPos(p.x() + pad + self._marker / 2 + spec.pad, p.y() - h / 2)
             res.leaf_items.setdefault(leaf.name, []).append(item)
             label_right = max(label_right, item.sceneBoundingRect().right())
+            bg = self._label_background(leaf, item, spec, sy - 1, res)
+            if bg is not None:
+                label_right = max(label_right, bg.sceneBoundingRect().right())
 
         visible = self._visible_clades(res)
 
@@ -649,8 +742,10 @@ class TreeRenderer:
 
         # largura máxima dos rótulos (para reservar espaço quando não alinhados)
         max_label_w = 0.0
+        specs: dict[Node, _LabelSpec] = {}
         if style.label.show:
-            max_label_w = max((self._leaf_fm.horizontalAdvance(l.name) for l in lay.leaf_order), default=0.0)
+            specs = {l: self._label_spec(l) for l in lay.leaf_order}
+            max_label_w = max((sp.extent for sp in specs.values()), default=0.0)
             max_label_w = max([max_label_w, *(self._fm.horizontalAdvance(self._collapsed_label(n))
                                                 for n in lay.collapsed)])
 
@@ -723,9 +818,15 @@ class TreeRenderer:
             if not style.label.show:
                 continue
             start = geom.label_radius if geom.align_tips else rad(leaf) + self._marker / 2 + pad
-            item = self._text(leaf.name, color=self._label_color(leaf), leaf=True)
-            self._rotate_radial(item, pt(start, th), th)
+            spec = specs[leaf]
+            item = self._leaf_text(leaf, spec)
+            self._rotate_radial(item, pt(start + spec.pad, th), th)
             res.leaf_items.setdefault(leaf.name, []).append(item)
+            if spec.bg:
+                # corda entre folhas vizinhas na borda interna do fundo
+                a, b = lay.span[leaf]
+                chord = 2 * start * math.sin(max(b - a, 0.0) / 2)
+                self._label_background(leaf, item, spec, max(chord - 1, 2.0), res)
 
         if style.label.show:
             for node, far in lay.collapsed.items():
