@@ -139,3 +139,51 @@ def order_keys(available: list[str], order: list[str], hidden: list[str] | None 
             seen.add(k)
             out.append(k)
     return out
+
+
+# ------------------------------------------------------------------ matriz
+def natural_key(name: str) -> tuple:
+    """Ordem natural por prefixo e número: GH2 < GH13 < GT4 < GT10."""
+    parts = re.split(r"(\d+(?:\.\d+)?)", name)
+    return tuple((0, float(p)) if i % 2 else (1, p.lower()) for i, p in enumerate(parts) if p != "")
+
+
+def feature_sums(by_leaf: dict[str, dict[str, str]], features: list[str]) -> dict[str, float]:
+    """Soma de cada característica nas folhas da árvore (NA conta como 0)."""
+    from jabuti.models.datatables import numeric_column
+
+    return {f: sum(numeric_column(by_leaf, f).values()) for f in features}
+
+
+def select_features(by_leaf: dict[str, dict[str, str]], available: list[str], mode: str,
+                    chosen: list[str], top_n: int) -> list[str]:
+    """Características a desenhar, em ordem natural: as escolhidas ou as N de maior soma."""
+    if mode == "top":
+        sums = feature_sums(by_leaf, available)
+        ranked = sorted(available, key=lambda f: (-sums[f], natural_key(f)))
+        picked = ranked[:max(top_n, 0)]
+    else:
+        picked = [f for f in chosen if f in available]
+    return sorted(picked, key=natural_key)
+
+
+def matrix_columns(key: str, by_leaf: dict[str, dict[str, str]], features: list[str], colormap: str,
+                   scale: str = "linear", vmin: float | None = None, vmax: float | None = None,
+                   show_values: bool = False, width: float | None = None, missing: str = "#d9d9d9",
+                   header_rotation: int = 90):  # type: ignore[no-untyped-def]
+    """Colunas de células (uma por característica) e a escala de cor usada."""
+    from jabuti.models.annotations import LeafColumn
+    from jabuti.models.colormaps import ColorScale
+    from jabuti.models.datatables import numeric_column
+
+    data = {f: numeric_column(by_leaf, f) for f in features}
+    values = [v for col in data.values() for v in col.values()]
+    lo = vmin if vmin is not None else min(values, default=0.0)
+    hi = vmax if vmax is not None else max(values, default=1.0)
+    cs = ColorScale(colormap, lo, hi, scale)
+    cols = []
+    for f in features:
+        colors = {leaf: cs.color(v) for leaf, v in data[f].items()}
+        texts = {leaf: fmt_value(v) for leaf, v in data[f].items()} if show_values else {}
+        cols.append(LeafColumn(f"{key}:{f}", f, colors, missing, texts, "matrix", width, header_rotation))
+    return cols, cs

@@ -418,3 +418,147 @@ def test_gui_stacked_series_and_legend(window):
     groups = window.style_panel.legend.groups
     (series,) = [g for g in groups if g.title == "Séries: CAZy"]
     assert series.entries[0] == ("GH", "#123456")
+
+
+# ------------------------------------------------------------------ matriz
+MATRIX = {"A": {"GH13": "10", "GH2": "0", "GT4": "3", "CE1": "NA"},
+          "B": {"GH13": "1", "GH2": "100", "GT4": "3", "CE1": "1"},
+          "C": {"GH13": "5", "GH2": "2", "GT4": "0", "CE1": "0"}}
+
+
+def test_natural_key_order():
+    from jabuti.models.tracks import natural_key
+
+    assert sorted(["GT10", "GH13", "GH2", "GT4", "CBM50"], key=natural_key) == ["CBM50", "GH2", "GH13", "GT4", "GT10"]
+
+
+def test_select_features_top_and_manual():
+    from jabuti.models.tracks import select_features
+
+    feats = ["GH13", "GH2", "GT4", "CE1"]
+    assert select_features(MATRIX, feats, "top", [], 2) == ["GH2", "GH13"]       # somas 102 e 16
+    assert select_features(MATRIX, feats, "manual", ["GT4", "GH13", "xx"], 0) == ["GH13", "GT4"]
+
+
+def test_color_scales():
+    from jabuti.models.colormaps import COLORMAPS, ColorScale
+
+    lin = ColorScale("viridis", 0, 100, "linear")
+    assert lin.color(0) == COLORMAPS["viridis"][0] and lin.color(100) == COLORMAPS["viridis"][-1]
+    assert lin.fraction(50) == pytest.approx(0.5)
+    log = ColorScale("viridis", 0, 100, "log1p")
+    assert log.fraction(9) == pytest.approx(math.log(10) / math.log(101))
+    sq = ColorScale("viridis", 0, 100, "sqrt")
+    assert sq.fraction(25) == pytest.approx(0.5)
+    assert [round(v, 6) for _f, v in sq.ticks(3)] == [0, 25, 100]
+    assert ColorScale("viridis", 5, 5).fraction(5) == 0                         # sem divisão por zero
+
+
+def test_matrix_columns_missing_values_and_texts():
+    from jabuti.models.tracks import matrix_columns
+
+    cols, cs = matrix_columns("matrix:m", MATRIX, ["CE1", "GH2"], "Blues", show_values=True, width=14,
+                              header_rotation=45)
+    ce1 = cols[0]
+    assert ce1.key == "matrix:m:CE1" and ce1.kind == "matrix" and ce1.header_rotation == 45
+    assert "A" not in ce1.colors and ce1.color_for("A") == "#d9d9d9"           # NA = sem dado
+    assert ce1.texts == {"B": "1", "C": "0"}
+    assert cs.vmin == 0 and cs.vmax == 100
+
+
+@pytest.mark.parametrize("layout", [LayoutKind.RECTANGULAR, LayoutKind.CIRCULAR])
+def test_matrix_drawn_with_gene_heatmap(draw, layout):
+    from jabuti.models.tracks import matrix_columns
+
+    leaves = {k: {"GH13": str(i)} for i, k in enumerate("ABCDE")}
+    cols, _ = matrix_columns("matrix:m", leaves, ["GH13"], "viridis", show_values=True)
+    gene = LeafColumn("gene:x", "nifH", {"A": "#2b6cb0"}, "#d9d9d9")
+    scene, _, _ = draw(RenderStyle(layout=layout), [gene, *cols])
+    assert tagged(scene, "heatmap", "gene:x") and tagged(scene, "matrix", "matrix:m:GH13")
+    texts = sorted(i.text() for i in scene.items() if i.data(1) == "heatmap" and hasattr(i, "text"))
+    assert texts == ["0", "1", "2", "3", "4"]
+    assert all(i.zValue() > 0 for i in scene.items() if i.data(1) == "heatmap" and hasattr(i, "text"))
+
+
+@pytest.mark.parametrize("rotation", [0, 45, 90])
+def test_matrix_headers_rotation_no_overlap(draw, rotation):
+    from jabuti.models.tracks import matrix_columns
+
+    leaves = {k: {f: "1" for f in ("GH1", "GH2", "GH3")} for k in "ABCDE"}
+    cols, _ = matrix_columns("matrix:m", leaves, ["GH1", "GH2", "GH3"], "viridis", width=40,
+                             header_rotation=rotation)
+    scene, _, res = draw(RenderStyle(), cols)
+    heads = [i for i in tagged(scene, "column-header")]
+    assert len(heads) == 3
+    assert {round(i.rotation()) for i in heads} == {{0: 0, 45: -45, 90: -90}[rotation]}
+    tree_top = min(i.sceneBoundingRect().top() for i in tagged(scene, "matrix"))
+    assert all(i.sceneBoundingRect().bottom() <= tree_top for i in heads)       # acima das colunas
+    if rotation == 0:
+        rects = sorted((i.sceneBoundingRect() for i in heads), key=lambda r: r.left())
+        assert all(a.right() <= b.left() for a, b in zip(rects, rects[1:]))
+
+
+def test_narrow_horizontal_headers_fall_back_to_vertical(draw):
+    from jabuti.models.tracks import matrix_columns
+
+    leaves = {k: {"Peptidase_S8": "1", "Peptidase_M23": "2"} for k in "ABCDE"}
+    cols, _ = matrix_columns("matrix:m", leaves, ["Peptidase_S8", "Peptidase_M23"], "viridis", width=10,
+                             header_rotation=0)
+    scene, _, res = draw(RenderStyle(), cols)
+    assert {round(i.rotation()) for i in tagged(scene, "column-header")} == {-90}
+    assert any("0°" in n for n in res.notes)
+
+
+def test_colorbar_legend_in_figure_and_svg(draw, tmp_path):
+    from PySide6.QtWidgets import QGraphicsScene
+
+    from jabuti.models.annotations import LegendGroup
+    from jabuti.views.export import export_svg
+    from jabuti.views.tree_renderer import TreeRenderer
+
+    style = RenderStyle()
+    style.legend.in_figure = True
+    scene = QGraphicsScene()
+    group = LegendGroup("CAZy", [("sem dado", "#d9d9d9"), ("só texto", None)], "colorbar",
+                        ["#000000", "#ffffff"], [(0.0, "0"), (1.0, "75")])
+    TreeRenderer(scene).render(parse_newick_string(T), style, legend=[group])
+    texts = {i.text() for i in tagged(scene, "legend") if hasattr(i, "text")}
+    assert {"CAZy", "0", "75", "sem dado", "só texto"} <= texts
+    grads = [i for i in tagged(scene, "legend") if hasattr(i, "brush") and i.brush().gradient() is not None]
+    assert len(grads) == 1
+    svg = export_svg(scene, tmp_path / "c.svg").read_text(encoding="utf-8")
+    assert "linearGradient" in svg and ">75<" in svg
+
+
+def test_preset_roundtrip_matrix():
+    from jabuti.presets import preset_from_dict, preset_to_dict
+    from jabuti.style import MatrixSpec
+
+    st = RenderStyle()
+    st.figure.matrices = [MatrixSpec("mtx1", "cazy.tsv", "CAZy", "manual", ["GH2", "GH13"], 5, "sqrt",
+                                     "magma", -1.0, 50.0, 45, True, 1.5)]
+    loaded = preset_from_dict(preset_to_dict(st))
+    assert loaded.warnings == [] and loaded.style.figure.matrices == st.figure.matrices
+    bad = preset_from_dict({"version": 1, "style": {"figure": {"matrices": [{"colormap": "jet", "header_rotation": 30,
+                                                               "scale": "log10"}]}}})
+    m = bad.style.figure.matrices[0]
+    assert (m.colormap, m.header_rotation, m.scale) == ("viridis", 90, "linear") and len(bad.warnings) == 3
+
+
+def test_gui_matrix_top_n_and_legend(window):
+    fp = window.figure_panel
+    assert fp.load_table("examples/cazy_counts.tsv")
+    spec = fp.add_matrix()
+    fp.mx_top.setValue(5)
+    fp.mx_scale.setCurrentIndex(fp.mx_scale.findData("log1p"))
+    window.render_live()
+    keys = {i.data(2) for i in tagged(window.canvas.tree_scene, "matrix")}
+    assert len(keys) == 5 and all(k.startswith("matrix:mtx1:") for k in keys)
+    (bar,) = [g for g in window.style_panel.legend.groups if g.kind == "colorbar"]
+    assert "log" in bar.title and bar.ticks[0][1] == "0"
+    # escolha manual
+    fp.mx_select.setCurrentIndex(fp.mx_select.findData("manual"))
+    fp.mx_features.item(0).setCheckState(fp.mx_features.item(0).checkState().Checked)
+    assert spec.features == [fp.mx_features.item(0).data(256)]
+    window.render_live()
+    assert len({i.data(2) for i in tagged(window.canvas.tree_scene, "matrix")}) == 1

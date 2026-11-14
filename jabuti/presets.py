@@ -19,8 +19,11 @@ from jabuti.models.clades import Clade, CladeSet
 from jabuti.models.document import LADDERIZE, TreeEdits
 from jabuti.models.label_groups import SOURCES, LabelGroup, LabelGroupSet, LabelLook
 from jabuti.parsers.errors import JabutiParseError, read_text
+from jabuti.models.colormaps import COLORMAPS, SCALES
 from jabuti.style import (
     BAR_COLOR_MODES,
+    HEADER_ROTATIONS,
+    MATRIX_SELECT,
     GUIDE_KINDS,
     LEGEND_POSITIONS,
     PALETTES,
@@ -44,10 +47,15 @@ CHOICES: dict[tuple[str, str], set[str]] = {
     ("CladeStyle", "name_mode"): {"curved", "radial"},
     ("BranchStyle", "cap"): {"flat", "round"},
     ("BarSpec", "color_mode"): set(BAR_COLOR_MODES),
+    ("MatrixSpec", "select"): set(MATRIX_SELECT),
+    ("MatrixSpec", "scale"): set(SCALES),
+    ("MatrixSpec", "colormap"): set(COLORMAPS),
 }
 # floats que podem ser negativos (os demais precisam ser >= 0)
-SIGNED: set[tuple[str, str]] = {("BarSpec", "vmin"), ("BarSpec", "vmax"), ("BarSpec", "refs")}
-INT_CHOICES: dict[tuple[str, str], set[int]] = {("SupportStyle", "index"): {-1, 0, 1, 99}}
+SIGNED: set[tuple[str, str]] = {("BarSpec", "vmin"), ("BarSpec", "vmax"), ("BarSpec", "refs"),
+                                 ("MatrixSpec", "vmin"), ("MatrixSpec", "vmax")}
+INT_CHOICES: dict[tuple[str, str], set[int]] = {("SupportStyle", "index"): {-1, 0, 1, 99},
+                                               ("MatrixSpec", "header_rotation"): set(HEADER_ROTATIONS)}
 # campos fora do preset (estado de tela, não configuração)
 SKIP: set[tuple[str, str]] = {("CladeStyle", "cut_distance")}
 

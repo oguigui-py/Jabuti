@@ -37,7 +37,19 @@ from jabuti.models.annotations import (
 )
 from jabuti.models.datatables import numeric_column
 from jabuti.models.document import apply_edits
-from jabuti.models.tracks import CLADE_STRIP, GENE_BLOCK, BarTrack, StackedTrack, bar_track, order_keys, stacked_track
+from jabuti.models.colormaps import SCALES
+from jabuti.models.tracks import (
+    CLADE_STRIP,
+    GENE_BLOCK,
+    BarTrack,
+    StackedTrack,
+    bar_track,
+    fmt_value,
+    matrix_columns,
+    order_keys,
+    select_features,
+    stacked_track,
+)
 from jabuti.resources import BRAND_GREEN
 from jabuti.presets import (
     LoadedPreset,
@@ -312,6 +324,21 @@ class MainWindow(QMainWindow):
                                   width=st.width, missing_color=md.missing_color)
             blocks[track.key] = [track]
             groups.append(LegendGroup(f"Séries: {header}", list(zip(series, colors))))
+        row_h = style.label.size * style.leaf_spacing
+        for mx in fig.matrices:
+            rows = fp.by_leaf(mx.source)
+            features = select_features(rows, fp.columns_of(mx.source), mx.select, mx.features, mx.top_n)
+            title = mx.name or mx.source or "matriz"
+            if not features:
+                self._render_notes.append(f"matriz “{title}” sem características (ou tabela não carregada)")
+                continue
+            cols, cs = matrix_columns(f"matrix:{mx.id}", rows, features, mx.colormap, mx.scale, mx.vmin,
+                                      mx.vmax, mx.show_values, row_h * mx.cell_width, md.missing_color,
+                                      mx.header_rotation)
+            blocks[f"matrix:{mx.id}"] = cols
+            scale = "" if mx.scale == "linear" else f" — escala {SCALES[mx.scale]}"
+            groups.append(LegendGroup(f"{title}{scale}", [("sem dado", md.missing_color)], "colorbar",
+                                      list(cs.stops), [(f, fmt_value(round(v, 1 if abs(v) < 10 else 0))) for f, v in cs.ticks(3)]))
         keys = order_keys(list(blocks), fig.track_order, fig.hidden_tracks)
         columns = [t for k in keys for t in blocks[k]]
         rings = [t for t in columns if t != CLADE_STRIP]
@@ -322,11 +349,13 @@ class MainWindow(QMainWindow):
         return columns, groups, meta_colors
 
     @staticmethod
-    def _ring_color(track, present: str) -> str:  # type: ignore[no-untyped-def]
+    def _ring_color(track, present: str) -> str | None:  # type: ignore[no-untyped-def]
         if isinstance(track, BarTrack):
             return track.color
         if isinstance(track, StackedTrack):
             return track.colors[0]
+        if track.kind == "matrix":
+            return None               # a cor depende do valor: só o nome (a escala está na barra de cor)
         return present if track.kind == "genes" else "#888888"
 
     def context_tracks(self, style: RenderStyle):  # type: ignore[no-untyped-def]
@@ -462,6 +491,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
+        self._render_notes += [n for n in result.notes if n not in self._render_notes]
         self.canvas.show_transparency(style.background is None)
         self.canvas.set_result(result)
         self.style_panel.update_status(result.clades, groups)

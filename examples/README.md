@@ -14,3 +14,6 @@ como chave.
 `traits.tsv` — características **sintéticas** por linhagem (tamanho do genoma em Mb, nº de
 contigs com dois `NA`, contagens de CAZy por classe GH/GT/CE/AA/CBM/PL), para testar as colunas
 de barras do painel Figura.
+
+`cazy_counts.tsv` — matriz **sintética** genomas × 31 famílias CAZy (contagens inventadas),
+para testar a matriz (heatmap externo) do painel Figura.

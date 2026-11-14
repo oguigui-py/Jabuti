@@ -20,8 +20,9 @@ class LeafColumn:
     colors: dict[str, str]                       # folha -> cor; folha ausente = sem dado
     missing_color: str = "#d9d9d9"
     texts: dict[str, str] = field(default_factory=dict)
-    kind: str = "genes"                          # "genes" | "metadata"
+    kind: str = "genes"                          # "genes" | "metadata" | "matrix"
     width: float | None = None                   # None = largura padrão da célula
+    header_rotation: int = 90                    # nome da coluna: 0°, 45° ou 90° (retangular)
 
     def color_for(self, leaf: str) -> str:
         return self.colors.get(leaf, self.missing_color)
@@ -34,8 +35,18 @@ class LeafColumn:
 
 @dataclass
 class LegendGroup:
+    """Grupo da legenda: amostras (texto, cor) ou barra de cor (``kind="colorbar"``).
+
+    Uma entrada com cor ``None`` é só texto (ex.: "outgroup branch not to scale")."""
+
     title: str
-    entries: list[tuple[str, str]]
+    entries: list[tuple[str, str | None]]
+    kind: str = "swatches"                       # "swatches" | "colorbar"
+    stops: list[str] = field(default_factory=list)
+    ticks: list[tuple[float, str]] = field(default_factory=list)   # (fração 0–1, rótulo)
+
+    def is_empty(self) -> bool:
+        return not self.entries and not (self.kind == "colorbar" and self.stops)
 
 
 def presence_matrix(genomes: dict[str, Genome], queries: list[GeneQuery], find=find_genes) -> dict[str, dict[str, int]]:  # type: ignore[no-untyped-def]

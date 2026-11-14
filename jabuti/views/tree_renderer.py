@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPathItem,
@@ -50,6 +50,7 @@ TAG_BAR_REF = "bar-reference"
 TAG_BAR_AXIS = "bar-axis"
 TAG_BAR_VALUE = "bar-value"
 TAG_STACKED = "stacked-bar"
+TAG_MATRIX = "matrix"
 
 
 @dataclass
@@ -60,6 +61,7 @@ class RenderResult:
     clades: list[ResolvedClade] = field(default_factory=list)
     label_backgrounds: dict[str, QGraphicsPathItem] = field(default_factory=dict)
     label_groups: dict[str, LabelGroup] = field(default_factory=dict)  # folha -> grupo efetivo
+    notes: list[str] = field(default_factory=list)                      # avisos para a barra de status
 
 
 @dataclass
@@ -188,6 +190,7 @@ class TreeRenderer:
     def __init__(self, scene: QGraphicsScene) -> None:
         self.scene = scene
         self.geometry: CircGeometry | None = None  # do último desenho circular
+        self.notes: list[str] = []
 
     def render(
         self,
@@ -202,6 +205,7 @@ class TreeRenderer:
         legend: list[LegendGroup] | None = None,
     ) -> RenderResult:
         self.scene.clear()
+        self.notes: list[str] = []
         self._context = context or {}
         tracks = list(columns or [])
         if CLADE_STRIP not in tracks and style.clades.outer_strip:
@@ -245,11 +249,12 @@ class TreeRenderer:
             self._render_rectangular(tree, style, res)
         if style.legend.in_figure:
             clade_entries = [(rc.clade.name, rc.color) for rc in res.clades if rc.valid and rc.clade.visible]
-            sections = ([("Clados", clade_entries)] if clade_entries else [])
-            sections += [(g.title, g.entries) for g in (legend or []) if g.entries]
+            sections = ([LegendGroup("Clados", clade_entries)] if clade_entries else [])
+            sections += [g for g in (legend or []) if not g.is_empty()]
             self._draw_legend(sections)
         margin = 30
         self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-margin, -margin, margin, margin))
+        res.notes = list(self.notes)
         return res
 
     # ------------------------------------------------------------ cores
@@ -405,7 +410,7 @@ class TreeRenderer:
             item = QGraphicsPathItem(path)
             item.setBrush(QBrush(QColor(color)))
             item.setPen(pen)
-            item.setData(1, TAG_HEATMAP if col.kind == "genes" else TAG_META_STRIP)
+            item.setData(1, {"genes": TAG_HEATMAP, "matrix": TAG_MATRIX}.get(col.kind, TAG_META_STRIP))
             item.setData(2, col.key)
             self.scene.addItem(item)
 
@@ -414,6 +419,7 @@ class TreeRenderer:
         lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
         t = self._text(text, max(self.style.label.size * 0.7, 4), "#ffffff" if lum < 140 else "#202020")
         t.setData(1, TAG_HEATMAP)
+        t.setZValue(1)            # por cima das células (desenhadas depois)
         br = t.boundingRect()
         t.setPos(center.x() - br.width() / 2, center.y() - br.height() / 2)
 
@@ -543,11 +549,46 @@ class TreeRenderer:
             self.scene.addItem(item)
         return item
 
-    def _column_header(self, text: str, x: float, cw: float, top: float, horizontal_ok: bool = False) -> None:
-        """Nome da coluna acima dela: horizontal se couber, senão vertical (de baixo para cima)."""
+    def _column_header(self, text: str, x: float, cw: float, top: float, horizontal_ok: bool = False,
+                       rotation: int = 90) -> None:
+        """Nome da coluna acima dela: horizontal se couber, senão vertical (de baixo para cima).
+
+        ``rotation`` 0 ou 45 força horizontal ou diagonal (subindo para a direita)."""
         size = max(self.style.label.size * 0.85, 4)
         h = self._text(text, size)
         h.setData(1, TAG_COLUMN_HEADER)
+        if rotation == 0:
+            br = h.boundingRect()
+            while br.width() > cw and size > 5:     # cabe na largura da coluna?
+                size = max(size * min(cw / br.width(), 0.92), 5)
+                f = h.font()
+                f.setPointSizeF(size)
+                h.setFont(f)
+                br = h.boundingRect()
+            if br.width() <= cw:
+                h.setPos(x + cw / 2 - br.width() / 2, top - 3 - br.height())
+                return
+            # nem com fonte mínima: vertical, para não sobrepor as vizinhas
+            note = "nomes de coluna a 0° não cabem em colunas estreitas (desenhados a 90°)"
+            if note not in self.notes:
+                self.notes.append(note)
+            size = max(self.style.label.size * 0.85, 4)
+            f = h.font()
+            f.setPointSizeF(size)
+            h.setFont(f)
+        if rotation == 45:
+            hh = h.boundingRect().height()
+            while hh > cw * 0.7 and size > 4:   # diagonais vizinhas não se encostam
+                size = max(size * min(cw * 0.7 / hh, 0.92), 4)
+                f = h.font()
+                f.setPointSizeF(size)
+                h.setFont(f)
+                hh = h.boundingRect().height()
+            # canto inferior esquerdo do texto sobre o centro da coluna
+            h.setTransformOriginPoint(0, hh)
+            h.setRotation(-45)
+            h.setPos(x + cw / 2 - hh * 0.35, top - 3 - hh)
+            return
         if horizontal_ok and h.boundingRect().width() <= cw:
             br = h.boundingRect()
             h.setPos(x + cw / 2 - br.width() / 2, top - 3 - br.height())
@@ -606,8 +647,8 @@ class TreeRenderer:
                     if len(names) == 1 and names[0] in track.texts:
                         self._cell_text(track.texts[names[0]], rect.center(), color)
                 self._flush_cells(by_color, track)
-                if hm.show_headers:
-                    self._column_header(track.header, x, cw, top)
+                if hm.show_headers or track.kind == "matrix":
+                    self._column_header(track.header, x, cw, top, rotation=track.header_rotation)
                 x += cw
         if in_cells:
             x += pad
@@ -1237,7 +1278,7 @@ class TreeRenderer:
         return items
 
     # ------------------------------------------------------- escala
-    def _draw_legend(self, sections: list[tuple[str, list[tuple[str, str]]]]) -> None:
+    def _draw_legend(self, sections: list[LegendGroup]) -> None:
         """Legenda (mesmo conteúdo do painel) como itens da cena, ao lado do desenho:
         fica fora da caixa de árvore, heatmap e barra de escala, então nunca os cobre."""
         if not sections:
@@ -1247,25 +1288,49 @@ class TreeRenderer:
         sw = size * 1.15
         items: list[QGraphicsItem] = []
         y = 0.0
-        for k, (title, entries) in enumerate(sections):
+        for k, group in enumerate(sections):
             if k:
                 y += size * 0.6
-            t = self._text(title, size, "#404040")
+            t = self._text(group.title, size, "#404040")
             f = t.font()
             f.setItalic(True)
             t.setFont(f)
             t.setPos(0, y)
             items.append(t)
             y += t.boundingRect().height() + 1
-            for text, color in entries:
+            if group.kind == "colorbar" and group.stops:
+                bar_w = size * 9
+                rect = QGraphicsRectItem(0, y, bar_w, sw)
+                grad = QLinearGradient(0, 0, bar_w, 0)
+                for i, c in enumerate(group.stops):
+                    grad.setColorAt(i / max(len(group.stops) - 1, 1), QColor(c))
+                rect.setBrush(QBrush(grad))
+                rect.setPen(QPen(QColor("#777777"), 0.5))
+                self.scene.addItem(rect)
+                items.append(rect)
+                y += sw + 1
+                small = size * 0.85
+                lh = 0.0
+                for frac, text in group.ticks:
+                    lab = self._text(text, small, "#202020")
+                    br = lab.boundingRect()
+                    lab.setPos(min(max(frac * bar_w - br.width() / 2, 0), bar_w - br.width()), y)
+                    items.append(lab)
+                    lh = max(lh, br.height())
+                y += lh + 1
+            for text, color in group.entries:
                 label = self._text(text, size, "#202020")
                 lh = label.boundingRect().height()
-                square = QGraphicsRectItem(0, y + (lh - sw) / 2, sw, sw)
-                square.setBrush(QBrush(QColor(color)))
-                square.setPen(QPen(QColor("#777777"), 0.5))
-                self.scene.addItem(square)
-                label.setPos(sw + size * 0.5, y)
-                items += [square, label]
+                if color is not None:
+                    square = QGraphicsRectItem(0, y + (lh - sw) / 2, sw, sw)
+                    square.setBrush(QBrush(QColor(color)))
+                    square.setPen(QPen(QColor("#777777"), 0.5))
+                    self.scene.addItem(square)
+                    items.append(square)
+                    label.setPos(sw + size * 0.5, y)
+                else:
+                    label.setPos(0, y)
+                items.append(label)
                 y += lh + 1
         local = QRectF()
         for it in items:

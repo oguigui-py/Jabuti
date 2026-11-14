@@ -87,27 +87,47 @@ class LegendWidget(QFrame):
                 w.deleteLater()
         self.entries = list(entries)
         self.groups = list(groups or [])
-        sections = ([("Clados", self.entries)] if self.entries else []) + [(g.title, g.entries) for g in self.groups]
+        sections = ([("Clados", self.entries, None)] if self.entries else []) + \
+            [(g.title, g.entries, g) for g in self.groups]
         if not sections:
             lbl = QLabel(self.EMPTY_TEXT)
             lbl.setWordWrap(True)
             lbl.setStyleSheet("color: #888;")
             self._lay.addWidget(lbl)
             return
-        for title, items in sections:
+        for title, items, group in sections:
             if len(sections) > 1 or self.groups:
                 self._lay.addWidget(QLabel(f"<i>{title}</i>"))
+            if group is not None and getattr(group, "kind", "") == "colorbar" and group.stops:
+                self._add_colorbar(group)
             for text, color in items:
                 self._add_row(text, color)
 
-    def _add_row(self, text: str, color: str) -> None:
+    def _add_colorbar(self, group) -> None:  # type: ignore[no-untyped-def]
+        n = max(len(group.stops) - 1, 1)
+        stops = ", ".join(f"stop:{i / n:.3f} {c}" for i, c in enumerate(group.stops))
+        bar = QLabel()
+        bar.setFixedHeight(12)
+        bar.setStyleSheet(f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, {stops}); border: 1px solid #777;")
+        self._lay.addWidget(bar)
+        ticks = QWidget()
+        tl = QHBoxLayout(ticks)
+        tl.setContentsMargins(0, 0, 0, 0)
+        for i, (_f, text) in enumerate(group.ticks):
+            if i:
+                tl.addStretch(1)
+            tl.addWidget(QLabel(f"<small>{text}</small>"))
+        self._lay.addWidget(ticks)
+
+    def _add_row(self, text: str, color: str | None) -> None:
         row = QWidget()
         rl = QHBoxLayout(row)
         rl.setContentsMargins(0, 0, 0, 0)
-        sw = QLabel()
-        sw.setFixedSize(14, 14)
-        sw.setStyleSheet(f"background: {color}; border: 1px solid #777;")
-        rl.addWidget(sw)
+        if color is not None:
+            sw = QLabel()
+            sw.setFixedSize(14, 14)
+            sw.setStyleSheet(f"background: {color}; border: 1px solid #777;")
+            rl.addWidget(sw)
         rl.addWidget(QLabel(text), 1)
         self._lay.addWidget(row)
 

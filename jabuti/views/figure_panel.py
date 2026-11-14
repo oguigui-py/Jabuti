@@ -12,6 +12,7 @@ from pathlib import Path
 from PySide6.QtCore import QEventLoop, QSize, Qt, Signal, Slot
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (
+    QSpinBox,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -33,7 +34,20 @@ from PySide6.QtWidgets import (
 from jabuti.models.datatables import METADATA_SOURCE, DataSource, numeric_column
 from jabuti.models.tracks import parse_refs
 from jabuti.parsers.metadata import load_metadata
-from jabuti.style import BAR_COLOR_MODES, BarSpec, LayoutKind, PALETTES, RenderStyle, StackedSpec
+from jabuti.models.colormaps import COLORMAPS, SCALES
+from jabuti.models.tracks import feature_sums, natural_key
+from jabuti.style import (
+    BAR_COLOR_MODES,
+    HEADER_ROTATIONS,
+    MATRIX_SELECT,
+    PALETTES,
+    BarSpec,
+    LayoutKind,
+    MatrixSpec,
+    RenderStyle,
+    StackedSpec,
+)
+from jabuti.views.widgets.swatches import SwatchStrip
 from jabuti.views.errors import show_error
 from jabuti.views.widgets.collapsible import CollapsibleSection
 from jabuti.views.widgets.leaf_mapping import LeafMappingTable, MappingRow
@@ -90,6 +104,7 @@ class FigurePanel(QWidget):
         self.sources: dict[str, DataSource] = {}
         self.bars: list[BarSpec] = []
         self.stacked: list[StackedSpec] = []
+        self.matrices: list[MatrixSpec] = []
         self._custom_colors: dict[tuple[str, str], str] = {}   # cor escolhida para série desmarcada
         self.metadata_by_leaf = lambda: {}          # fornecido pela janela (aba Metadados)
         self.metadata_columns = lambda: []
@@ -221,12 +236,107 @@ class FigurePanel(QWidget):
         self.bar_hint = _hint("")
         v.addWidget(self.bar_hint)
         v.addWidget(self._build_stacked())
+        v.addWidget(self._build_matrix())
         self.layout_hint = _hint("")
         self.layout_hint.setVisible(False)
         v.addWidget(self.layout_hint)
         self.refresh_tables()
         self.refresh_bars()
         self.refresh_stacked()
+        self.refresh_matrices()
+        return w
+
+    def _build_matrix(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 6, 0, 0)
+        v.addWidget(QLabel("<b>Matriz (heatmap externo)</b>"))
+        v.addWidget(_hint("TSV genomas × características (ex.: famílias CAZy, peptidases, funções do "
+                          "METABOLIC). Carregue-o em Tabelas de dados."))
+        row = QHBoxLayout()
+        self.add_matrix_btn = QPushButton("+ Matriz")
+        self.add_matrix_btn.clicked.connect(self.add_matrix)
+        self.rm_matrix_btn = QPushButton("Remover")
+        self.rm_matrix_btn.clicked.connect(self.remove_matrix)
+        row.addWidget(self.add_matrix_btn, 1)
+        row.addWidget(self.rm_matrix_btn)
+        v.addLayout(row)
+        self.matrix_list = QListWidget()
+        self.matrix_list.setMaximumHeight(60)
+        self.matrix_list.currentRowChanged.connect(self._matrix_selected)
+        v.addWidget(self.matrix_list)
+        ed = QWidget()
+        f = QFormLayout(ed)
+        f.setContentsMargins(0, 0, 0, 0)
+        self.mx_source = QComboBox()
+        self.mx_source.currentIndexChanged.connect(self._matrix_source_changed)
+        self.mx_name = QLineEdit()
+        self.mx_name.setPlaceholderText("título da legenda")
+        self.mx_name.editingFinished.connect(self._matrix_edited)
+        self.mx_select = QComboBox()
+        for key, text in MATRIX_SELECT.items():
+            self.mx_select.addItem(text, key)
+        self.mx_select.currentIndexChanged.connect(self._matrix_edited)
+        self.mx_top = QSpinBox()
+        self.mx_top.setRange(1, 500)
+        self.mx_top.setValue(20)
+        self.mx_top.valueChanged.connect(self._matrix_edited)
+        self.mx_features = QListWidget()
+        self.mx_features.setMaximumHeight(140)
+        self.mx_features.setToolTip("Ordem natural (GH2, GH13, GT4…); entre parênteses, a soma nas folhas")
+        self.mx_features.itemChanged.connect(self._matrix_edited)
+        self.mx_scale = QComboBox()
+        for key, text in SCALES.items():
+            self.mx_scale.addItem(text, key)
+        self.mx_scale.currentIndexChanged.connect(self._matrix_edited)
+        self.mx_cmap = QComboBox()
+        for name in COLORMAPS:
+            self.mx_cmap.addItem(name, name)
+        self.mx_cmap.currentIndexChanged.connect(self._matrix_edited)
+        self.mx_strip = SwatchStrip(COLORMAPS["viridis"])
+        self.mx_auto_min = QCheckBox("auto")
+        self.mx_auto_max = QCheckBox("auto")
+        self.mx_min = self._spin(-1e9, 1e9, 0.0)
+        self.mx_max = self._spin(-1e9, 1e9, 1.0)
+        for cb, sp in ((self.mx_auto_min, self.mx_min), (self.mx_auto_max, self.mx_max)):
+            cb.setChecked(True)
+            sp.setEnabled(False)
+            cb.toggled.connect(lambda on, s=sp: s.setEnabled(not on))
+            cb.toggled.connect(self._matrix_edited)
+            sp.valueChanged.connect(self._matrix_edited)
+        mrow = QHBoxLayout()
+        mrow.addWidget(self.mx_min, 1)
+        mrow.addWidget(self.mx_auto_min)
+        xrow = QHBoxLayout()
+        xrow.addWidget(self.mx_max, 1)
+        xrow.addWidget(self.mx_auto_max)
+        self.mx_rotation = QComboBox()
+        for deg in HEADER_ROTATIONS:
+            self.mx_rotation.addItem(f"{deg}°", deg)
+        self.mx_rotation.setToolTip("Rotação dos nomes das colunas (layout retangular)")
+        self.mx_rotation.currentIndexChanged.connect(self._matrix_edited)
+        self.mx_values = QCheckBox("Mostrar o valor na célula")
+        self.mx_values.toggled.connect(self._matrix_edited)
+        self.mx_width = self._spin(0.3, 5.0, 1.0, 0.1, " ×")
+        self.mx_width.setToolTip("Largura da célula em múltiplos do espaço entre folhas")
+        self.mx_width.valueChanged.connect(self._matrix_edited)
+        f.addRow("Tabela:", self.mx_source)
+        f.addRow("Título:", self.mx_name)
+        f.addRow("Colunas:", self.mx_select)
+        f.addRow("N:", self.mx_top)
+        f.addRow(self.mx_features)
+        f.addRow("Escala:", self.mx_scale)
+        f.addRow("Cores:", self.mx_cmap)
+        f.addRow(self.mx_strip)
+        f.addRow("Mínimo:", mrow)
+        f.addRow("Máximo:", xrow)
+        f.addRow("Nomes:", self.mx_rotation)
+        f.addRow(self.mx_values)
+        f.addRow("Célula:", self.mx_width)
+        self.matrix_editor = ed
+        v.addWidget(ed)
+        self.matrix_hint = _hint("")
+        v.addWidget(self.matrix_hint)
         return w
 
     def _build_stacked(self) -> QWidget:
@@ -317,7 +427,8 @@ class FigurePanel(QWidget):
         self.layout_kind = LayoutKind(kind)
         ok = self.layout_kind.value != "unrooted"
         for wdg in (self.add_bar_btn, self.bar_editor, self.bar_list,
-                    self.add_stacked_btn, self.stacked_editor, self.stacked_list):
+                    self.add_stacked_btn, self.stacked_editor, self.stacked_list,
+                    self.add_matrix_btn, self.matrix_editor, self.matrix_list):
             wdg.setEnabled(ok)
             wdg.setToolTip("" if ok else NOT_FOR_UNROOTED)
         self.layout_hint.setText("" if ok else NOT_FOR_UNROOTED)
@@ -535,6 +646,8 @@ class FigurePanel(QWidget):
             self.refresh_bars()
         if hasattr(self, "stacked_list"):
             self.refresh_stacked()
+        if hasattr(self, "matrix_list"):
+            self.refresh_matrices()
 
     def _bar_selected(self, row: int) -> None:
         spec = self.bars[row] if 0 <= row < len(self.bars) else None
@@ -768,6 +881,139 @@ class FigurePanel(QWidget):
         self.stacked_hint.setText("" if spec.columns else "Marque pelo menos uma série.")
         self._emit()
 
+    # -------------------------------------------------------------- matriz
+    def add_matrix(self) -> MatrixSpec | None:
+        source = next((s for s in reversed(list(self.sources)) if self.columns_of(s)), None)
+        if source is None:
+            self.matrix_hint.setText("Carregue a matriz (TSV genomas × características) em Tabelas de dados.")
+            return None
+        spec = MatrixSpec(id=self._next_id("mtx", [m.id for m in self.matrices]), source=source,
+                          name=Path(source).stem)
+        self.matrices.append(spec)
+        self.matrix_hint.setText("")
+        self.refresh_matrices(select=len(self.matrices) - 1)
+        self._emit()
+        return spec
+
+    def remove_matrix(self) -> None:
+        row = self.matrix_list.currentRow()
+        if 0 <= row < len(self.matrices):
+            del self.matrices[row]
+            self.refresh_matrices(select=min(row, len(self.matrices) - 1))
+            self._emit()
+
+    def current_matrix(self) -> MatrixSpec | None:
+        row = self.matrix_list.currentRow()
+        return self.matrices[row] if 0 <= row < len(self.matrices) else None
+
+    def _matrix_title(self, spec: MatrixSpec) -> str:
+        ok = spec.source in self.sources or spec.source == METADATA_SOURCE
+        mode = f"top {spec.top_n}" if spec.select == "top" else f"{len(spec.features)} escolhidas"
+        title = spec.name or spec.source
+        return f"{title}  ({mode})" if ok else f"⚠ {title}  ({spec.source}: sem dados)"
+
+    def refresh_matrices(self, select: int | None = None) -> None:
+        row = self.matrix_list.currentRow() if select is None else select
+        self.matrix_list.blockSignals(True)
+        self.matrix_list.clear()
+        for spec in self.matrices:
+            self.matrix_list.addItem(self._matrix_title(spec))
+        self.matrix_list.blockSignals(False)
+        if self.matrices:
+            self.matrix_list.setCurrentRow(max(0, min(row, len(self.matrices) - 1)))
+        self._matrix_selected(self.matrix_list.currentRow())
+
+    def _matrix_selected(self, row: int) -> None:
+        spec = self.matrices[row] if 0 <= row < len(self.matrices) else None
+        self.matrix_editor.setVisible(spec is not None)
+        self.rm_matrix_btn.setEnabled(spec is not None)
+        if spec is None:
+            return
+        self._filling = True
+        try:
+            self.mx_source.clear()
+            for name in self.source_names():
+                self.mx_source.addItem(self.source_label(name), name)
+            if self.mx_source.findData(spec.source) < 0:
+                self.mx_source.addItem(f"⚠ {spec.source}", spec.source)
+            self.mx_source.setCurrentIndex(self.mx_source.findData(spec.source))
+            self.mx_name.setText(spec.name)
+            self.mx_select.setCurrentIndex(max(self.mx_select.findData(spec.select), 0))
+            self.mx_top.setValue(spec.top_n)
+            self._fill_features(spec)
+            self.mx_scale.setCurrentIndex(max(self.mx_scale.findData(spec.scale), 0))
+            self.mx_cmap.setCurrentIndex(max(self.mx_cmap.findData(spec.colormap), 0))
+            self.mx_strip.colors = COLORMAPS.get(spec.colormap, COLORMAPS["viridis"])
+            self.mx_strip.update()
+            self.mx_auto_min.setChecked(spec.vmin is None)
+            self.mx_auto_max.setChecked(spec.vmax is None)
+            if spec.vmin is not None:
+                self.mx_min.setValue(spec.vmin)
+            if spec.vmax is not None:
+                self.mx_max.setValue(spec.vmax)
+            self.mx_rotation.setCurrentIndex(max(self.mx_rotation.findData(spec.header_rotation), 0))
+            self.mx_values.setChecked(spec.show_values)
+            self.mx_width.setValue(spec.cell_width)
+            self._sync_matrix_mode(spec)
+        finally:
+            self._filling = False
+
+    def _fill_features(self, spec: MatrixSpec) -> None:
+        was = self.mx_features.blockSignals(True)
+        self.mx_features.clear()
+        available = self.columns_of(spec.source)
+        sums = feature_sums(self.by_leaf(spec.source), available)
+        for c in sorted(available, key=natural_key):
+            item = QListWidgetItem(f"{c}  ({sums[c]:g})")
+            item.setData(Qt.ItemDataRole.UserRole, c)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if c in spec.features else Qt.CheckState.Unchecked)
+            self.mx_features.addItem(item)
+        self.mx_features.blockSignals(was)
+
+    def _sync_matrix_mode(self, spec: MatrixSpec) -> None:
+        manual = spec.select == "manual"
+        self.mx_features.setEnabled(manual)
+        self.mx_top.setEnabled(not manual)
+
+    def _matrix_source_changed(self) -> None:
+        spec = self.current_matrix()
+        if spec is None or self._filling:
+            return
+        spec.source = self.mx_source.currentData()
+        spec.features = [c for c in spec.features if c in self.columns_of(spec.source)]
+        self._filling = True
+        try:
+            self._fill_features(spec)
+        finally:
+            self._filling = False
+        self._matrix_edited()
+
+    def _matrix_edited(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        spec = self.current_matrix()
+        if spec is None or self._filling:
+            return
+        spec.name = self.mx_name.text().strip()
+        spec.select = self.mx_select.currentData()
+        spec.top_n = self.mx_top.value()
+        spec.features = [self.mx_features.item(i).data(Qt.ItemDataRole.UserRole)
+                         for i in range(self.mx_features.count())
+                         if self.mx_features.item(i).checkState() == Qt.CheckState.Checked]
+        spec.scale = self.mx_scale.currentData()
+        spec.colormap = self.mx_cmap.currentData()
+        self.mx_strip.colors = COLORMAPS[spec.colormap]
+        self.mx_strip.update()
+        spec.vmin = None if self.mx_auto_min.isChecked() else self.mx_min.value()
+        spec.vmax = None if self.mx_auto_max.isChecked() else self.mx_max.value()
+        spec.header_rotation = self.mx_rotation.currentData()
+        spec.show_values = self.mx_values.isChecked()
+        spec.cell_width = self.mx_width.value()
+        self._sync_matrix_mode(spec)
+        item = self.matrix_list.item(self.matrix_list.currentRow())
+        if item is not None:
+            item.setText(self._matrix_title(spec))
+        self._emit()
+
     # ------------------------------------------------------------- estilo
     def apply_to(self, style: RenderStyle) -> RenderStyle:
         fig = style.figure
@@ -776,6 +1022,7 @@ class FigurePanel(QWidget):
             b.refs = list(b.refs)
         fig.stacked = [StackedSpec(**{**vars(x), "columns": list(x.columns), "colors": list(x.colors)})
                        for x in self.stacked]
+        fig.matrices = [MatrixSpec(**{**vars(m), "features": list(m.features)}) for m in self.matrices]
         return style
 
     def load_style(self, style: RenderStyle) -> list[str]:
@@ -802,6 +1049,16 @@ class FigurePanel(QWidget):
                 warnings.append(f"Barras empilhadas “{x.name or '/'.join(x.columns)}”: a tabela {x.source} "
                                 "não está carregada (carregue-a no painel Figura).")
         self.refresh_stacked(select=0)
+        self.matrices = [MatrixSpec(**{**vars(m), "features": list(m.features)}) for m in fig.matrices]
+        used = []
+        for m in self.matrices:
+            if not m.id or m.id in used:
+                m.id = self._next_id("mtx", used)
+            used.append(m.id)
+            if m.source != METADATA_SOURCE and m.source not in self.sources:
+                warnings.append(f"Matriz “{m.name or m.source}”: a tabela {m.source or '(nenhuma)'} "
+                                "não está carregada (carregue-a no painel Figura).")
+        self.refresh_matrices(select=0)
         return warnings
 
 

@@ -207,12 +207,36 @@ class StackedSpec:
     width: float = 100.0
 
 
+MATRIX_SELECT: dict[str, str] = {"manual": "Escolher na lista", "top": "As N mais frequentes (soma)"}
+HEADER_ROTATIONS = (0, 45, 90)
+
+
+@dataclass
+class MatrixSpec:
+    """Matriz genomas × características desenhada como heatmap (ex.: famílias CAZy)."""
+
+    id: str = ""
+    source: str = ""
+    name: str = ""
+    select: str = "top"             # chave de MATRIX_SELECT
+    features: list[str] = field(default_factory=list)   # usadas no modo "manual"
+    top_n: int = 20
+    scale: str = "linear"           # chave de colormaps.SCALES
+    colormap: str = "viridis"
+    vmin: float | None = None
+    vmax: float | None = None
+    header_rotation: int = 90       # 0, 45 ou 90
+    show_values: bool = False
+    cell_width: float = 1.0         # em múltiplos do espaço entre folhas
+
+
 @dataclass
 class FigureConfig:
     """Opções do painel "Figura" (todas desligadas por padrão)."""
 
     bars: list[BarSpec] = field(default_factory=list)
     stacked: list[StackedSpec] = field(default_factory=list)
+    matrices: list[MatrixSpec] = field(default_factory=list)
     track_order: list[str] = field(default_factory=list)    # chaves das trilhas, da árvore para fora
     hidden_tracks: list[str] = field(default_factory=list)
 

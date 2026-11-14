@@ -75,9 +75,19 @@ desenho é exatamente o de antes. As opções vão para os presets (os dados car
   CBM, PL) numa barra, cada série com sua cor (clique na série e na amostra para trocar). Máximo
   automático = maior soma; série sem dado conta como 0; clado colapsado usa a média de cada série.
   A legenda ganha o grupo *Séries* com as cores.
+- **Matriz (heatmap externo)** — carregue um TSV genomas × características (famílias CAZy,
+  peptidases, funções do METABOLIC…) em *Tabelas de dados* e clique *+ Matriz*. Colunas: as N
+  mais frequentes (soma nas folhas) ou escolhidas na lista, sempre em ordem natural
+  (GH2, GH13, GT4…). Escala linear, `log(1 + x)` ou raiz; colormap (viridis, magma, cividis,
+  Blues, Reds, Greens, YlOrRd, cinza); mínimo/máximo; valor dentro da célula (cor do texto
+  contrasta com a célula); largura da célula; nomes das colunas a 0°, 45° ou 90° (no retangular;
+  a 0°, se o nome não couber nem com fonte menor, é desenhado a 90° e a barra de status avisa).
+  A legenda mostra uma **barra de cor** (também na figura exportada, como gradiente no SVG). No
+  circular, cada característica é um anel, listado na legenda *Anéis*. Convive com o heatmap
+  de genes (aba GFF) sem substituí-lo.
 
-Exemplo sintético: `examples/traits.tsv` (tamanho do genoma, nº de contigs com `NA` e
-contagens de CAZy por classe).
+Exemplos sintéticos: `examples/traits.tsv` (tamanho do genoma, nº de contigs com `NA` e
+contagens de CAZy por classe) e `examples/cazy_counts.tsv` (matriz de 31 famílias CAZy).
 
 ## Personalização (painel **Estilo**, à direita)
 
