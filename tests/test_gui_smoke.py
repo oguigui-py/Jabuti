@@ -30,7 +30,8 @@ def test_load_generate_export(window, data_dir, tmp_path, layout):
 
     assert window.tree_tab.load(data_dir / "iqtree_ufboot.treefile")
     window.viz_tab.layout_cb.setCurrentIndex(window.viz_tab.layout_cb.findData(layout))
-    window.viz_tab.show_support.setChecked(True)
+    sp = window.style_panel
+    sp.support_mode.setCurrentIndex(sp.support_mode.findData("numbers"))
     window.generate()
     assert window.canvas.result is not None
     assert len(window.canvas.result.leaf_items) == 6

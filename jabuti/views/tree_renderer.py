@@ -30,6 +30,9 @@ TAG_CLADE_BG = "clade-background"
 TAG_CLADE_STRIP = "clade-strip"
 TAG_CLADE_NAME = "clade-name"
 TAG_CUT = "cut-line"
+TAG_TIP_SYMBOL = "tip-symbol"
+TAG_SUPPORT_SYMBOL = "support-symbol"
+TAG_SCALE = "scale-bar"
 
 
 @dataclass
@@ -152,10 +155,18 @@ class TreeRenderer:
     def render(self, tree: Tree, style: RenderStyle, clades: list[Clade] | None = None) -> RenderResult:
         self.scene.clear()
         self.style = style
-        font = QFont()
-        font.setPointSizeF(style.label.size)
+        lab = style.label
+        font = QFont(lab.family) if lab.family else QFont()
+        font.setPointSizeF(lab.size)
         self._font = font
         self._fm = QFontMetricsF(font)
+        leaf_font = QFont(font)
+        leaf_font.setBold(lab.bold)
+        leaf_font.setItalic(lab.italic)
+        self._leaf_font = leaf_font
+        self._leaf_fm = QFontMetricsF(leaf_font)
+        sym = style.symbols
+        self._marker = sym.size if sym.shape != "none" else 0.0
         self.geometry = None
         res = RenderResult()
         res.clades = resolve_clades(tree, clades or [], style.palette_colors())
@@ -210,9 +221,10 @@ class TreeRenderer:
         return [rc for rc in res.clades if rc.valid and rc.clade.visible and rc.node is not None]
 
     # ----------------------------------------------------------- helpers
-    def _text(self, text: str, size: float | None = None, color: str = "#202020") -> QGraphicsSimpleTextItem:
+    def _text(self, text: str, size: float | None = None, color: str = "#202020",
+              leaf: bool = False) -> QGraphicsSimpleTextItem:
         item = QGraphicsSimpleTextItem(text)
-        f = QFont(self._font)
+        f = QFont(self._leaf_font if leaf else self._font)
         if size is not None:
             f.setPointSizeF(size)
         item.setFont(f)
@@ -246,18 +258,70 @@ class TreeRenderer:
         pen.setStyle(Qt.PenStyle.DashLine)
         return pen
 
-    def _support_items(self, tree: Tree, style: RenderStyle, place) -> None:  # type: ignore[no-untyped-def]
+    def _support_items(self, tree: Tree, style: RenderStyle, place, point) -> None:  # type: ignore[no-untyped-def]
+        """Suporte como números (``place`` posiciona o texto) ou símbolos (em ``point(node)``)."""
         sup = style.support
-        if not sup.show:
+        if sup.mode == "none":
             return
-        small = max(style.label.size * 0.75, 4)
-        for node in tree.root.traverse_preorder():
-            if node.is_leaf or not node.supports or node is tree.root:
+        nodes = [n for n in tree.root.traverse_preorder()
+                 if not n.is_leaf and n.supports and n is not tree.root]
+        if sup.mode == "numbers":
+            small = max(style.label.size * 0.75, 4)
+            for node in nodes:
+                if support_value(node.supports, sup.index) < sup.threshold:
+                    continue
+                place(node, self._text(_fmt_support(node.supports, sup.index), small, sup.color))
+            return
+        vmax = max((support_value(n.supports, sup.index) for n in nodes), default=0.0) or 1.0
+        filled, hollow = QPainterPath(), QPainterPath()
+        for node in nodes:
+            v = support_value(node.supports, sup.index)
+            d = sup.symbol_size
+            if sup.size_by_value:
+                d *= 0.35 + 0.65 * max(0.0, min(v / vmax, 1.0))
+            (filled if v >= sup.threshold else hollow).addEllipse(point(node), d / 2, d / 2)
+        pen = QPen(QColor(sup.color), max(sup.symbol_size * 0.15, 0.6))
+        for path, brush in ((filled, QBrush(QColor(sup.color))), (hollow, QBrush(QColor("white")))):
+            if path.isEmpty():
                 continue
-            if support_value(node.supports, sup.index) < sup.threshold:
-                continue
-            item = self._text(_fmt_support(node.supports, sup.index), small, "#555555")
-            place(node, item)
+            item = QGraphicsPathItem(path)
+            item.setPen(pen)
+            item.setBrush(brush)
+            item.setZValue(2)
+            item.setData(1, TAG_SUPPORT_SYMBOL)
+            self.scene.addItem(item)
+
+    def _tip_symbols(self, leaves: list[Node], point) -> None:  # type: ignore[no-untyped-def]
+        sym = self.style.symbols
+        if sym.shape == "none":
+            return
+        by_color: dict[str, QPainterPath] = {}
+        r = sym.size / 2
+        for leaf in leaves:
+            color = sym.color
+            if sym.use_clade_color:
+                rc = self._clade_of(leaf)
+                if rc is not None:
+                    color = rc.color
+            path = by_color.setdefault(color, QPainterPath())
+            c = point(leaf)
+            if sym.shape == "circle":
+                path.addEllipse(c, r, r)
+            elif sym.shape == "square":
+                path.addRect(QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r))
+            else:  # losango
+                path.moveTo(c.x(), c.y() - r)
+                path.lineTo(c.x() + r, c.y())
+                path.lineTo(c.x(), c.y() + r)
+                path.lineTo(c.x() - r, c.y())
+                path.closeSubpath()
+        for color, path in by_color.items():
+            item = QGraphicsPathItem(path)
+            item.setBrush(QBrush(QColor(color)))
+            item.setPen(QPen(Qt.PenStyle.NoPen))
+            item.setZValue(2)
+            item.setData(1, TAG_TIP_SYMBOL)
+            self.scene.addItem(item)
 
     # ----------------------------------------------------- rectangular
     def _render_rectangular(self, tree: Tree, style: RenderStyle, res: RenderResult) -> None:
@@ -291,9 +355,9 @@ class TreeRenderer:
             res.leaf_points[leaf.name] = p
             if not style.label.show:
                 continue
-            item = self._text(leaf.name, color=self._label_color(leaf))
+            item = self._text(leaf.name, color=self._label_color(leaf), leaf=True)
             h = item.boundingRect().height()
-            item.setPos(p.x() + pad, p.y() - h / 2)
+            item.setPos(p.x() + pad + self._marker / 2, p.y() - h / 2)
             res.leaf_items.setdefault(leaf.name, []).append(item)
             label_right = max(label_right, item.sceneBoundingRect().right())
 
@@ -344,11 +408,11 @@ class TreeRenderer:
             r = item.boundingRect()
             item.setPos(p.x() - r.width() - 2, p.y() - r.height())
 
-        self._support_items(tree, style, place)
+        self._tip_symbols(lay.leaf_order, pt)
+        self._support_items(tree, style, place, pt)
 
         if lay.uses_lengths and lay.max_x > 0:
-            n = len(lay.leaf_order)
-            self._scale_bar(QPointF(0, n * sy + sy), lay.max_x, sx)
+            self._scale_bar(lay.max_x, sx, sy)
 
     # -------------------------------------------------------- circular
     def _render_circular(self, tree: Tree, style: RenderStyle, res: RenderResult) -> None:
@@ -362,7 +426,7 @@ class TreeRenderer:
         # largura máxima dos rótulos (para reservar espaço quando não alinhados)
         max_label_w = 0.0
         if style.label.show:
-            max_label_w = max((self._fm.horizontalAdvance(l.name) for l in lay.leaf_order), default=0.0)
+            max_label_w = max((self._leaf_fm.horizontalAdvance(l.name) for l in lay.leaf_order), default=0.0)
 
         geom = circular_geometry(
             lay,
@@ -373,6 +437,7 @@ class TreeRenderer:
             align_tips=style.align_tips,
             ring_widths=(cs.strip_width,) if strip else (),
             inner_extent=0.0 if style.align_tips else max_label_w + pad,
+            marker=self._marker,
         )
         self.geometry = geom
         sr = geom.scale
@@ -416,13 +481,14 @@ class TreeRenderer:
             res.leaf_points[leaf.name] = pt(geom.leaf_end_radius(lay, leaf), th)
             if not style.label.show:
                 continue
-            start = geom.label_radius if geom.align_tips else rad(leaf) + pad
-            item = self._text(leaf.name, color=self._label_color(leaf))
+            start = geom.label_radius if geom.align_tips else rad(leaf) + self._marker / 2 + pad
+            item = self._text(leaf.name, color=self._label_color(leaf), leaf=True)
             self._rotate_radial(item, pt(start, th), th)
             res.leaf_items.setdefault(leaf.name, []).append(item)
 
         # raio externo ocupado pelos rótulos (ou anéis)
-        label_outer = (geom.label_radius if geom.align_tips else geom.tip_ring + pad) + max_label_w
+        label_outer = (geom.label_radius if geom.align_tips
+                       else geom.tip_ring + self._marker / 2 + pad) + max_label_w
         outer = max(label_outer, geom.rings_end)
 
         def th_range(node: Node) -> tuple[float, float]:
@@ -466,11 +532,12 @@ class TreeRenderer:
             br = item.boundingRect()
             item.setPos(p.x() - br.width() / 2, p.y() - br.height() / 2)
 
-        self._support_items(tree, style, place)
+        self._tip_symbols(lay.leaf_order,
+                          lambda leaf: pt(geom.leaf_end_radius(lay, leaf), lay.pos[leaf][1]))
+        self._support_items(tree, style, place, lambda node: pt(rad(node), lay.pos[node][1]))
 
         if lay.uses_lengths and lay.max_r > 0:
-            box = self.scene.itemsBoundingRect()
-            self._scale_bar(QPointF(box.left(), box.bottom() + spacing), lay.max_r, sr)
+            self._scale_bar(lay.max_r, sr, spacing)
 
     def _rotate_radial(self, item: QGraphicsSimpleTextItem, anchor: QPointF, th: float) -> None:
         """Texto radial começando em ``anchor``; invertido na metade esquerda para leitura."""
@@ -513,21 +580,32 @@ class TreeRenderer:
         return items
 
     # ------------------------------------------------------- escala
-    def _scale_bar(self, origin: QPointF, max_len: float, px_per_unit: float) -> None:
-        val = _nice_scale(max_len)
+    def _scale_bar(self, max_len: float, px_per_unit: float, gap: float) -> None:
+        """Barra de escala num canto do desenho (posição/comprimento do estilo)."""
+        sb = self.style.scale_bar
+        if not sb.show:
+            return
+        val = sb.length if sb.length and sb.length > 0 else _nice_scale(max_len)
         if val <= 0:
             return
+        box = self.scene.itemsBoundingRect()
         w = val * px_per_unit
+        tick = 4.0
+        label = self._text(f"{val:g}", max(self._font.pointSizeF() * 0.8, 4), self.style.branch.color)
+        label.setData(1, TAG_SCALE)
+        lh = label.boundingRect().height()
+        left = "left" in sb.position
+        top = sb.position.startswith("top")
+        x0 = box.left() if left else box.right() - w
+        y = box.top() - gap - lh - tick if top else box.bottom() + gap
         path = QPainterPath()
-        path.moveTo(origin)
-        path.lineTo(origin.x() + w, origin.y())
-        tick = 4
-        for x in (origin.x(), origin.x() + w):
-            path.moveTo(x, origin.y() - tick)
-            path.lineTo(x, origin.y() + tick)
-        self._add_path(path, self.style.branch.color, self.style.branch.width)
-        label = self._text(f"{val:g}", max(self._font.pointSizeF() * 0.8, 4))
-        label.setPos(origin.x() + w / 2 - label.boundingRect().width() / 2, origin.y() + tick + 1)
+        path.moveTo(x0, y)
+        path.lineTo(x0 + w, y)
+        for x in (x0, x0 + w):
+            path.moveTo(x, y - tick)
+            path.lineTo(x, y + tick)
+        self._add_path(path, self.style.branch.color, self.style.branch.width, TAG_SCALE)
+        label.setPos(x0 + w / 2 - label.boundingRect().width() / 2, y + tick + 1)
 
 
 def make_highlight(scene: QGraphicsScene, item: QGraphicsSimpleTextItem) -> QGraphicsRectItem:

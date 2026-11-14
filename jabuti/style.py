@@ -53,16 +53,59 @@ class GuideStyle:
 
 @dataclass
 class LabelStyle:
+    """Rótulos das folhas."""
+
+    family: str = ""               # "" = fonte padrão do sistema
     size: float = 10.0
+    bold: bool = False
+    italic: bool = True            # nomes de espécie em itálico por padrão
     color: str = "#202020"
     show: bool = True
 
 
+TIP_SHAPES: dict[str, str] = {"none": "Nenhum", "circle": "Círculo", "square": "Quadrado", "diamond": "Losango"}
+
+
+@dataclass
+class SymbolStyle:
+    """Símbolos nas pontas das folhas."""
+
+    shape: str = "none"            # chave de TIP_SHAPES
+    size: float = 6.0
+    color: str = "#202020"
+    use_clade_color: bool = True
+
+
+SUPPORT_MODES: dict[str, str] = {"none": "Não mostrar", "numbers": "Números", "symbols": "Símbolos nos nós"}
+
+
 @dataclass
 class SupportStyle:
-    show: bool = False
+    mode: str = "none"             # chave de SUPPORT_MODES
     index: int = -1                # 0/1 quando há "a/b"; -1 = último; 99 = todos
-    threshold: float = 0.0
+    threshold: float = 0.0         # números: oculta abaixo; símbolos: cheio se >= limiar
+    symbol_size: float = 6.0
+    size_by_value: bool = False
+    color: str = "#555555"
+
+    @property
+    def show(self) -> bool:
+        return self.mode != "none"
+
+
+SCALE_POSITIONS: dict[str, str] = {
+    "bottom-left": "Embaixo, à esquerda",
+    "bottom-right": "Embaixo, à direita",
+    "top-left": "Em cima, à esquerda",
+    "top-right": "Em cima, à direita",
+}
+
+
+@dataclass
+class ScaleBarStyle:
+    show: bool = True
+    position: str = "bottom-left"  # chave de SCALE_POSITIONS
+    length: float | None = None    # None = automático ("redondo")
 
 
 @dataclass
@@ -92,6 +135,8 @@ class RenderStyle:
     guide: GuideStyle = field(default_factory=GuideStyle)
     label: LabelStyle = field(default_factory=LabelStyle)
     support: SupportStyle = field(default_factory=SupportStyle)
+    symbols: SymbolStyle = field(default_factory=SymbolStyle)
+    scale_bar: ScaleBarStyle = field(default_factory=ScaleBarStyle)
     clades: CladeStyle = field(default_factory=CladeStyle)
     color_by: str | None = None    # coluna de metadados (Fase 2)
 

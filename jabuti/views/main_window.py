@@ -144,7 +144,6 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------ ações
     def on_tree_changed(self, tree: Tree) -> None:
         self.tree = tree
-        self.viz_tab.set_support_options(tree.max_support_values())
         self.style_panel.set_tree(tree, self.viz_tab.use_lengths.isChecked())
         # clados automáticos acompanham a nova raiz; manuais são resolvidos por MRCA
         if self.style_panel.clade_set.auto_mode:

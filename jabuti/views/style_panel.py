@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -32,7 +33,14 @@ from jabuti.models.clades import (
     clades_by_support,
 )
 from jabuti.models.tree import SUPPORT_ALL, Tree
-from jabuti.style import GUIDE_KINDS, PALETTES, RenderStyle
+from jabuti.style import (
+    GUIDE_KINDS,
+    PALETTES,
+    SCALE_POSITIONS,
+    SUPPORT_MODES,
+    TIP_SHAPES,
+    RenderStyle,
+)
 from jabuti.views.clade_list import CladeList
 from jabuti.views.widgets.collapsible import CollapsibleSection
 from jabuti.views.widgets.swatches import BASE_COLORS, SwatchRow, SwatchStrip
@@ -102,8 +110,17 @@ class StylePanel(QWidget):
         self._add_section(lay, "branches", "Ramos", self._build_branches(), False)
         self._add_section(lay, "guides", "Ligações folha → anel", self._build_guides(), False)
         self._add_section(lay, "labels", "Rótulos", self._build_labels(), False)
+        self._add_section(lay, "symbols", "Símbolos e suporte", self._build_symbols(), False)
+        self._add_section(lay, "scale", "Barra de escala", self._build_scale_bar(), False)
         self._add_section(lay, "meta", "Metadados e legenda", self._build_meta(), True)
         lay.addStretch(1)
+        # combos não podem alargar o painel fixo (o texto longo aparece na lista aberta)
+        for cb in self.findChildren(QComboBox):
+            cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(10)
+        for sb in self.findChildren(QDoubleSpinBox):
+            sb.setMinimumWidth(60)
+            sb.setMaximumWidth(110)
 
     def _add_section(self, lay: QVBoxLayout, key: str, title: str, w: QWidget, expanded: bool) -> None:
         sec = CollapsibleSection(title, w, expanded)
@@ -284,7 +301,7 @@ class StylePanel(QWidget):
         mm.addWidget(QLabel("máx"))
         mm.addWidget(self.max_width)
         f.addRow(mm)
-        hint = QLabel("Usa o valor de suporte escolhido na aba Visualização; nós sem suporte ficam com a mínima. "
+        hint = QLabel("Usa o valor escolhido em “Símbolos e suporte → Valor”; nós sem suporte ficam com a mínima. "
                       "A cor padrão vale quando não há clados (ou a opção de clado está desligada).")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888;")
@@ -323,10 +340,122 @@ class StylePanel(QWidget):
         w = QWidget()
         f = QFormLayout(w)
         f.setContentsMargins(8, 0, 0, 6)
+        self.show_labels = QCheckBox("Mostrar nomes das folhas")
+        self.show_labels.setChecked(True)
+        self.show_labels.toggled.connect(self._emit)
+        f.addRow(self.show_labels)
+        self.font_family = QComboBox()
+        self.font_family.addItem("Padrão do sistema", "")
+        for fam in QFontDatabase.families():
+            if not fam.startswith("."):
+                self.font_family.addItem(fam, fam)
+        self.font_family.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.font_family.setMinimumContentsLength(14)
+        self.font_family.currentIndexChanged.connect(self._emit)
+        f.addRow("Fonte:", self.font_family)
+        self.font_size = self._spin(2, 48, 10, 0.5)
+        f.addRow("Tamanho:", self.font_size)
+        bi = QHBoxLayout()
+        self.font_bold = QCheckBox("Negrito")
+        self.font_italic = QCheckBox("Itálico")
+        self.font_italic.setChecked(True)
+        self.font_italic.setToolTip("Padrão para nomes de espécie")
+        for cb in (self.font_bold, self.font_italic):
+            cb.toggled.connect(self._emit)
+            bi.addWidget(cb)
+        bi.addStretch(1)
+        f.addRow(bi)
         self.label_row = SwatchRow()
         self.label_row.color_changed.connect(self._emit)
         f.addRow("Cor padrão:", self.label_row)
         return w
+
+    def _build_symbols(self) -> QWidget:
+        w = QWidget()
+        f = QFormLayout(w)
+        f.setContentsMargins(8, 0, 0, 6)
+        f.addRow(QLabel("<b>Pontas das folhas</b>"))
+        self.tip_shape = QComboBox()
+        for key, label in TIP_SHAPES.items():
+            self.tip_shape.addItem(label, key)
+        self.tip_shape.currentIndexChanged.connect(self._emit)
+        f.addRow("Símbolo:", self.tip_shape)
+        self.tip_size = self._spin(1, 30, 6, 0.5)
+        f.addRow("Tamanho:", self.tip_size)
+        self.tip_row = SwatchRow()
+        self.tip_row.color_changed.connect(self._emit)
+        f.addRow("Cor:", self.tip_row)
+        self.tip_clade_color = QCheckBox("Usar a cor do clado")
+        self.tip_clade_color.setChecked(True)
+        self.tip_clade_color.toggled.connect(self._emit)
+        f.addRow(self.tip_clade_color)
+
+        f.addRow(QLabel("<b>Suporte dos nós</b>"))
+        self.support_mode = QComboBox()
+        for key, label in SUPPORT_MODES.items():
+            self.support_mode.addItem(label, key)
+        self.support_mode.currentIndexChanged.connect(self._emit)
+        f.addRow("Mostrar como:", self.support_mode)
+        self.support_which = QComboBox()
+        self.support_which.currentIndexChanged.connect(self._emit)
+        f.addRow("Valor:", self.support_which)
+        self.support_threshold = self._spin(0, 100, 0, 1)
+        self.support_threshold.setToolTip("Números: oculta valores abaixo do limiar.\n"
+                                          "Símbolos: círculo cheio se ≥ limiar, vazado abaixo.")
+        f.addRow("Limiar:", self.support_threshold)
+        self.support_symbol_size = self._spin(1, 30, 6, 0.5)
+        f.addRow("Tamanho do símbolo:", self.support_symbol_size)
+        self.support_size_by_value = QCheckBox("Tamanho proporcional ao valor")
+        self.support_size_by_value.toggled.connect(self._emit)
+        f.addRow(self.support_size_by_value)
+        self.support_row = SwatchRow(selected="#6b6b6b")
+        self.support_row.color_changed.connect(self._emit)
+        f.addRow("Cor:", self.support_row)
+        self.set_display_support_options(0)
+        return w
+
+    def _build_scale_bar(self) -> QWidget:
+        w = QWidget()
+        f = QFormLayout(w)
+        f.setContentsMargins(8, 0, 0, 6)
+        self.scale_show = QCheckBox("Mostrar barra de escala")
+        self.scale_show.setChecked(True)
+        self.scale_show.toggled.connect(self._emit)
+        f.addRow(self.scale_show)
+        self.scale_pos = QComboBox()
+        for key, label in SCALE_POSITIONS.items():
+            self.scale_pos.addItem(label, key)
+        self.scale_pos.currentIndexChanged.connect(self._emit)
+        f.addRow("Posição:", self.scale_pos)
+        row = QHBoxLayout()
+        self.scale_auto = QCheckBox("Automático")
+        self.scale_auto.setChecked(True)
+        self.scale_len = QDoubleSpinBox()
+        self.scale_len.setDecimals(4)
+        self.scale_len.setRange(0.0001, 1e6)
+        self.scale_len.setValue(0.05)
+        self.scale_len.setEnabled(False)
+        self.scale_auto.toggled.connect(lambda on: (self.scale_len.setEnabled(not on), self._emit()))
+        self.scale_len.valueChanged.connect(self._emit)
+        row.addWidget(self.scale_auto)
+        row.addWidget(self.scale_len, 1)
+        f.addRow("Comprimento:", row)
+        return w
+
+    def set_display_support_options(self, n_values: int) -> None:
+        self.support_which.blockSignals(True)
+        self.support_which.clear()
+        if n_values >= 2:
+            self.support_which.addItem("UFBoot (2º valor)", 1)
+            self.support_which.addItem("SH-aLRT (1º valor)", 0)
+            self.support_which.addItem("Ambos (a/b; símbolo usa o menor)", SUPPORT_ALL)
+        else:
+            self.support_which.addItem("Único", -1)
+        self.support_which.setEnabled(n_values >= 2)
+        self.support_mode.setEnabled(n_values > 0)
+        if n_values == 0:
+            self.support_mode.setCurrentIndex(0)
+        self.support_which.blockSignals(False)
 
     def _build_meta(self) -> QWidget:
         w = QWidget()
@@ -352,6 +481,7 @@ class StylePanel(QWidget):
             depth, _ = node_depths(tree, use_lengths)
             self.max_depth = max(depth.values(), default=0.0)
             self.set_support_options(tree.max_support_values())
+            self.set_display_support_options(tree.max_support_values())
         self._update_dist_label()
 
     def set_support_options(self, n_values: int) -> None:
@@ -507,6 +637,28 @@ class StylePanel(QWidget):
         g.color = self.guide_row.color()
         g.width = self.guide_width.value()
         g.opacity = self.guide_opacity.value() / 100
-        style.label.color = self.label_row.color()
+        lab = style.label
+        lab.show = self.show_labels.isChecked()
+        lab.family = self.font_family.currentData() or ""
+        lab.size = self.font_size.value()
+        lab.bold = self.font_bold.isChecked()
+        lab.italic = self.font_italic.isChecked()
+        lab.color = self.label_row.color()
+        sym = style.symbols
+        sym.shape = self.tip_shape.currentData()
+        sym.size = self.tip_size.value()
+        sym.color = self.tip_row.color()
+        sym.use_clade_color = self.tip_clade_color.isChecked()
+        sup = style.support
+        sup.mode = self.support_mode.currentData() if self.support_mode.isEnabled() else "none"
+        sup.index = self.support_which.currentData()
+        sup.threshold = self.support_threshold.value()
+        sup.symbol_size = self.support_symbol_size.value()
+        sup.size_by_value = self.support_size_by_value.isChecked()
+        sup.color = self.support_row.color()
+        sb = style.scale_bar
+        sb.show = self.scale_show.isChecked()
+        sb.position = self.scale_pos.currentData()
+        sb.length = None if self.scale_auto.isChecked() else self.scale_len.value()
         style.color_by = self.color_by.currentData()
         return style

@@ -23,9 +23,19 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
   Clados manuais sobrevivem a reenraizamentos (⚠ se deixarem de ser monofiléticos).
   Em árvores não enraizadas (raiz com 3 filhos) o k pode ser ultrapassado no menor corte possível.
 - **Ramos** — cor padrão, espessura, ponta reta ou arredondada e, opcionalmente, espessura
-  proporcional ao suporte (mín./máx.; usa o valor de suporte escolhido na aba Visualização).
+  proporcional ao suporte (mín./máx.; usa o valor escolhido em *Símbolos e suporte*).
 - **Ligações folha → anel** (circular alinhado) — contínua, tracejada, pontilhada com pontos
   pequenos ou maiores, ou nenhuma; cor, espessura e opacidade.
+- **Rótulos** — mostrar/ocultar, fonte (padrão do sistema ou qualquer família instalada),
+  tamanho, negrito e itálico (ligado por padrão, para nomes de espécie).
+- **Símbolos e suporte** — símbolo nas pontas (círculo, quadrado, losango ou nenhum; tamanho;
+  cor fixa ou do clado). Suporte dos nós como números (com limiar para ocultar) ou como
+  símbolos: círculo cheio se ≥ limiar e vazado abaixo, com tamanho opcionalmente proporcional
+  ao valor. Escolha do valor: UFBoot, SH-aLRT ou ambos.
+- **Barra de escala** — mostrar/ocultar, canto (4 posições) e comprimento automático ou fixo.
+
+A aba **Visualização** fica com layout, comprimentos/cladograma, alinhamento no anel,
+escala dos ramos, espaço entre folhas e exportação.
 
 Exemplo para testar: `python -m jabuti examples/paraburkholderia_40.treefile` (árvore sintética).
 
