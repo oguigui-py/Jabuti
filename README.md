@@ -7,8 +7,7 @@ no estilo de um iTOL simplificado. App desktop em Python + PySide6 (macOS e Wind
 enraizamento midpoint ou por folha, layouts retangular e circular (pontas alinhadas no anel
 externo, estilo iTOL), clados coloridos, estilos de linha, rótulos e símbolos, edição da árvore
 (ladderize, girar, colapsar), presets JSON, zoom/pan, busca de folhas e exportação SVG / PDF / PNG.
-**Próximas fases:** GFF3 + busca de genes (heatmap de presença/ausência), metadados TSV/CSV,
-anotações iTOL simples e builds `.app` / `.exe`.
+**Próximas fases:** contexto gênico, anotações iTOL simples e builds `.app` / `.exe`.
 
 ## GFF3 e heatmap de genes (aba **GFF**)
 
@@ -24,6 +23,20 @@ anotações iTOL simples e builds `.app` / `.exe`.
   nomes das colunas e bordas ficam na seção *Heatmap de genes* do painel.
 
 Exemplos sintéticos: `examples/gff/*.gff3` (22 genomas) para `examples/paraburkholderia_40.treefile`.
+
+## Metadados (aba **Metadados**)
+
+- *Abrir TSV/CSV…* (TAB, vírgula ou ponto e vírgula; com cabeçalho; uma linha por genoma).
+  A coluna com o nome da folha é detectada automaticamente (pode trocar) e o casamento usa as
+  mesmas regras tolerantes dos GFFs. O relatório lista folhas sem metadados e linhas sem folha.
+- No painel, *Metadados e legenda*: **colorir por coluna** os rótulos e/ou os ramos (categorias
+  com a paleta, mais frequentes primeiro; colunas numéricas em gradiente). A cor do metadado tem
+  prioridade sobre a dos clados; um ramo interno só é colorido se todas as folhas abaixo dele
+  concordam. **Faixas de cor**: marque colunas para desenhá-las ao lado da árvore (anéis no
+  circular), antes do heatmap de genes. Valores ausentes (`NA`, vazio, `-`…) usam a cor “sem valor”.
+- A legenda agrupa clados, cor por metadado, faixas, heatmap e (no circular) a ordem dos anéis.
+
+Exemplo sintético: `examples/metadata.tsv` (chave = linhagem).
 
 ## Personalização (painel **Estilo**, à direita)
 

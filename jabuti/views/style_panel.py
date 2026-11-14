@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QRadioButton,
     QSizePolicy,
@@ -116,6 +118,7 @@ class StylePanel(QWidget):
         super().__init__(parent)
         self.clade_set = CladeSet()
         self.edits = TreeEdits()
+        self._pending_meta = None   # escolhas de metadados de um preset, à espera das colunas
         self.tree: Tree | None = None
         self.use_lengths = True
         self.max_depth = 0.0
@@ -708,6 +711,22 @@ class StylePanel(QWidget):
             self.hm_headers.setChecked(hm.show_headers)
             self.hm_borders.setChecked(hm.borders)
 
+            md = style.metadata
+            self.meta_labels.setChecked(md.color_labels)
+            self.meta_branches.setChecked(md.color_branches)
+            self.meta_strip_width.setValue(md.strip_width)
+            self.meta_missing.set_color(md.missing_color)
+            idx = self.color_by.findData(md.color_by) if md.color_by else 0
+            self.color_by.setCurrentIndex(max(idx, 0))
+            available = {self.meta_strips.item(i).data(Qt.ItemDataRole.UserRole)
+                         for i in range(self.meta_strips.count())}
+            for col in available:
+                self.set_strip_checked(col, col in md.strips)
+            missing_cols = [c for c in [md.color_by, *md.strips] if c and c not in available]
+            if missing_cols and available:
+                warnings.append("Colunas do preset ausentes nos metadados abertos: " + ", ".join(missing_cols))
+            self._pending_meta = md if missing_cols or not available else None
+
             self.bg_transparent.setChecked(style.background is None)
             if style.background:
                 self.bg_row.set_color(style.background)
@@ -734,10 +753,36 @@ class StylePanel(QWidget):
         v = QVBoxLayout(w)
         v.setContentsMargins(8, 0, 0, 6)
         self.color_by = QComboBox()
-        self.set_metadata_columns([])
-        self.color_by.currentIndexChanged.connect(lambda _i: self.changed.emit())
+        self.color_by.currentIndexChanged.connect(self._emit)
         v.addWidget(QLabel("Colorir por coluna:"))
         v.addWidget(self.color_by)
+        row = QHBoxLayout()
+        self.meta_labels = QCheckBox("rótulos")
+        self.meta_labels.setChecked(True)
+        self.meta_branches = QCheckBox("ramos")
+        for cb in (self.meta_labels, self.meta_branches):
+            cb.toggled.connect(self._emit)
+            row.addWidget(cb)
+        row.addStretch(1)
+        v.addLayout(row)
+        hint = QLabel("A cor do metadado tem prioridade sobre a dos clados. Ramo interno só recebe a cor "
+                      "se todas as folhas abaixo dele tiverem a mesma.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #888;")
+        v.addWidget(hint)
+        v.addWidget(QLabel("Faixas de cor (ao lado da árvore / anéis):"))
+        self.meta_strips = QListWidget()
+        self.meta_strips.setMaximumHeight(110)
+        self.meta_strips.itemChanged.connect(self._emit)
+        v.addWidget(self.meta_strips)
+        f = QFormLayout()
+        self.meta_strip_width = self._spin(2, 80, 12, 1)
+        f.addRow("Largura da faixa:", self.meta_strip_width)
+        self.meta_missing = SwatchRow(HEAT_MISSING, selected="#d9d9d9")
+        self.meta_missing.color_changed.connect(self._emit)
+        f.addRow("Sem valor:", self.meta_missing)
+        v.addLayout(f)
+        self.set_metadata_columns([])
         v.addWidget(QLabel("<b>Legenda</b>"))
         self.legend = LegendWidget()
         v.addWidget(self.legend)
@@ -865,18 +910,56 @@ class StylePanel(QWidget):
         self.changed.emit()
 
     # ---------------------------------------------------------- metadados
-    def set_metadata_columns(self, columns: list[str]) -> None:
-        """Fase 2: preenchido quando metadados forem carregados."""
+    def set_metadata_columns(self, columns: list[str], kinds: dict[str, str] | None = None) -> None:
+        """Preenche "colorir por" e a lista de faixas, preservando as escolhas que ainda existem."""
+        kinds = kinds or {}
+        current = self.color_by.currentData() if self.color_by.count() else None
+        checked = set(self.checked_strips()) if hasattr(self, "meta_strips") else set()
         self.color_by.blockSignals(True)
         self.color_by.clear()
         if columns:
             self.color_by.addItem("— nenhuma —", None)
             for c in columns:
-                self.color_by.addItem(c, c)
+                self.color_by.addItem(f"{c} ({kinds[c]})" if c in kinds else c, c)
+            idx = self.color_by.findData(current)
+            self.color_by.setCurrentIndex(max(idx, 0))
         else:
             self.color_by.addItem("Carregue metadados (aba Metadados)", None)
         self.color_by.setEnabled(bool(columns))
         self.color_by.blockSignals(False)
+        self.meta_strips.blockSignals(True)
+        self.meta_strips.clear()
+        for c in columns:
+            item = QListWidgetItem(f"{c} ({kinds[c]})" if c in kinds else c)
+            item.setData(Qt.ItemDataRole.UserRole, c)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if c in checked else Qt.CheckState.Unchecked)
+            self.meta_strips.addItem(item)
+        self.meta_strips.setEnabled(bool(columns))
+        self.meta_strips.blockSignals(False)
+        pend = self._pending_meta
+        if pend is not None and columns:
+            self.blockSignals(True)
+            try:
+                if pend.color_by in columns:
+                    self.color_by.setCurrentIndex(self.color_by.findData(pend.color_by))
+                for c in columns:
+                    if c in pend.strips:
+                        self.set_strip_checked(c, True)
+            finally:
+                self.blockSignals(False)
+            self._pending_meta = None
+
+    def checked_strips(self) -> list[str]:
+        return [self.meta_strips.item(i).data(Qt.ItemDataRole.UserRole)
+                for i in range(self.meta_strips.count())
+                if self.meta_strips.item(i).checkState() == Qt.CheckState.Checked]
+
+    def set_strip_checked(self, column: str, on: bool) -> None:
+        for i in range(self.meta_strips.count()):
+            item = self.meta_strips.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == column:
+                item.setCheckState(Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
 
     # ------------------------------------------------------------- estilo
     def palette_name(self) -> str:
@@ -943,5 +1026,11 @@ class StylePanel(QWidget):
         hm.show_counts = self.hm_counts.isChecked()
         hm.show_headers = self.hm_headers.isChecked()
         hm.borders = self.hm_borders.isChecked()
-        style.color_by = self.color_by.currentData()
+        md = style.metadata
+        md.color_by = self.color_by.currentData()
+        md.color_labels = self.meta_labels.isChecked()
+        md.color_branches = self.meta_branches.isChecked()
+        md.strips = self.checked_strips()
+        md.strip_width = self.meta_strip_width.value()
+        md.missing_color = self.meta_missing.color()
         return style

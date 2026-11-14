@@ -240,7 +240,7 @@ def test_gui_circular_ring_legend(window, data_dir):
     vt.layout_cb.setCurrentIndex(vt.layout_cb.findData(LayoutKind.CIRCULAR))
     window.generate()
     titles = [g.title for g in window.style_panel.legend.groups]
-    assert any(t.startswith("Anéis de genes") for t in titles)
+    assert any(t.startswith("Anéis") for t in titles)
 
 
 def test_gui_mapping_survives_reroot(window, data_dir):
@@ -256,3 +256,13 @@ def test_heatmap_style_in_preset():
 
     st = RenderStyle(heatmap=HeatmapStyle(present_color="#2e7d32", show_counts=True, cell_width=1.5))
     assert style_from_dict(style_to_dict(st)) == st
+
+
+def test_rect_headers_do_not_overlap(draw):
+    narrow = [LeafColumn(f"gene:{i}", f"cabecalho_longo_{i}", {"A": P}, M, width=10) for i in range(4)]
+    scene, _, _ = draw(RenderStyle(), narrow)
+    boxes = sorted((i.sceneBoundingRect() for i in scene.items() if i.data(1) == "column-header"),
+                   key=lambda b: b.left())
+    assert len(boxes) == 4
+    for a, b in zip(boxes, boxes[1:]):
+        assert a.right() <= b.left() + 0.5

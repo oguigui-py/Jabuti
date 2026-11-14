@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QMainWindow,
     QMenu,
@@ -25,7 +24,13 @@ from PySide6.QtWidgets import (
 )
 
 from jabuti import __version__
-from jabuti.models.annotations import presence_columns, presence_legend
+from jabuti.models.annotations import (
+    LegendGroup,
+    metadata_colors,
+    metadata_column,
+    presence_columns,
+    presence_legend,
+)
 from jabuti.models.document import apply_edits
 from jabuti.presets import (
     LoadedPreset,
@@ -40,20 +45,11 @@ from jabuti.views.canvas import TreeCanvas
 from jabuti.views.style_panel import StylePanel
 from jabuti.views.errors import show_error
 from jabuti.views.gff_tab import GffTab
+from jabuti.views.metadata_tab import MetadataTab
 from jabuti.views.export import export_pdf, export_png, export_svg
 from jabuti.views.tree_renderer import TreeRenderer
 from jabuti.views.tree_tab import TreeTab
 from jabuti.views.viz_tab import VizTab
-
-
-def _placeholder(text: str) -> QWidget:
-    w = QWidget()
-    lay = QVBoxLayout(w)
-    lbl = QLabel(text)
-    lbl.setWordWrap(True)
-    lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
-    lay.addWidget(lbl)
-    return w
 
 
 def user_default_preset_path() -> Path:
@@ -88,7 +84,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(_scroll(self.tree_tab), "Árvore")
         self.gff_tab = GffTab()
         self.tabs.addTab(_scroll(self.gff_tab), "GFF")
-        self.tabs.addTab(_placeholder("Metadados TSV/CSV — próxima etapa."), "Metadados")
+        self.metadata_tab = MetadataTab()
+        self.tabs.addTab(_scroll(self.metadata_tab), "Metadados")
         self.tabs.addTab(_scroll(self.viz_tab), "Visualização")
         self.tabs.setMinimumWidth(320)
 
@@ -144,6 +141,9 @@ class MainWindow(QMainWindow):
         self.canvas.node_context_requested.connect(self.show_node_menu)
         self.style_panel.preset_action.connect(self.on_preset_action)
         self.gff_tab.changed.connect(self._live_timer.start)
+        self.metadata_tab.changed.connect(self._live_timer.start)
+        self.metadata_tab.columns_changed.connect(self._metadata_columns_changed)
+        self.metadata_tab.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.gff_tab.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
 
         self.tree_tab.tree_changed.connect(self.on_tree_changed)
@@ -173,6 +173,7 @@ class MainWindow(QMainWindow):
         self.tree = tree
         self.style_panel.set_tree(tree, self.viz_tab.use_lengths.isChecked())
         self.gff_tab.set_tree_leaves(tree.leaf_names())
+        self.metadata_tab.set_tree_leaves(tree.leaf_names())
         # clados automáticos acompanham a nova raiz; manuais são resolvidos por MRCA
         if self.style_panel.clade_set.auto_mode:
             self.style_panel.detect()
@@ -182,21 +183,43 @@ class MainWindow(QMainWindow):
     def current_style(self):  # type: ignore[no-untyped-def]
         return self.style_panel.apply_to(self.viz_tab.render_style())
 
+    def _metadata_columns_changed(self, columns: list) -> None:
+        kinds = {c: self.metadata_tab.column_kind(c) for c in columns}
+        self.style_panel.set_metadata_columns(columns, kinds)
+
     def annotation_columns(self, style: RenderStyle):  # type: ignore[no-untyped-def]
-        """Colunas/anéis de anotação (heatmap de genes) e grupos de legenda."""
+        """Faixas de metadados + heatmap de genes, grupos de legenda e cores por metadado.
+
+        Ordem (da árvore para fora): faixa de clados, faixas de metadados, colunas de genes.
+        """
         columns, groups = [], []
+        meta_colors: dict[str, str] = {}
+        palette = style.palette_colors()
+        md = style.metadata
+        by_leaf = self.metadata_tab.by_leaf()
+        available = set(self.metadata_tab.value_columns())
+        if by_leaf and md.color_by in available and (md.color_labels or md.color_branches):
+            meta_colors, legend = metadata_colors(by_leaf, md.color_by, palette)
+            legend.title = f"Cor: {md.color_by}"
+            groups.append(legend)
+        for col_name in md.strips:
+            if by_leaf and col_name in available:
+                col, legend = metadata_column(by_leaf, col_name, palette, md.missing_color, md.strip_width)
+                columns.append(col)
+                if col_name != md.color_by or not meta_colors:
+                    legend.title = f"Faixa: {col_name}"
+                    groups.append(legend)
         hm = style.heatmap
         if self.gff_tab.queries and self.gff_tab.genomes:
-            cols = presence_columns(self.gff_tab.matrix(), hm.present_color, hm.absent_color,
-                                    hm.missing_color, hm.show_counts)
-            columns += cols
+            gene_cols = presence_columns(self.gff_tab.matrix(), hm.present_color, hm.absent_color,
+                                         hm.missing_color, hm.show_counts)
+            columns += gene_cols
             groups.append(presence_legend(hm.present_color, hm.absent_color, hm.missing_color))
-            if style.layout == LayoutKind.CIRCULAR:
-                from jabuti.models.annotations import LegendGroup
-
-                groups.append(LegendGroup("Anéis de genes (de dentro para fora)",
-                                          [(f"{i + 1}. {c.header}", hm.present_color) for i, c in enumerate(cols)]))
-        return columns, groups
+        if style.layout == LayoutKind.CIRCULAR and columns:
+            groups.append(LegendGroup("Anéis (de dentro para fora)",
+                                      [(f"{i + 1}. {c.header}", hm.present_color if c.kind == "genes" else "#888888")
+                                       for i, c in enumerate(columns)]))
+        return columns, groups, meta_colors
 
     def render_live(self) -> None:
         """Redesenha preservando zoom e posição (mudanças no painel de estilo)."""
@@ -244,9 +267,9 @@ class MainWindow(QMainWindow):
         edits = self.style_panel.edits
         try:
             self.display_tree = apply_edits(self.tree, edits)
-            columns, groups = self.annotation_columns(style)
+            columns, groups, meta_colors = self.annotation_columns(style)
             result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
-                                          edits.collapsed, columns)
+                                          edits.collapsed, columns, meta_colors)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return

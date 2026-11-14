@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from jabuti.models.annotations import presence_matrix
+from jabuti.parsers.errors import JabutiParseError
 from jabuti.parsers.gff import GeneQuery, Genome, find_genes, parse_gff3
 from jabuti.parsers.names import match_names
 from jabuti.views.errors import show_error
@@ -165,8 +166,11 @@ class GffTab(QWidget):
             QCoreApplication.processEvents()
             try:
                 g = parse_gff3(path)
+            except JabutiParseError as exc:
+                errors.append(exc.user_message())
+                continue
             except Exception as exc:  # noqa: BLE001
-                errors.append(getattr(exc, "user_message", lambda: str(exc))())
+                errors.append(f"{Path(path).name}: {exc}")
                 continue
             base, n = g.name, 2
             while g.name in existing:  # mesmo nome de arquivo em pastas diferentes

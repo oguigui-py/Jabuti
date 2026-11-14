@@ -165,9 +165,11 @@ class TreeRenderer:
         clades: list[Clade] | None = None,
         collapsed: list[frozenset[str]] | None = None,
         columns: list[LeafColumn] | None = None,
+        meta_colors: dict[str, str] | None = None,
     ) -> RenderResult:
         self.scene.clear()
         self._columns = list(columns or [])
+        self._meta_node = self._propagate_meta(tree, meta_colors or {})
         self.style = style
         bg = style.background
         self.scene.setBackgroundBrush(QBrush(QColor(bg)) if bg else QBrush(Qt.BrushStyle.NoBrush))
@@ -206,6 +208,36 @@ class TreeRenderer:
     def _clade_of(self, node: Node | None) -> ResolvedClade | None:
         return self._assign.get(node) if node is not None else None
 
+    @staticmethod
+    def _propagate_meta(tree: Tree, leaf_colors: dict[str, str]) -> dict[Node, str]:
+        """Cor de metadado por nó: a da folha, ou a comum a todos os descendentes."""
+        out: dict[Node, str] = {}
+        if not leaf_colors:
+            return out
+        for node in tree.root.traverse_postorder():
+            if node.is_leaf:
+                if node.name in leaf_colors:
+                    out[node] = leaf_colors[node.name]
+            else:
+                kids = [out.get(c) for c in node.children]
+                if kids and kids[0] is not None and all(k == kids[0] for k in kids):
+                    out[node] = kids[0]
+        return out
+
+    def _edge_color(self, node: Node) -> str:
+        """Ramo que termina em ``node``: metadado do próprio nó (se ativo) ou regra dos clados."""
+        md = self.style.metadata
+        if md.color_branches and node in self._meta_node:
+            return self._meta_node[node]
+        return self._branch_color(node.parent)
+
+    def _node_color(self, node: Node) -> str:
+        """Conector/arco que sai de ``node``."""
+        md = self.style.metadata
+        if md.color_branches and node in self._meta_node:
+            return self._meta_node[node]
+        return self._branch_color(node)
+
     def _branch_color(self, owner: Node | None) -> str:
         """Cor de um segmento pertencente a ``owner`` (o nó pai do ramo, ou o nó do arco)."""
         cs = self.style.clades
@@ -215,6 +247,9 @@ class TreeRenderer:
         return self.style.branch.color
 
     def _label_color(self, leaf: Node) -> str:
+        md = self.style.metadata
+        if md.color_labels and leaf in self._meta_node:
+            return self._meta_node[leaf]
         cs = self.style.clades
         if self._has_clades and cs.color_labels:
             rc = self._clade_of(leaf)
@@ -409,12 +444,12 @@ class TreeRenderer:
             res.node_points[node] = p
             if node.parent is not None:
                 pp = pt(node.parent)
-                edges.seg(self._branch_color(node.parent), self._width(node), QPointF(pp.x(), p.y()), p)
+                edges.seg(self._edge_color(node), self._width(node), QPointF(pp.x(), p.y()), p)
             if node in self._collapsed:
                 continue
             if node.children:
                 top, bot = pt(node.children[0]), pt(node.children[-1])
-                edges.seg(self._branch_color(node), self._width(node), QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()))
+                edges.seg(self._node_color(node), self._width(node), QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()))
         edges.flush(self.scene)
 
         tree_right = lay.max_x * sx
@@ -460,9 +495,9 @@ class TreeRenderer:
             x += cs.strip_width + pad
         if self._columns:
             hm = style.heatmap
-            cw = sy * hm.cell_width
             top = lay.span[tree.root][0] * sy
             for col in self._columns:
+                cw = col.width if col.width else sy * hm.cell_width
                 by_color: dict[str, QPainterPath] = {}
                 for node, names in self._tips(lay):
                     a, b = lay.span[node]
@@ -473,12 +508,21 @@ class TreeRenderer:
                         self._cell_text(col.texts[names[0]], rect.center(), color)
                 self._flush_cells(by_color, col)
                 if hm.show_headers:
-                    h = self._text(col.header, max(style.label.size * 0.85, 4))
+                    size = max(style.label.size * 0.85, 4)
+                    h = self._text(col.header, size)
                     h.setData(1, TAG_COLUMN_HEADER)
                     hh = h.boundingRect().height()
+                    while hh > cw and size > 4:  # coluna estreita: fonte menor até caber
+                        size = max(size * min(cw / hh, 0.92), 4)
+                        f = h.font()
+                        f.setPointSizeF(size)
+                        h.setFont(f)
+                        hh = h.boundingRect().height()
+                    # vertical (lido de baixo para cima), centrado na coluna: não se sobrepõe
+                    # mesmo com colunas estreitas
                     h.setTransformOriginPoint(0, hh)
-                    h.setRotation(-60)
-                    h.setPos(x + cw / 2 - hh * 0.3, top - 3 - hh)
+                    h.setRotation(-90)
+                    h.setPos(x + cw / 2 + hh / 2, top - 3 - hh)
                 x += cw
             x += pad
         if cs.background and visible:
@@ -529,7 +573,7 @@ class TreeRenderer:
         visible = self._visible_clades(res)
         strip = cs.outer_strip and bool(visible)
         col_w = spacing * style.heatmap.cell_width
-        ring_widths = ([cs.strip_width] if strip else []) + [col_w] * len(self._columns)
+        ring_widths = ([cs.strip_width] if strip else []) + [c.width or col_w for c in self._columns]
 
         # largura máxima dos rótulos (para reservar espaço quando não alinhados)
         max_label_w = 0.0
@@ -563,11 +607,11 @@ class TreeRenderer:
             r, th = rad(node), lay.pos[node][1]
             res.node_points[node] = pt(r, th)
             if node.parent is not None:
-                edges.seg(self._branch_color(node.parent), self._width(node), pt(rad(node.parent), th), pt(r, th))
+                edges.seg(self._edge_color(node), self._width(node), pt(rad(node.parent), th), pt(r, th))
             if node in self._collapsed:
                 continue
             if node.children:
-                edges.arc(self._branch_color(node), self._width(node), r,
+                edges.arc(self._node_color(node), self._width(node), r,
                           lay.pos[node.children[0]][1], lay.pos[node.children[-1]][1])
         edges.flush(self.scene)
 

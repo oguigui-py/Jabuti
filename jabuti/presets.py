@@ -85,6 +85,9 @@ def _coerce(cls_name: str, name: str, hint: Any, value: Any) -> tuple[bool, Any]
     base = next((a for a in args if a is not type(None)), hint) if args else hint
     if value is None:
         return optional, None
+    if typing.get_origin(hint) is list:
+        ok = isinstance(value, list) and all(isinstance(v, str) for v in value)
+        return ok, list(value) if ok else None
     if isinstance(base, type) and issubclass(base, Enum):
         try:
             return True, base(value)

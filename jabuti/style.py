@@ -137,6 +137,18 @@ class HeatmapStyle:
 
 
 @dataclass
+class MetadataStyle:
+    """Cores a partir da tabela de metadados (aba Metadados)."""
+
+    color_by: str | None = None       # coluna usada para colorir rótulos/ramos
+    color_labels: bool = True
+    color_branches: bool = False
+    strips: list[str] = field(default_factory=list)   # colunas desenhadas como faixas
+    strip_width: float = 12.0
+    missing_color: str = "#d9d9d9"    # folha sem valor na tabela
+
+
+@dataclass
 class RenderStyle:
     layout: LayoutKind = LayoutKind.RECTANGULAR
     branch_scale: float = 1.0      # multiplicador horizontal / radial
@@ -151,9 +163,9 @@ class RenderStyle:
     symbols: SymbolStyle = field(default_factory=SymbolStyle)
     scale_bar: ScaleBarStyle = field(default_factory=ScaleBarStyle)
     heatmap: HeatmapStyle = field(default_factory=HeatmapStyle)
+    metadata: MetadataStyle = field(default_factory=MetadataStyle)
     clades: CladeStyle = field(default_factory=CladeStyle)
     background: str | None = "#ffffff"  # cor de fundo; None = transparente
-    color_by: str | None = None    # coluna de metadados (Fase 2)
 
     @property
     def font_size(self) -> float:
