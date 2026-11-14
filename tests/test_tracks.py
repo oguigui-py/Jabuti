@@ -123,8 +123,10 @@ def test_rect_bars_right_of_labels_with_refs_axis_and_missing(draw):
     assert len(refs.path().toSubpathPolygons()) == 2
     assert refs.zValue() < fill.zValue()                      # referência atrás das barras
     assert sorted(i.text() for i in tagged(scene, "bar-value")) == ["0.5", "2", "5", "9"]
-    axis_texts = {i.text() for i in tagged(scene, "bar-axis") if hasattr(i, "text")}
-    assert {"0", "4", "8", "9"} <= axis_texts
+    axis = [i for i in tagged(scene, "bar-axis") if hasattr(i, "text")]
+    assert {"0", "4", "9"} <= {i.text() for i in axis}      # "8" encostaria no máximo: omitido
+    rects = sorted((i.sceneBoundingRect() for i in axis), key=lambda r: r.left())
+    assert all(a.right() <= b.left() for a, b in zip(rects, rects[1:]))
     assert "tamanho" in {i.text() for i in tagged(scene, "column-header")}
 
 
@@ -320,3 +322,99 @@ def test_gff_tab_uses_shared_mapping_table(window, data_dir):
     combo.setCurrentIndex(0)
     combo.activated.emit(0)
     assert gt.mapping["LB400"] is None
+
+
+# ------------------------------------------------------------ empilhadas
+SERIES = {"GH": {"A": 6.0, "B": 2.0, "C": 1.0}, "GT": {"A": 4.0, "B": None or 0.0, "C": 3.0}}
+
+
+def stacked(**kw):
+    from jabuti.models.tracks import stacked_track
+
+    return stacked_track("stacked:s", "CAZy", ["GH", "GT"], ["#ff0000", "#0000ff"], SERIES, **kw)
+
+
+def test_stacked_model_max_mean_and_missing():
+    t = stacked()
+    assert t.vmax == 10.0                                    # maior soma (A)
+    assert t.stack_for(["A"]) == [6.0, 4.0]
+    assert t.stack_for(["D"]) is None                        # sem dado em nenhuma série
+    assert t.stack_for(["A", "C"]) == [3.5, 3.5]             # média por série no colapsado
+    assert stacked(vmax=20).vmax == 20
+
+
+def test_stacked_partial_series_counts_as_zero():
+    from jabuti.models.tracks import stacked_track
+
+    t = stacked_track("k", "h", ["x", "y"], ["#000000", "#111111"], {"x": {"A": 2.0}, "y": {"B": 3.0}})
+    assert t.stack_for(["A"]) == [2.0, 0.0]
+
+
+@pytest.mark.parametrize("layout", [LayoutKind.RECTANGULAR, LayoutKind.CIRCULAR])
+def test_stacked_segments_per_series(draw, layout):
+    scene, _, _ = draw(RenderStyle(layout=layout), [stacked()])
+    segs = {i.data(3): i for i in tagged(scene, "stacked-bar", "stacked:s")}
+    assert set(segs) == {"GH", "GT"}
+    assert segs["GH"].brush().color().name() == "#ff0000"
+    assert len(segs["GH"].path().toSubpathPolygons()) == 3  # A, B, C
+    assert len(segs["GT"].path().toSubpathPolygons()) == 2  # B tem GT = 0
+    assert tagged(scene, "bar-missing", "stacked:s")         # D e E sem dado
+
+
+def test_stacked_rect_lengths(draw):
+    scene, _, _ = draw(RenderStyle(), [stacked()])
+    segs = {i.data(3): i for i in tagged(scene, "stacked-bar")}
+    gh = sorted(round(p.boundingRect().width(), 1) for p in segs["GH"].path().toSubpathPolygons())
+    assert gh == [10.0, 20.0, 60.0]                          # 100 px * (1, 2, 6)/10
+    # GT de A começa onde GH de A termina
+    a_gh = max(segs["GH"].path().toSubpathPolygons(), key=lambda p: p.boundingRect().width()).boundingRect()
+    a_gt = [p.boundingRect() for p in segs["GT"].path().toSubpathPolygons()
+            if abs(p.boundingRect().center().y() - a_gh.center().y()) < 1][0]
+    assert a_gt.left() == pytest.approx(a_gh.right())
+
+
+def test_axis_labels_stay_inside_columns(draw):
+    scene, _, _ = draw(RenderStyle(), [bars(), stacked()])
+    by_key = {}
+    for i in tagged(scene, "bar-axis"):
+        if hasattr(i, "text"):
+            by_key.setdefault(i.data(2), []).append(i.sceneBoundingRect())
+    right_bar = max(r.right() for r in by_key["bar:x"])
+    left_stacked = min(r.left() for r in by_key["stacked:s"])
+    assert right_bar < left_stacked
+
+
+def test_preset_roundtrip_stacked():
+    from jabuti.presets import preset_from_dict, preset_to_dict
+    from jabuti.style import StackedSpec
+
+    st = RenderStyle()
+    st.figure.stacked = [StackedSpec("stk1", "t.tsv", "CAZy", ["GH", "GT"], ["#ff0000", "#0000ff"], 300.0, 90)]
+    loaded = preset_from_dict(preset_to_dict(st))
+    assert loaded.warnings == [] and loaded.style.figure.stacked == st.figure.stacked
+    bad = preset_from_dict({"style": {"figure": {"stacked": [{"colors": ["vermelho"]}]}}})
+    assert bad.style.figure.stacked[0].colors == [] and any("colors" in w for w in bad.warnings)
+
+
+def test_gui_stacked_series_and_legend(window):
+    from PySide6.QtCore import Qt
+
+    fp = window.figure_panel
+    assert fp.load_table("examples/traits.tsv")
+    spec = fp.add_stacked()
+    for i in range(fp.st_series.count()):
+        item = fp.st_series.item(i)
+        if item.data(Qt.ItemDataRole.UserRole) in ("genome_size_mb", "n_contigs"):
+            item.setCheckState(Qt.CheckState.Unchecked)
+    assert spec.columns == ["GH", "GT", "CE", "AA", "CBM", "PL"]
+    fp.st_series.setCurrentRow(2)                             # GH
+    fp.st_color.set_color("#123456", emit=True)
+    assert spec.colors[0] == "#123456"
+    fp.st_name.setText("CAZy")
+    fp.st_name.editingFinished.emit()
+    window.render_live()
+    scene = window.canvas.tree_scene
+    assert {i.data(3) for i in tagged(scene, "stacked-bar")} == set(spec.columns)
+    groups = window.style_panel.legend.groups
+    (series,) = [g for g in groups if g.title == "Séries: CAZy"]
+    assert series.entries[0] == ("GH", "#123456")

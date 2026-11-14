@@ -195,10 +195,24 @@ class BarSpec:
 
 
 @dataclass
+class StackedSpec:
+    """Barras empilhadas: várias colunas numéricas, cada série com sua cor."""
+
+    id: str = ""
+    source: str = "metadata"
+    name: str = ""                  # título (vazio = nomes das séries)
+    columns: list[str] = field(default_factory=list)
+    colors: list[str] = field(default_factory=list)
+    vmax: float | None = None       # None = maior soma
+    width: float = 100.0
+
+
+@dataclass
 class FigureConfig:
     """Opções do painel "Figura" (todas desligadas por padrão)."""
 
     bars: list[BarSpec] = field(default_factory=list)
+    stacked: list[StackedSpec] = field(default_factory=list)
     track_order: list[str] = field(default_factory=list)    # chaves das trilhas, da árvore para fora
     hidden_tracks: list[str] = field(default_factory=list)
 

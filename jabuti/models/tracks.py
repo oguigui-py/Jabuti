@@ -65,6 +65,45 @@ class BarTrack:
         return [r for r in self.refs if self.vmin <= r <= self.vmax]
 
 
+@dataclass
+class StackedTrack:
+    key: str
+    header: str
+    series: list[str]
+    colors: list[str]
+    values: dict[str, list[float | None]]        # folha -> um valor por série (None = sem dado)
+    vmax: float = 1.0
+    width: float = 100.0
+    missing_color: str = "#d9d9d9"
+
+    def stack_for(self, names: list[str]) -> list[float] | None:
+        """Valores por série (média num clado colapsado); série sem dado conta como 0.
+
+        ``None`` se nenhuma folha tiver dado em nenhuma série."""
+        rows = [self.values[n] for n in names if n in self.values]
+        if not rows or all(v is None for r in rows for v in r):
+            return None
+        out = []
+        for i in range(len(self.series)):
+            vals = [r[i] for r in rows if r[i] is not None]
+            out.append(max(mean(vals) or 0.0, 0.0))
+        return out
+
+    def frac(self, v: float) -> float:
+        return max(0.0, min(v / self.vmax, 1.0)) if self.vmax > 0 else 0.0
+
+
+def stacked_track(key: str, header: str, series: list[str], colors: list[str],
+                  columns: dict[str, dict[str, float]], vmax: float | None = None,
+                  **kw) -> StackedTrack:  # type: ignore[no-untyped-def]
+    """``columns``: série -> (folha -> valor). Máximo automático = maior soma."""
+    leaves = sorted({leaf for col in columns.values() for leaf in col})
+    values = {leaf: [columns[s].get(leaf) for s in series] for leaf in leaves}
+    top = max((sum(max(v or 0.0, 0.0) for v in row) for row in values.values()), default=0.0)
+    hi = vmax if vmax is not None and vmax > 0 else (top or 1.0)
+    return StackedTrack(key, header, list(series), list(colors), values, hi, **kw)
+
+
 def bar_track(key: str, header: str, values: dict[str, float], *, vmin: float | None = None,
               vmax: float | None = None, **kw) -> BarTrack:  # type: ignore[no-untyped-def]
     lo, hi = auto_range(list(values.values()), vmin, vmax)

@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 from jabuti.models.datatables import METADATA_SOURCE, DataSource, numeric_column
 from jabuti.models.tracks import parse_refs
 from jabuti.parsers.metadata import load_metadata
-from jabuti.style import BAR_COLOR_MODES, BarSpec, LayoutKind, PALETTES, RenderStyle
+from jabuti.style import BAR_COLOR_MODES, BarSpec, LayoutKind, PALETTES, RenderStyle, StackedSpec
 from jabuti.views.errors import show_error
 from jabuti.views.widgets.collapsible import CollapsibleSection
 from jabuti.views.widgets.leaf_mapping import LeafMappingTable, MappingRow
@@ -89,6 +89,8 @@ class FigurePanel(QWidget):
         self.leaves: list[str] = []
         self.sources: dict[str, DataSource] = {}
         self.bars: list[BarSpec] = []
+        self.stacked: list[StackedSpec] = []
+        self._custom_colors: dict[tuple[str, str], str] = {}   # cor escolhida para série desmarcada
         self.metadata_by_leaf = lambda: {}          # fornecido pela janela (aba Metadados)
         self.metadata_columns = lambda: []
         self.palette = PALETTES["Tableau 10"]
@@ -218,11 +220,73 @@ class FigurePanel(QWidget):
         v.addWidget(ed)
         self.bar_hint = _hint("")
         v.addWidget(self.bar_hint)
+        v.addWidget(self._build_stacked())
         self.layout_hint = _hint("")
         self.layout_hint.setVisible(False)
         v.addWidget(self.layout_hint)
         self.refresh_tables()
         self.refresh_bars()
+        self.refresh_stacked()
+        return w
+
+    def _build_stacked(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 6, 0, 0)
+        v.addWidget(QLabel("<b>Barras empilhadas</b>"))
+        row = QHBoxLayout()
+        self.add_stacked_btn = QPushButton("+ Empilhadas")
+        self.add_stacked_btn.setToolTip("Várias colunas numéricas (ex.: GH, GT, CE…) empilhadas numa barra")
+        self.add_stacked_btn.clicked.connect(self.add_stacked)
+        self.rm_stacked_btn = QPushButton("Remover")
+        self.rm_stacked_btn.clicked.connect(self.remove_stacked)
+        row.addWidget(self.add_stacked_btn, 1)
+        row.addWidget(self.rm_stacked_btn)
+        v.addLayout(row)
+        self.stacked_list = QListWidget()
+        self.stacked_list.setMaximumHeight(60)
+        self.stacked_list.currentRowChanged.connect(self._stacked_selected)
+        v.addWidget(self.stacked_list)
+        ed = QWidget()
+        f = QFormLayout(ed)
+        f.setContentsMargins(0, 0, 0, 0)
+        self.st_source = QComboBox()
+        self.st_source.currentIndexChanged.connect(self._stacked_source_changed)
+        self.st_name = QLineEdit()
+        self.st_name.setPlaceholderText("título (vazio = séries)")
+        self.st_name.editingFinished.connect(self._stacked_edited)
+        self.st_series = QListWidget()
+        self.st_series.setMaximumHeight(120)
+        self.st_series.setToolTip("Marque as séries; a ordem é a da tabela (de dentro para fora)")
+        self.st_series.itemChanged.connect(self._stacked_edited)
+        self.st_series.currentRowChanged.connect(self._series_selected)
+        self.st_color = ColorButton("#4e79a7", self.palette)
+        self.st_color.color_changed.connect(self._series_color_changed)
+        crow = QHBoxLayout()
+        crow.addWidget(QLabel("Cor da série selecionada:"), 1)
+        crow.addWidget(self.st_color)
+        self.st_auto_max = QCheckBox("auto")
+        self.st_auto_max.setChecked(True)
+        self.st_max = self._spin(0, 1e9, 1.0)
+        self.st_max.setEnabled(False)
+        self.st_auto_max.toggled.connect(lambda on: self.st_max.setEnabled(not on))
+        self.st_auto_max.toggled.connect(self._stacked_edited)
+        self.st_max.valueChanged.connect(self._stacked_edited)
+        mrow = QHBoxLayout()
+        mrow.addWidget(self.st_max, 1)
+        mrow.addWidget(self.st_auto_max)
+        self.st_width = self._spin(10, 600, 100, 5, " px")
+        self.st_width.valueChanged.connect(self._stacked_edited)
+        f.addRow("Tabela:", self.st_source)
+        f.addRow("Título:", self.st_name)
+        f.addRow(self.st_series)
+        f.addRow(crow)
+        f.addRow("Máximo:", mrow)
+        f.addRow("Largura:", self.st_width)
+        self.stacked_editor = ed
+        v.addWidget(ed)
+        self.stacked_hint = _hint("")
+        v.addWidget(self.stacked_hint)
         return w
 
     def _spin(self, lo: float, hi: float, val: float, step: float = 1.0, suffix: str = "") -> QDoubleSpinBox:
@@ -246,12 +310,14 @@ class FigurePanel(QWidget):
     def set_palette(self, colors: list[str]) -> None:
         self.palette = list(colors)
         self.bar_color.palette_colors = self.palette
+        self.st_color.palette_colors = self.palette
 
     def set_layout(self, kind: LayoutKind) -> None:
         """Desativa (com dica) o que não se aplica ao layout."""
         self.layout_kind = LayoutKind(kind)
         ok = self.layout_kind.value != "unrooted"
-        for wdg in (self.add_bar_btn, self.bar_editor, self.bar_list):
+        for wdg in (self.add_bar_btn, self.bar_editor, self.bar_list,
+                    self.add_stacked_btn, self.stacked_editor, self.stacked_list):
             wdg.setEnabled(ok)
             wdg.setToolTip("" if ok else NOT_FOR_UNROOTED)
         self.layout_hint.setText("" if ok else NOT_FOR_UNROOTED)
@@ -467,6 +533,8 @@ class FigurePanel(QWidget):
     def _refresh_bar_sources(self) -> None:
         if hasattr(self, "bar_list"):
             self.refresh_bars()
+        if hasattr(self, "stacked_list"):
+            self.refresh_stacked()
 
     def _bar_selected(self, row: int) -> None:
         spec = self.bars[row] if 0 <= row < len(self.bars) else None
@@ -543,12 +611,171 @@ class FigurePanel(QWidget):
             item.setText(f"{spec.column}  ({self.source_label(spec.source)})")
         self._emit()
 
+    # --------------------------------------------------------- empilhadas
+    def add_stacked(self) -> StackedSpec | None:
+        source = next((s for s in reversed(self.source_names()) if len(self.columns_of(s)) >= 2), None)
+        if source is None:
+            self.stacked_hint.setText("Carregue uma tabela com pelo menos duas colunas numéricas.")
+            return None
+        cols = self.columns_of(source)
+        spec = StackedSpec(id=self._next_id("stk", [x.id for x in self.stacked]), source=source,
+                           columns=list(cols), colors=[self.palette[i % len(self.palette)] for i in range(len(cols))])
+        self.stacked.append(spec)
+        self.stacked_hint.setText("")
+        self.refresh_stacked(select=len(self.stacked) - 1)
+        self._emit()
+        return spec
+
+    def remove_stacked(self) -> None:
+        row = self.stacked_list.currentRow()
+        if 0 <= row < len(self.stacked):
+            del self.stacked[row]
+            self.refresh_stacked(select=min(row, len(self.stacked) - 1))
+            self._emit()
+
+    def current_stacked(self) -> StackedSpec | None:
+        row = self.stacked_list.currentRow()
+        return self.stacked[row] if 0 <= row < len(self.stacked) else None
+
+    def _stacked_title(self, spec: StackedSpec) -> str:
+        title = spec.name or "/".join(spec.columns) or "(nenhuma série)"
+        ok = (spec.source == METADATA_SOURCE or spec.source in self.sources) and \
+            any(c in self.columns_of(spec.source) for c in spec.columns)
+        return f"{title}  ({self.source_label(spec.source)})" if ok else f"⚠ {title}  ({spec.source}: sem dados)"
+
+    def refresh_stacked(self, select: int | None = None) -> None:
+        row = self.stacked_list.currentRow() if select is None else select
+        self.stacked_list.blockSignals(True)
+        self.stacked_list.clear()
+        for spec in self.stacked:
+            self.stacked_list.addItem(self._stacked_title(spec))
+        self.stacked_list.blockSignals(False)
+        if self.stacked:
+            self.stacked_list.setCurrentRow(max(0, min(row, len(self.stacked) - 1)))
+        self._stacked_selected(self.stacked_list.currentRow())
+
+    def _stacked_selected(self, row: int) -> None:
+        spec = self.stacked[row] if 0 <= row < len(self.stacked) else None
+        self.stacked_editor.setVisible(spec is not None)
+        self.rm_stacked_btn.setEnabled(spec is not None)
+        if spec is None:
+            return
+        self._filling = True
+        try:
+            self.st_source.clear()
+            for name in self.source_names():
+                self.st_source.addItem(self.source_label(name), name)
+            if self.st_source.findData(spec.source) < 0:
+                self.st_source.addItem(f"⚠ {spec.source}", spec.source)
+            self.st_source.setCurrentIndex(self.st_source.findData(spec.source))
+            self.st_name.setText(spec.name)
+            self._fill_series(spec)
+            self.st_auto_max.setChecked(spec.vmax is None)
+            if spec.vmax is not None:
+                self.st_max.setValue(spec.vmax)
+            self.st_width.setValue(spec.width)
+        finally:
+            self._filling = False
+
+    def _series_color(self, spec: StackedSpec, column: str, index: int) -> str:
+        if column in spec.columns and spec.columns.index(column) < len(spec.colors):
+            return spec.colors[spec.columns.index(column)]
+        return self.palette[index % len(self.palette)]
+
+    def _fill_series(self, spec: StackedSpec) -> None:
+        from PySide6.QtGui import QColor, QIcon, QPixmap
+
+        was = self.st_series.blockSignals(True)
+        self.st_series.clear()
+        available = self.columns_of(spec.source)
+        names = available + [c for c in spec.columns if c not in available]
+        for i, c in enumerate(names):
+            item = QListWidgetItem(c if c in available else f"⚠ {c} (ausente)")
+            item.setData(Qt.ItemDataRole.UserRole, c)
+            pm = QPixmap(12, 12)
+            pm.fill(QColor(self._series_color(spec, c, i)))
+            item.setIcon(QIcon(pm))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if c in spec.columns else Qt.CheckState.Unchecked)
+            self.st_series.addItem(item)
+        self.st_series.blockSignals(was)
+        if self.st_series.count():
+            self.st_series.setCurrentRow(0)
+
+    def _series_selected(self, row: int) -> None:
+        spec = self.current_stacked()
+        item = self.st_series.item(row)
+        if spec is None or item is None:
+            return
+        self.st_color.set_color(self._series_color(spec, item.data(Qt.ItemDataRole.UserRole), row))
+
+    def _series_color_changed(self, color: str) -> None:
+        spec = self.current_stacked()
+        item = self.st_series.currentItem()
+        if spec is None or item is None:
+            return
+        col = item.data(Qt.ItemDataRole.UserRole)
+        self._sync_series(spec)
+        if col in spec.columns:
+            spec.colors[spec.columns.index(col)] = color
+        self._custom_colors[(spec.id, col)] = color
+        from PySide6.QtGui import QColor, QIcon, QPixmap
+
+        pm = QPixmap(12, 12)
+        pm.fill(QColor(color))
+        item.setIcon(QIcon(pm))
+        self._emit()
+
+    def _sync_series(self, spec: StackedSpec) -> None:
+        """Séries marcadas, na ordem da lista, mantendo as cores já escolhidas."""
+        old = dict(zip(spec.columns, spec.colors))
+        custom = self._custom_colors
+        cols, colors = [], []
+        for i in range(self.st_series.count()):
+            item = self.st_series.item(i)
+            c = item.data(Qt.ItemDataRole.UserRole)
+            if item.checkState() == Qt.CheckState.Checked:
+                cols.append(c)
+                colors.append(old.get(c) or custom.get((spec.id, c)) or self.palette[i % len(self.palette)])
+        spec.columns, spec.colors = cols, colors
+
+    def _stacked_source_changed(self) -> None:
+        spec = self.current_stacked()
+        if spec is None or self._filling:
+            return
+        spec.source = self.st_source.currentData()
+        cols = self.columns_of(spec.source)
+        spec.columns = [c for c in spec.columns if c in cols] or list(cols)
+        spec.colors = [self.palette[i % len(self.palette)] for i in range(len(spec.columns))]
+        self._filling = True
+        try:
+            self._fill_series(spec)
+        finally:
+            self._filling = False
+        self._stacked_edited()
+
+    def _stacked_edited(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        spec = self.current_stacked()
+        if spec is None or self._filling:
+            return
+        self._sync_series(spec)
+        spec.name = self.st_name.text().strip()
+        spec.vmax = None if self.st_auto_max.isChecked() else self.st_max.value()
+        spec.width = self.st_width.value()
+        item = self.stacked_list.item(self.stacked_list.currentRow())
+        if item is not None:
+            item.setText(self._stacked_title(spec))
+        self.stacked_hint.setText("" if spec.columns else "Marque pelo menos uma série.")
+        self._emit()
+
     # ------------------------------------------------------------- estilo
     def apply_to(self, style: RenderStyle) -> RenderStyle:
         fig = style.figure
         fig.bars = [BarSpec(**vars(b)) for b in self.bars]
         for b in fig.bars:
             b.refs = list(b.refs)
+        fig.stacked = [StackedSpec(**{**vars(x), "columns": list(x.columns), "colors": list(x.colors)})
+                       for x in self.stacked]
         return style
 
     def load_style(self, style: RenderStyle) -> list[str]:
@@ -564,6 +791,17 @@ class FigurePanel(QWidget):
                 warnings.append(f"Barras “{b.column}”: a tabela {b.source} não está carregada "
                                 "(carregue-a no painel Figura).")
         self.refresh_bars(select=0)
+        self.stacked = [StackedSpec(**{**vars(x), "columns": list(x.columns), "colors": list(x.colors)})
+                        for x in fig.stacked]
+        used = []
+        for x in self.stacked:
+            if not x.id or x.id in used:
+                x.id = self._next_id("stk", used)
+            used.append(x.id)
+            if x.source != METADATA_SOURCE and x.source not in self.sources:
+                warnings.append(f"Barras empilhadas “{x.name or '/'.join(x.columns)}”: a tabela {x.source} "
+                                "não está carregada (carregue-a no painel Figura).")
+        self.refresh_stacked(select=0)
         return warnings
 
 

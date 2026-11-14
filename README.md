@@ -71,6 +71,10 @@ desenho é exatamente o de antes. As opções vão para os presets (os dados car
   tem eixo com mínimo, referências e máximo; no circular as barras são radiais e as referências
   viram arcos tracejados. Folha sem dado mostra um traço curto; clado colapsado usa a média.
   As colunas entram depois das faixas de metadados e do heatmap de genes.
+- **Barras empilhadas** — *+ Empilhadas* junta várias colunas numéricas (ex.: GH, GT, CE, AA,
+  CBM, PL) numa barra, cada série com sua cor (clique na série e na amostra para trocar). Máximo
+  automático = maior soma; série sem dado conta como 0; clado colapsado usa a média de cada série.
+  A legenda ganha o grupo *Séries* com as cores.
 
 Exemplo sintético: `examples/traits.tsv` (tamanho do genoma, nº de contigs com `NA` e
 contagens de CAZy por classe).

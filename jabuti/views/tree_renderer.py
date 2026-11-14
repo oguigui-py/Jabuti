@@ -21,7 +21,7 @@ from jabuti.models.clades import Clade, ResolvedClade, assign_nodes, resolve_cla
 from jabuti.models.annotations import ContextGene, LeafColumn, LegendGroup, context_extent
 from jabuti.models.document import TreeEdits, collapsed_nodes
 from jabuti.models.label_groups import LabelGroup, LabelGroupSet
-from jabuti.models.tracks import CLADE_STRIP, BarTrack, fmt_value
+from jabuti.models.tracks import CLADE_STRIP, BarTrack, StackedTrack, fmt_value
 from jabuti.models.tree import SUPPORT_ALL, Node, Tree, support_value
 from jabuti.style import GuideStyle, LayoutKind, RenderStyle
 
@@ -49,6 +49,7 @@ TAG_BAR_MISSING = "bar-missing"
 TAG_BAR_REF = "bar-reference"
 TAG_BAR_AXIS = "bar-axis"
 TAG_BAR_VALUE = "bar-value"
+TAG_STACKED = "stacked-bar"
 
 
 @dataclass
@@ -501,6 +502,8 @@ class TreeRenderer:
             return self.style.clades.strip_width
         if isinstance(track, BarTrack):
             return track.width + self._value_text_width(track)
+        if isinstance(track, StackedTrack):
+            return track.width
         return track.width or cell_w
 
     def _bar_color(self, track: BarTrack, node: Node, names: list[str]) -> str:
@@ -589,6 +592,9 @@ class TreeRenderer:
             elif isinstance(track, BarTrack):
                 self._bars_rect(track, lay, x, sy, top, bottom)
                 x += self._track_extent(track, 0) + pad
+            elif isinstance(track, StackedTrack):
+                self._stacked_rect(track, lay, x, sy, top, bottom)
+                x += track.width + pad
             else:
                 cw = track.width if track.width else sy * hm.cell_width
                 by_color: dict[str, QPainterPath] = {}
@@ -645,30 +651,100 @@ class TreeRenderer:
             item.setZValue(-0.5)      # atrás das barras e dos valores, à frente do fundo dos clados
             self._tagged(item, TAG_BAR_REF, track.key)
         # eixo: mínimo, referências e máximo embaixo da coluna
+        self._axis_rect(track.key, x0, w, bottom, [track.vmin, *track.visible_refs(), track.vmax], track.frac)
+        if self.style.heatmap.show_headers:
+            self._column_header(track.header, x0, w, top, horizontal_ok=True)
+
+    def _axis_rect(self, key: str, x0: float, w: float, bottom: float, ticks: list[float], frac) -> None:  # type: ignore[no-untyped-def]
+        small = self._small_font()
         ay = bottom + 2
         axis = QPainterPath()
         axis.moveTo(x0, ay)
         axis.lineTo(x0 + w, ay)
-        ticks = [track.vmin, *track.visible_refs(), track.vmax]
         for v in ticks:
-            tx = x0 + track.frac(v) * w
+            tx = x0 + frac(v) * w
             axis.moveTo(tx, ay)
             axis.lineTo(tx, ay + 3)
-        self._tagged(self._path_item(axis, self._bar_pen("axis")), TAG_BAR_AXIS, track.key)
-        last_right = -math.inf
-        for v in ticks:
+        self._tagged(self._path_item(axis, self._bar_pen("axis")), TAG_BAR_AXIS, key)
+        # mínimo e máximo sempre aparecem; os intermediários só se não encostarem em outro
+        order = [0, len(ticks) - 1, *range(1, len(ticks) - 1)] if len(ticks) > 1 else [0]
+        placed: list[tuple[float, float]] = []
+        for k in order:
+            v = ticks[k]
             t = QGraphicsSimpleTextItem(fmt_value(v))
             t.setFont(small)
             t.setBrush(QBrush(QColor("#505050")))
             br = t.boundingRect()
-            tx = x0 + track.frac(v) * w - br.width() / 2
-            if tx < last_right + 2:          # rótulos do eixo nunca se sobrepõem
+            # dentro da largura da coluna: não invade a coluna vizinha
+            tx = min(max(x0 + frac(v) * w - br.width() / 2, x0), x0 + w - br.width())
+            if any(tx < b + 2 and tx + br.width() > a - 2 for a, b in placed):
                 continue
+            placed.append((tx, tx + br.width()))
             t.setPos(tx, ay + 3)
-            last_right = tx + br.width()
-            self._tagged(t, TAG_BAR_AXIS, track.key)
+            self._tagged(t, TAG_BAR_AXIS, key)
+
+    def _stacked_rect(self, track: StackedTrack, lay, x0: float, sy: float, top: float, bottom: float) -> None:  # type: ignore[no-untyped-def]
+        w = track.width
+        by_color: dict[str, QPainterPath] = {}
+        missing = QPainterPath()
+        for node, names in self._tips(lay):
+            a, b = lay.span[node]
+            yc = lay.pos[node][1] * sy
+            h = (b - a) * sy * 0.7
+            stack = track.stack_for(names)
+            if stack is None:
+                missing.moveTo(x0, yc)
+                missing.lineTo(x0 + min(6.0, w * 0.1), yc)
+                continue
+            cum = 0.0
+            for v, color in zip(stack, track.colors):
+                if v <= 0:
+                    continue
+                s0, s1 = x0 + track.frac(cum) * w, x0 + track.frac(cum + v) * w
+                cum += v
+                if s1 > s0:
+                    by_color.setdefault(color, QPainterPath()).addRect(QRectF(s0, yc - h / 2, s1 - s0, h))
+        self._flush_stacked(by_color, track)
+        if not missing.isEmpty():
+            self._tagged(self._path_item(missing, self._bar_pen("missing")), TAG_BAR_MISSING, track.key)
+        self._axis_rect(track.key, x0, w, bottom, [0.0, track.vmax], track.frac)
         if self.style.heatmap.show_headers:
             self._column_header(track.header, x0, w, top, horizontal_ok=True)
+
+    def _stacked_circ(self, track: StackedTrack, lay, r0: float, pt) -> None:  # type: ignore[no-untyped-def]
+        w = track.width
+        by_color: dict[str, QPainterPath] = {}
+        missing = QPainterPath()
+        for node, names in self._tips(lay):
+            a, b = lay.span[node]
+            mid = (a + b) / 2
+            half = (b - a) / 2 * 0.7
+            stack = track.stack_for(names)
+            if stack is None:
+                missing.moveTo(pt(r0, mid))
+                missing.lineTo(pt(r0 + min(6.0, w * 0.1), mid))
+                continue
+            cum = 0.0
+            for v, color in zip(stack, track.colors):
+                if v <= 0:
+                    continue
+                s0, s1 = r0 + track.frac(cum) * w, r0 + track.frac(cum + v) * w
+                cum += v
+                if s1 > s0:
+                    by_color.setdefault(color, QPainterPath()).addPath(annular_sector(s0, s1, mid - half, mid + half))
+        self._flush_stacked(by_color, track)
+        if not missing.isEmpty():
+            self._tagged(self._path_item(missing, self._bar_pen("missing")), TAG_BAR_MISSING, track.key)
+
+    def _flush_stacked(self, by_color: dict[str, QPainterPath], track: StackedTrack) -> None:
+        for color, path in by_color.items():
+            item = QGraphicsPathItem(path)
+            item.setBrush(QBrush(QColor(color)))
+            item.setPen(QPen(Qt.PenStyle.NoPen))
+            item.setData(1, TAG_STACKED)
+            item.setData(2, track.key)
+            item.setData(3, track.series[track.colors.index(color)] if color in track.colors else "")
+            self.scene.addItem(item)
 
     def _bars_circ(self, track: BarTrack, lay, r0: float, root_span: tuple[float, float], pt) -> None:  # type: ignore[no-untyped-def]
         w = track.width
@@ -1069,6 +1145,8 @@ class TreeRenderer:
                     self._fill(annular_sector(r0, r1, th0, th1), rc.color, 1.0, TAG_CLADE_STRIP, 0)
             elif isinstance(track, BarTrack):
                 self._bars_circ(track, lay, r0, root_span, pt)
+            elif isinstance(track, StackedTrack):
+                self._stacked_circ(track, lay, r0, pt)
             else:
                 by_color: dict[str, QPainterPath] = {}
                 for node, names in self._tips(lay):

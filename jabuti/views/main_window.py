@@ -37,7 +37,7 @@ from jabuti.models.annotations import (
 )
 from jabuti.models.datatables import numeric_column
 from jabuti.models.document import apply_edits
-from jabuti.models.tracks import CLADE_STRIP, GENE_BLOCK, BarTrack, bar_track, order_keys
+from jabuti.models.tracks import CLADE_STRIP, GENE_BLOCK, BarTrack, StackedTrack, bar_track, order_keys, stacked_track
 from jabuti.resources import BRAND_GREEN
 from jabuti.presets import (
     LoadedPreset,
@@ -298,6 +298,20 @@ class MainWindow(QMainWindow):
                 f"bar:{b.id}", b.column, values, vmin=b.vmin, vmax=b.vmax, color=b.color,
                 color_mode=b.color_mode, colors=meta_colors, refs=list(b.refs), show_values=b.show_values,
                 width=b.width, missing_color=md.missing_color)]
+        for st in fig.stacked:
+            rows = fp.by_leaf(st.source)
+            series = [c for c in st.columns if numeric_column(rows, c)]
+            if not series:
+                self._render_notes.append(f"barras empilhadas “{st.name or '/'.join(st.columns)}” sem dados")
+                continue
+            colors = [st.colors[st.columns.index(c)] if st.columns.index(c) < len(st.colors)
+                      else palette[st.columns.index(c) % len(palette)] for c in series]
+            header = st.name or "/".join(series)
+            track = stacked_track(f"stacked:{st.id}", header, series, colors,
+                                  {c: numeric_column(rows, c) for c in series}, st.vmax,
+                                  width=st.width, missing_color=md.missing_color)
+            blocks[track.key] = [track]
+            groups.append(LegendGroup(f"Séries: {header}", list(zip(series, colors))))
         keys = order_keys(list(blocks), fig.track_order, fig.hidden_tracks)
         columns = [t for k in keys for t in blocks[k]]
         rings = [t for t in columns if t != CLADE_STRIP]
@@ -311,6 +325,8 @@ class MainWindow(QMainWindow):
     def _ring_color(track, present: str) -> str:  # type: ignore[no-untyped-def]
         if isinstance(track, BarTrack):
             return track.color
+        if isinstance(track, StackedTrack):
+            return track.colors[0]
         return present if track.kind == "genes" else "#888888"
 
     def context_tracks(self, style: RenderStyle):  # type: ignore[no-untyped-def]
