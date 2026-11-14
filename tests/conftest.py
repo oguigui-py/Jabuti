@@ -16,3 +16,19 @@ def isolated_config(tmp_path, monkeypatch):
     cfg = tmp_path / "config"
     monkeypatch.setenv("JABUTI_CONFIG_DIR", str(cfg))
     return cfg
+
+
+@pytest.fixture(autouse=True)
+def stop_gff_threads(request):
+    """Garante que nenhuma thread de leitura sobreviva ao teste."""
+    yield
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    from jabuti.views.gff_tab import GffTab
+
+    for w in app.allWidgets():
+        if isinstance(w, GffTab):
+            w.shutdown()

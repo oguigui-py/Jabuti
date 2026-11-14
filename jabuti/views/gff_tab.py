@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication, Qt, Signal
+from PySide6.QtCore import QEventLoop, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QCompleter,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QPlainTextEdit,
     QProgressBar,
     QPushButton,
     QSpinBox,
@@ -29,10 +31,10 @@ from PySide6.QtWidgets import (
 )
 
 from jabuti.models.annotations import presence_matrix
-from jabuti.parsers.errors import JabutiParseError
-from jabuti.parsers.gff import GeneQuery, Genome, find_genes, parse_gff3
+from jabuti.parsers.gff import GeneQuery, Genome, file_signature, find_genes, genome_name_from_path, parse_gff3
 from jabuti.parsers.names import match_names
 from jabuti.views.errors import show_error
+from jabuti.workers import FileLoader
 
 GFF_FILTER = "GFF3 (*.gff *.gff3 *.gff.gz *.gff3.gz);;Todos (*)"
 NO_LEAF = "— sem folha —"
@@ -43,6 +45,7 @@ COL_FILE, COL_GENES, COL_LEAF, COL_STATUS = range(4)
 class GffTab(QWidget):
     changed = Signal()          # dados mudaram -> redesenhar
     status_message = Signal(str)
+    loading_finished = Signal(int, bool)   # genomas novos, cancelado?
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -52,10 +55,24 @@ class GffTab(QWidget):
         self.leaves: list[str] = []
         self.queries: list[GeneQuery] = []
         self._filling = False
+        self._cache: dict[str, Genome] = {}          # caminho -> genoma lido (com mtime/tamanho)
+        self._search_cache: dict[tuple, list] = {}
+        self._worker: FileLoader | None = None   # leitura em andamento
+        self._loaders: list[FileLoader] = []     # mantidos vivos até a thread terminar
+        self._load_errors: list[str] = []
+        self._load_new = 0
+        self._skipped = 0
 
         # --- arquivos
         add_btn = QPushButton("Adicionar GFF3…")
         add_btn.clicked.connect(self._choose_files)
+        self.add_btn = add_btn
+        self.reload_btn = QPushButton("Recarregar")
+        self.reload_btn.setToolTip("Relê só os arquivos modificados desde a leitura")
+        self.reload_btn.clicked.connect(self.reload_changed)
+        self.cancel_btn = QPushButton("Cancelar")
+        self.cancel_btn.setVisible(False)
+        self.cancel_btn.clicked.connect(self.cancel_loading)
         rm_btn = QPushButton("Remover")
         rm_btn.clicked.connect(self.remove_selected)
         clear_btn = QPushButton("Limpar")
@@ -69,6 +86,15 @@ class GffTab(QWidget):
         row1.addWidget(clear_btn)
         self.progress = QProgressBar()
         self.progress.setVisible(False)
+        self.progress.setMinimumWidth(60)
+        self.progress.setTextVisible(True)
+        self.cancel_btn.setMinimumWidth(self.cancel_btn.sizeHint().width())
+        self.problems_box = QGroupBox("Problemas na leitura")
+        self.problems = QPlainTextEdit()
+        self.problems.setReadOnly(True)
+        self.problems.setMaximumHeight(110)
+        QVBoxLayout(self.problems_box).addWidget(self.problems)
+        self.problems_box.setVisible(False)
         self.summary = QLabel("Nenhum GFF carregado. O nome do arquivo é usado para achar a folha.")
         self.summary.setWordWrap(True)
 
@@ -95,19 +121,20 @@ class GffTab(QWidget):
         for cb in (self.f_product, self.f_name, self.f_locus):
             cb.setChecked(True)
         self.f_regex = QCheckBox("regex")
-        fields_row = QHBoxLayout()
-        for cb in (self.f_product, self.f_name, self.f_locus, self.f_regex):
-            fields_row.addWidget(cb)
-        fields_row.addStretch(1)
+        fields_row = QGridLayout()
+        for i, cb in enumerate((self.f_product, self.f_name, self.f_locus, self.f_regex)):
+            fields_row.addWidget(cb, i // 2, i % 2)
         add_q = QPushButton("Adicionar coluna")
         add_q.clicked.connect(self.add_query)
         prev_q = QPushButton("Prévia")
         prev_q.setToolTip("Mostra os genes encontrados sem adicionar coluna")
         prev_q.clicked.connect(lambda: self.show_preview(self._current_query()))
-        qrow = QHBoxLayout()
-        qrow.addWidget(self.query_edit, 1)
-        qrow.addWidget(prev_q)
-        qrow.addWidget(add_q)
+        qrow = QVBoxLayout()
+        qrow.addWidget(self.query_edit)
+        qbtn_row = QHBoxLayout()
+        qbtn_row.addWidget(prev_q)
+        qbtn_row.addWidget(add_q)
+        qrow.addLayout(qbtn_row)
 
         self.query_list = QListWidget()
         self.query_list.setMaximumHeight(120)
@@ -165,8 +192,15 @@ class GffTab(QWidget):
 
         lay = QVBoxLayout(self)
         lay.addLayout(row1)
-        lay.addWidget(auto_btn)
-        lay.addWidget(self.progress)
+        auto_row = QHBoxLayout()
+        auto_row.addWidget(auto_btn, 1)
+        auto_row.addWidget(self.reload_btn)
+        lay.addLayout(auto_row)
+        prog_row = QHBoxLayout()
+        prog_row.addWidget(self.progress, 1)
+        prog_row.addWidget(self.cancel_btn)
+        lay.addLayout(prog_row)
+        lay.addWidget(self.problems_box)
         lay.addWidget(self.summary)
         lay.addWidget(self.table)
         lay.addWidget(search_box)
@@ -179,46 +213,189 @@ class GffTab(QWidget):
         if paths:
             self.load_files(paths)
 
-    def load_files(self, paths: list[str | Path]) -> int:
-        errors: list[str] = []
-        loaded = 0
-        self.progress.setRange(0, len(paths))
-        self.progress.setValue(0)
-        self.progress.setVisible(len(paths) > 1)
-        existing = {g.name for g in self.genomes}
-        for i, path in enumerate(paths):
-            self.status_message.emit(f"Lendo {Path(path).name} ({i + 1}/{len(paths)})…")
-            QCoreApplication.processEvents()
+    # ------------------------------------------------- leitura em 2º plano
+    def is_loading(self) -> bool:
+        return self._worker is not None
+
+    def load_files(self, paths: list[str | Path], wait: bool = True) -> int:
+        """Lê GFF3 numa thread separada (a janela continua respondendo).
+
+        Arquivos já carregados e sem alteração não são relidos; os alterados são relidos e
+        substituem a versão anterior (mantendo nome e mapeamento). Com ``wait=True`` espera
+        terminar (processando eventos) e devolve quantos genomas entraram; com ``wait=False``
+        devolve na hora (o resultado chega por ``loading_finished``).
+        """
+        if self.is_loading():
+            self.status_message.emit("Aguarde a leitura em andamento (ou clique em Cancelar).")
+            return 0
+        self._load_errors = []
+        self._load_new = 0
+        to_parse: list[Path] = []
+        skipped = 0
+        loaded_by_path = {g.key: g for g in self.genomes}
+        seen: set[str] = set()
+        for raw in paths:
+            path = Path(raw)
+            key = self._key(path)
+            if key in seen:            # mesmo arquivo repetido na seleção
+                continue
+            seen.add(key)
             try:
-                g = parse_gff3(path)
-            except JabutiParseError as exc:
-                errors.append(exc.user_message())
+                sig = file_signature(path)
+            except OSError:
+                to_parse.append(path)  # o parser gera a mensagem de "não encontrado"
                 continue
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"{Path(path).name}: {exc}")
+            path = Path(key)  # a thread recebe o caminho já resolvido (a GUI não refaz isso)
+            current = loaded_by_path.get(key)
+            if current is not None and (current.mtime_ns, current.size) == sig:
+                skipped += 1           # já carregado e igual
                 continue
-            base, n = g.name, 2
-            while g.name in existing:  # mesmo nome de arquivo em pastas diferentes
-                g.name = f"{base}_{n}"
-                n += 1
-            existing.add(g.name)
-            self.genomes.append(g)
-            loaded += 1
-            self.progress.setValue(i + 1)
-        self.progress.setVisible(False)
-        self.auto_map(reset=False)
-        if errors:
-            show_error(self, Exception(f"{len(errors)} arquivo(s) não puderam ser lidos:\n\n" +
-                                       "\n\n".join(errors[:8])), "Erro ao ler GFF")
-        self.status_message.emit(f"{loaded} GFF3 carregado(s).")
-        return loaded
+            cached = self._cache.get(key)
+            if current is None and cached is not None and (cached.mtime_ns, cached.size) == sig:
+                cached.key = key
+                self._add_genome(cached)   # já lido antes (ex.: removido e readicionado)
+                continue
+            to_parse.append(path)
+        self._skipped = skipped
+        if not to_parse:
+            self._finish_loading(False)
+            return self._load_new
+        self.progress.setRange(0, len(to_parse))
+        self.progress.setValue(0)
+        self.progress.setVisible(True)
+        self.cancel_btn.setVisible(True)
+        self.add_btn.setEnabled(False)
+        self.reload_btn.setEnabled(False)
+        worker = FileLoader(to_parse, parse_gff3)
+        # QueuedConnection explícita: os slots SEMPRE rodam na thread da GUI
+        q = Qt.ConnectionType.QueuedConnection
+        worker.progress.connect(self._on_progress, q)
+        worker.items.connect(self._on_items, q)
+        worker.finished.connect(self._finish_loading, q)
+        self._worker = worker
+        self._loaders = [w for w in self._loaders if w.is_running()] + [worker]
+        worker.start()
+        if wait:
+            loop = QEventLoop()
+            self.loading_finished.connect(loop.quit)
+            if self.is_loading():
+                loop.exec()
+            self.loading_finished.disconnect(loop.quit)
+        return self._load_new
+
+    def cancel_loading(self) -> None:
+        if self._worker is not None:
+            self._worker.cancel()
+            self.status_message.emit("Cancelando a leitura…")
+
+    def reload_changed(self) -> int:
+        """Relê só os GFFs cujo arquivo mudou desde a leitura."""
+        changed = []
+        for g in self.genomes:
+            try:
+                if file_signature(g.path) != (g.mtime_ns, g.size):
+                    changed.append(g.path)
+            except OSError:
+                self._load_errors.append(f"Arquivo: {g.path.name}\nNão encontrado (foi movido ou apagado?).")
+        if not changed:
+            self.status_message.emit("Nenhum GFF foi alterado desde a leitura.")
+            return 0
+        return self.load_files(changed, wait=False) or len(changed)
+
+    def shutdown(self, timeout_ms: int = 5000) -> None:
+        """Cancela e espera as threads (ao fechar a janela)."""
+        if self._worker is not None:
+            self._worker.cancel()
+        for worker in self._loaders:
+            worker.cancel()
+            worker.join(timeout_ms / 1000)
+        self._loaders = [w for w in self._loaders if w.is_running()]
+
+    @staticmethod
+    def _key(path: str | Path) -> str:
+        try:
+            return str(Path(path).resolve())
+        except OSError:
+            return str(path)
+
+    @Slot(int, int, str)
+    def _on_progress(self, done: int, total: int, name: str) -> None:
+        self.progress.setValue(done)
+        self.progress.setFormat("%v/%m")  # o nome do arquivo vai na barra de status (cabe melhor)
+        if name:
+            self.status_message.emit(f"Lendo {name} ({done + 1}/{total})…")
+            self.progress.setToolTip(name)
+
+    @Slot(list)
+    def _on_items(self, items: list) -> None:
+        for ok, path, payload in items:
+            if ok:
+                self._on_item_loaded(path, payload)
+            else:
+                self._load_errors.append(payload)
+
+    def _on_item_loaded(self, path: str, genome: Genome) -> None:
+        key = path                    # já resolvido em load_files
+        genome.key = key
+        self._cache[key] = genome
+        for i, old in enumerate(self.genomes):   # arquivo alterado: substitui no lugar
+            if old.key == key:
+                genome.name = old.name
+                self.genomes[i] = genome
+                self._drop_search_cache(old)
+                return
+        self._add_genome(genome)
+
+    def _add_genome(self, genome: Genome) -> None:
+        existing = {g.name for g in self.genomes}
+        base, n = genome_name_from_path(genome.path), 2
+        genome.name = base
+        while genome.name in existing:  # mesmo nome de arquivo em pastas diferentes
+            genome.name = f"{base}_{n}"
+            n += 1
+        self.genomes.append(genome)
+        self._load_new += 1
+
+    @Slot(bool)
+    def _finish_loading(self, cancelled: bool) -> None:
+        self._worker = None
+        try:
+            self.progress.setVisible(False)
+            self.cancel_btn.setVisible(False)
+            self.add_btn.setEnabled(True)
+            self.reload_btn.setEnabled(True)
+            self.auto_map(reset=False)
+            self._show_problems()
+            parts = [f"{self._load_new} GFF3 carregado(s)"]
+            if self._skipped:
+                parts.append(f"{self._skipped} já estava(m) carregado(s) sem alteração")
+            if self._load_errors:
+                parts.append(f"{len(self._load_errors)} com erro (veja “Problemas na leitura”)")
+            if cancelled:
+                parts.append("leitura cancelada")
+            self.status_message.emit("; ".join(parts) + ".")
+        finally:
+            # sempre sinaliza o fim (senão load_files(wait=True) ficaria esperando para sempre)
+            self.loading_finished.emit(self._load_new, cancelled)
+
+    def _show_problems(self) -> None:
+        lines = []
+        for msg in self._load_errors:
+            lines.append("✗ " + msg.replace("\n", " — "))
+        warned = [g for g in self.genomes if g.warnings]
+        for g in warned:
+            lines.append(f"! {g.name}: " + " | ".join(g.warnings[:3]) + (" …" if len(g.warnings) > 3 else ""))
+        self.problems.setPlainText("\n".join(lines))
+        self.problems_box.setVisible(bool(lines))
+        self.problems_box.setTitle(f"Problemas na leitura ({len(self._load_errors)} erro(s), "
+                                   f"{len(warned)} arquivo(s) com avisos)")
 
     def remove_selected(self) -> None:
         rows = sorted({i.row() for i in self.table.selectedIndexes()}, reverse=True)
         for r in rows:
             g = self.genomes.pop(r)
             self.mapping.pop(g.name, None)
-            self.manual.discard(g.name)
+            self.manual.discard(g.name)  # a leitura fica no cache: readicionar não relê
         if rows:
             self.refresh()
             self.changed.emit()
@@ -359,15 +536,30 @@ class GffTab(QWidget):
             self.query_list.setCurrentRow(new)
             self.changed.emit()
 
+    def genes_for(self, genome: Genome, query: GeneQuery) -> list:
+        """``find_genes`` com cache por (arquivo, versão, consulta): mudar o mapeamento,
+        a ordem das colunas ou o estilo não refaz buscas."""
+        key = (genome.key or str(genome.path), genome.mtime_ns, genome.size, query)
+        hit = self._search_cache.get(key)
+        if hit is None:
+            hit = find_genes(genome, query)
+            self._search_cache[key] = hit
+        return hit
+
+    def _drop_search_cache(self, genome: Genome) -> None:
+        k = genome.key or str(genome.path)
+        for key in [key for key in self._search_cache if key[0] == k]:
+            del self._search_cache[key]
+
     def matrix(self) -> dict[str, dict[str, int]]:
-        return presence_matrix(self.genomes_by_leaf(), self.queries)
+        return presence_matrix(self.genomes_by_leaf(), self.queries, self.genes_for)
 
     def _refresh_queries(self) -> None:
         current = self.query_list.currentRow()
         self.query_list.blockSignals(True)
         self.query_list.clear()
         by_leaf = self.genomes_by_leaf()
-        matrix = presence_matrix(by_leaf, self.queries) if by_leaf else {}
+        matrix = presence_matrix(by_leaf, self.queries, self.genes_for) if by_leaf else {}
         for q in self.queries:
             counts = matrix.get(q.title, {})
             hits = sum(1 for n in counts.values() if n > 0)
@@ -404,7 +596,7 @@ class GffTab(QWidget):
         rows: list[tuple[str, str, str, str]] = []
         try:
             for g in self.genomes:
-                for f in find_genes(g, query):
+                for f in self.genes_for(g, query):
                     rows.append((self.mapping.get(g.name) or g.name, f.locus_tag, f.gene or f.name, f.product))
         except ValueError as exc:
             show_error(self, exc, "Busca")

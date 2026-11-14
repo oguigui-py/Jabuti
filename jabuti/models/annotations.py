@@ -38,11 +38,14 @@ class LegendGroup:
     entries: list[tuple[str, str]]
 
 
-def presence_matrix(genomes: dict[str, Genome], queries: list[GeneQuery]) -> dict[str, dict[str, int]]:
-    """``{título da consulta: {folha: nº de genes encontrados}}`` (só folhas com GFF)."""
+def presence_matrix(genomes: dict[str, Genome], queries: list[GeneQuery], find=find_genes) -> dict[str, dict[str, int]]:  # type: ignore[no-untyped-def]
+    """``{título da consulta: {folha: nº de genes encontrados}}`` (só folhas com GFF).
+
+    ``find(genome, query)`` pode ser uma versão com cache.
+    """
     out: dict[str, dict[str, int]] = {}
     for q in queries:
-        out[q.title] = {leaf: len(find_genes(g, q)) for leaf, g in genomes.items()}
+        out[q.title] = {leaf: len(find(g, q)) for leaf, g in genomes.items()}
     return out
 
 

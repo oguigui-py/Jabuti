@@ -89,7 +89,7 @@ class MainWindow(QMainWindow):
         self.metadata_tab = MetadataTab()
         self.tabs.addTab(_scroll(self.metadata_tab), "Metadados")
         self.tabs.addTab(_scroll(self.viz_tab), "Visualização")
-        self.tabs.setMinimumWidth(320)
+        self.tabs.setMinimumWidth(360)
 
         self.canvas = TreeCanvas()
         self.renderer = TreeRenderer(self.canvas.tree_scene)
@@ -120,7 +120,7 @@ class MainWindow(QMainWindow):
         split.addWidget(self.tabs)
         split.addWidget(right)
         split.setStretchFactor(1, 1)
-        split.setSizes([360, 940])
+        split.setSizes([390, 910])
         self.setCentralWidget(split)
 
         # painel de estilo fixo (não flutua, não fecha, não se move)
@@ -406,6 +406,10 @@ class MainWindow(QMainWindow):
             show_error(self, exc, "Erro ao exportar")
             return
         self.statusBar().showMessage(f"Exportado: {path}")
+
+    def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
+        self.gff_tab.shutdown()  # não deixa thread de leitura viva ao fechar
+        super().closeEvent(event)
 
     # ---------------------------------------------------- drag & drop
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:  # noqa: N802

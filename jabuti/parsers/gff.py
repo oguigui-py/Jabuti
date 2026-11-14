@@ -13,6 +13,7 @@ import gzip
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 from urllib.parse import unquote
 
 from jabuti.parsers.errors import JabutiParseError
@@ -26,6 +27,13 @@ MAX_WARNINGS = 20
 
 class GffParseError(JabutiParseError):
     pass
+
+
+class LoadCancelled(Exception):
+    """Leitura interrompida pelo usuário."""
+
+
+CANCEL_CHECK_EVERY = 2000  # linhas
 
 
 @dataclass
@@ -78,6 +86,9 @@ class Feature:
 class Genome:
     name: str                      # nome do arquivo sem extensões (usado no mapeamento)
     path: Path
+    key: str = ""                                            # caminho absoluto resolvido (identidade/cache)
+    mtime_ns: int = 0                                        # data de modificação lida (cache)
+    size: int = 0
     features: list[Feature] = field(default_factory=list)   # todas as features lidas
     genes: list[Feature] = field(default_factory=list)      # pesquisáveis, ordenadas por posição
     warnings: list[str] = field(default_factory=list)
@@ -128,10 +139,21 @@ def _read_lines(path: Path) -> list[str]:
     raise GffParseError("Codificação de texto não reconhecida.", path)  # pragma: no cover
 
 
-def parse_gff3(path: str | Path) -> Genome:
+def file_signature(path: str | Path) -> tuple[int, int]:
+    """(data de modificação em ns, tamanho) — muda quando o arquivo é editado."""
+    st = Path(path).stat()
+    return st.st_mtime_ns, st.st_size
+
+
+def parse_gff3(path: str | Path, should_stop: Callable[[], bool] | None = None) -> Genome:
+    """Lê um GFF3. ``should_stop`` é consultado periodicamente; se devolver True,
+    levanta ``LoadCancelled`` (usado pela leitura em segundo plano)."""
     p = Path(path)
+    if should_stop is not None and should_stop():
+        raise LoadCancelled()
+    sig = file_signature(p) if p.exists() and p.is_file() else (0, 0)
     lines = _read_lines(p)
-    genome = Genome(genome_name_from_path(p), p)
+    genome = Genome(genome_name_from_path(p), p, mtime_ns=sig[0], size=sig[1])
     bad = 0
 
     def warn(msg: str) -> None:
@@ -141,6 +163,8 @@ def parse_gff3(path: str | Path) -> Genome:
             genome.warnings.append(msg)
 
     for i, line in enumerate(lines, start=1):
+        if should_stop is not None and i % CANCEL_CHECK_EVERY == 0 and should_stop():
+            raise LoadCancelled()
         if not line.strip():
             continue
         if line.startswith("##FASTA") or line.startswith(">"):

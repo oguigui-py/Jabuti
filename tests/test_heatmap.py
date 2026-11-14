@@ -170,17 +170,33 @@ def test_gui_load_and_automap(window, data_dir):
     assert "4 folha(s) sem GFF" in gt.summary.text()
 
 
-def test_gui_bad_files_summarized(window, data_dir):
+def test_gui_bad_files_reported_without_dialog(window, data_dir):
     gt = window.gff_tab
     n = gt.load_files([data_dir / "gff" / "broken.gff3", data_dir / "gff" / "LB400.gff3",
                        data_dir / "gff" / "nao_existe.gff3"])
     assert n == 1
-    assert len(window.shown) == 1 and "2 arquivo(s)" in window.shown[0]
+    assert window.shown == []                        # nada modal
+    assert gt.problems_box.isVisibleTo(gt)
+    text = gt.problems.toPlainText()
+    assert "broken.gff3" in text and "nao_existe.gff3" in text
+    assert "2 erro(s)" in gt.problems_box.title()
 
 
-def test_gui_duplicate_names_get_suffix(window, data_dir):
+def test_gui_same_file_twice_is_one_genome(window, data_dir):
     gt = window.gff_tab
     gt.load_files([data_dir / "gff" / "LB400.gff3", data_dir / "gff" / "LB400.gff3"])
+    gt.load_files([data_dir / "gff" / "LB400.gff3"])
+    assert [g.name for g in gt.genomes] == ["LB400"]
+
+
+def test_gui_same_name_other_folder_gets_suffix(window, data_dir, tmp_path):
+    import shutil
+
+    other = tmp_path / "outra"
+    other.mkdir()
+    shutil.copy(data_dir / "gff" / "LB400.gff3", other / "LB400.gff3")
+    gt = window.gff_tab
+    gt.load_files([data_dir / "gff" / "LB400.gff3", other / "LB400.gff3"])
     assert [g.name for g in gt.genomes] == ["LB400", "LB400_2"]
     assert gt.mapping["LB400_2"] is None             # a folha já foi usada
 

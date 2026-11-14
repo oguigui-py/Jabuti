@@ -102,3 +102,60 @@ def test_match_names_suffix():
     leaves = ["Paraburkholderia_xenovorans_LB400", "Paraburkholderia_phymatum_STM815", "X_1", "Y_1"]
     m = match_names(["LB400", "STM815", "1"], leaves)
     assert m == {"LB400": "Paraburkholderia_xenovorans_LB400", "STM815": "Paraburkholderia_phymatum_STM815"}
+
+
+def _reference_match(keys, leaves):
+    """Algoritmo antigo (quadrático), usado só para validar o indexado."""
+    out, used = {}, set()
+    for k in keys:
+        if k in set(leaves) and k not in used:
+            out[k] = k
+            used.add(k)
+    for k in keys:
+        if k in out:
+            continue
+        c = list(dict.fromkeys(l for l in leaves if l not in used and normalize(l) == normalize(k)))
+        if len(c) == 1:
+            out[k] = c[0]
+            used.add(c[0])
+
+    def pre(a, b):
+        return a.startswith(b + "_") or b.startswith(a + "_")
+
+    def suf(a, b):
+        return a.endswith("_" + b) or b.endswith("_" + a)
+
+    for rule in (pre, suf):
+        for k in keys:
+            if k in out or not (nk := normalize(k)):
+                continue
+            c = list(dict.fromkeys(l for l in leaves if l not in used and (nl := normalize(l)) and rule(nk, nl)))
+            if len(c) == 1:
+                out[k] = c[0]
+                used.add(c[0])
+    return out
+
+
+def test_indexed_matching_equals_reference():
+    import random
+
+    rnd = random.Random(42)
+    parts = ["Para", "burk", "LB400", "STM815", "A1", "a1", "x", "GCF_0001.1", "sp", "B-2", "b 2"]
+    for _ in range(400):
+        leaves = list(dict.fromkeys("_".join(rnd.sample(parts, rnd.randint(1, 3))) for _ in range(rnd.randint(1, 8))))
+        keys = list(dict.fromkeys(
+            rnd.choice([rnd.choice(leaves), "_".join(rnd.sample(parts, rnd.randint(1, 2))), rnd.choice(parts)])
+            for _ in range(rnd.randint(1, 8))
+        ))
+        assert match_names(keys, leaves) == _reference_match(keys, leaves), (keys, leaves)
+
+
+def test_matching_scales_linearly():
+    import time
+
+    leaves = [f"Paraburkholderia_sp_strain{i:05d}" for i in range(5000)]
+    keys = [f"strain{i:05d}" for i in range(5000)]
+    t = time.perf_counter()
+    m = match_names(keys, leaves)
+    assert len(m) == 5000
+    assert time.perf_counter() - t < 1.0   # o algoritmo quadrático levava ~30 s

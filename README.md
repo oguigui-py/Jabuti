@@ -15,6 +15,10 @@ externo, estilo iTOL), clados coloridos, estilos de linha, rótulos e símbolos,
   O nome do arquivo é casado com a folha automaticamente (ignora maiúsculas e `_`/espaço/`.`/`-`,
   aceita prefixo ou sufixo único: `LB400.gff3` ↔ `Paraburkholderia_xenovorans_LB400`).
   O mapeamento é editável por linha (✓ automático, ✎ manual, ⚠ sem folha).
+- A leitura roda em segundo plano: a janela continua respondendo, com barra de progresso e
+  botão *Cancelar*. Erros e avisos aparecem em *Problemas na leitura*, sem travar. Arquivos já
+  lidos não são relidos (cache por caminho, data de modificação e tamanho); *Recarregar* relê só
+  os que mudaram. Buscas também ficam em cache: mudar o mapeamento ou o estilo não refaz buscas.
 - *Buscar genes* por produto, nome/gene e/ou `locus_tag`, em texto ou regex. *Prévia* lista os
   genes encontrados; *Adicionar coluna* cria uma coluna do heatmap (ordem ajustável).
 - O heatmap fica à direita dos rótulos no retangular e em anéis entre as pontas e os rótulos no
