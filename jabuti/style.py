@@ -337,6 +337,7 @@ class RenderStyle:
     unrooted: UnrootedStyle = field(default_factory=UnrootedStyle)
     figure: FigureConfig = field(default_factory=FigureConfig)
     background: str | None = "#ffffff"  # cor de fundo; None = transparente
+    merge_backgrounds: bool = True      # fundos vizinhos (clados, rótulos, destaques) num bloco só
 
     @property
     def font_size(self) -> float:

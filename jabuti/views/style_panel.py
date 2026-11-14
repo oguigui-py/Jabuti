@@ -617,6 +617,13 @@ class StylePanel(QWidget):
         self.bg_transparent = QCheckBox("Transparente (também no export)")
         self.bg_transparent.toggled.connect(lambda on: (self.bg_row.setEnabled(not on), self._emit()))
         f.addRow(self.bg_transparent)
+        self.merge_bgs = QCheckBox("Unir fundos vizinhos")
+        self.merge_bgs.setChecked(True)
+        self.merge_bgs.setToolTip("Fundos de clados, de rótulos e destaques de linha vizinhos viram um bloco\n"
+                                  "contínuo (mesma cor) ou se encostam no meio do espaço entre as folhas\n"
+                                  "(cores diferentes). Desmarque para o espaçamento antigo entre eles.")
+        self.merge_bgs.toggled.connect(self._emit)
+        f.addRow(self.merge_bgs)
         return w
 
     # ------------------------------------------------------- edições
@@ -800,6 +807,7 @@ class StylePanel(QWidget):
             self.legend_in_figure.setChecked(style.legend.in_figure)
             self.legend_pos.setCurrentIndex(max(self.legend_pos.findData(style.legend.position), 0))
             self.bg_transparent.setChecked(style.background is None)
+            self.merge_bgs.setChecked(style.merge_backgrounds)
             if style.background:
                 self.bg_row.set_color(style.background)
             self.clade_list.palette = self.palette_colors()
@@ -1114,6 +1122,7 @@ class StylePanel(QWidget):
         sb.position = self.scale_pos.currentData()
         sb.length = None if self.scale_auto.isChecked() else self.scale_len.value()
         style.background = None if self.bg_transparent.isChecked() else self.bg_row.color()
+        style.merge_backgrounds = self.merge_bgs.isChecked()
         style.legend.in_figure = self.legend_in_figure.isChecked()
         style.legend.position = self.legend_pos.currentData()
         hm = style.heatmap

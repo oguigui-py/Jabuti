@@ -22,6 +22,7 @@ from jabuti.models.annotations import ContextGene, LeafColumn, LegendGroup, cont
 from jabuti.models.document import TreeEdits, collapsed_nodes
 from jabuti.models.label_groups import LabelGroup, LabelGroupSet
 from jabuti.models.tracks import CLADE_STRIP, BarTrack, StackedTrack, fmt_value
+from jabuti.views.background_blocks import SEAM_OVERLAP, blocks
 from jabuti.models.tree import SUPPORT_ALL, Node, Tree, support_value
 from jabuti.style import GuideStyle, LayoutKind, RenderStyle
 
@@ -66,6 +67,7 @@ class RenderResult:
     label_groups: dict[str, LabelGroup] = field(default_factory=dict)  # folha -> grupo efetivo
     notes: list[str] = field(default_factory=list)                      # avisos para a barra de status
     display: dict[str, str] = field(default_factory=dict)               # nome original -> exibido
+    shared_backgrounds: set[str] = field(default_factory=set)           # folhas cujo fundo é um bloco
 
 
 @dataclass
@@ -241,6 +243,7 @@ class TreeRenderer:
         self._marker = sym.size if sym.shape != "none" else 0.0
         self.geometry = None
         res = RenderResult()
+        self._merge = getattr(style, "merge_backgrounds", True)
         self._names = dict(names or {})
         self._highlights = list(highlights or [])
         res.display = dict(self._names)
@@ -507,6 +510,161 @@ class TreeRenderer:
                     t.setZValue(1)
                     self.scene.addItem(t)
         return x0 + cst.width
+
+    # ------------------------------------------------- fundos vizinhos unidos
+    @staticmethod
+    def _tip_order(lay) -> list:  # type: ignore[no-untyped-def]
+        """Folhas e clados colapsados na ordem desenhada (pela posição)."""
+        return sorted([*lay.leaf_order, *lay.collapsed], key=lambda n: lay.span[n][0])
+
+    @staticmethod
+    def _touching(lay):  # type: ignore[no-untyped-def]
+        return lambda a, b: abs(lay.span[a][1] - lay.span[b][0]) < 1e-9
+
+    @staticmethod
+    def _side(i: int, n: int, neighbor: bool, first: bool) -> str:
+        """Tipo da borda da i-ésima ponta do bloco: "inner", "neighbor" ou "outer"."""
+        if (i > 0) if first else (i < n - 1):
+            return "inner"
+        return "neighbor" if neighbor else "outer"
+
+    def _block_item(self, path: QPainterPath, spec: _LabelSpec, names: list[str], res: RenderResult) -> None:
+        bg = QGraphicsPathItem(path)
+        c = QColor(spec.bg)
+        c.setAlphaF(max(0.0, min(spec.bg_alpha, 1.0)))
+        bg.setBrush(QBrush(c))
+        bg.setPen(QPen(Qt.PenStyle.NoPen))
+        bg.setZValue(-1)
+        bg.setData(1, TAG_LABEL_BG)
+        bg.setData(2, names[0])
+        bg.setData(4, list(names))
+        self.scene.addItem(bg)
+        for name in names:
+            res.label_backgrounds[name] = bg
+        if len(names) > 1:
+            res.shared_backgrounds.update(names)
+
+    def _label_blocks(self, lay, pending: dict):  # type: ignore[no-untyped-def]
+        def key(n):  # type: ignore[no-untyped-def]
+            if n not in pending:
+                return None
+            spec = pending[n][1]
+            return (spec.bg, round(spec.bg_alpha, 4))
+
+        return blocks(self._tip_order(lay), key, self._touching(lay))
+
+    def _merged_label_bgs_rect(self, lay, pending: dict, sy: float, res: RenderResult) -> None:  # type: ignore[no-untyped-def]
+        """Fundos de rótulos vizinhos de mesma cor num caminho só (em "escada"): entre as
+        folhas o fundo vai até o meio do espaço; nas pontas, margem e cantos como antes."""
+        for block in self._label_blocks(lay, pending):
+            n = len(block.tips)
+            if n == 1 and not block.before and not block.after:
+                item, spec = pending[block.tips[0]]
+                self._label_background(block.tips[0], item, spec, sy - 1, res)
+                continue
+            path = QPainterPath()
+            path.setFillRule(Qt.FillRule.WindingFill)
+            for i, leaf in enumerate(block.tips):
+                item, spec = pending[leaf]
+                br = item.boundingRect()
+                h = br.height()
+                height = min(h + 2 * spec.pad, sy - 1)
+                yc = item.pos().y() + h / 2
+                x0 = item.pos().x() - spec.pad
+                w = br.width() + 2 * spec.pad
+                s0, s1 = lay.span[leaf][0] * sy, lay.span[leaf][1] * sy
+                top_kind = self._side(i, n, block.before, True)
+                bot_kind = self._side(i, n, block.after, False)
+                top = {"inner": s0, "neighbor": s0 - SEAM_OVERLAP, "outer": yc - height / 2}[top_kind]
+                bot = {"inner": s1, "neighbor": s1, "outer": yc + height / 2}[bot_kind]
+                if "outer" in (top_kind, bot_kind):
+                    r = max(min(spec.radius, height / 2, w / 2), 0.0)
+                    path.addRoundedRect(QRectF(x0, top, w, bot - top), r, r)
+                    mid = (top + bot) / 2
+                    if top_kind != "outer":                    # cantos só nas pontas externas
+                        path.addRect(QRectF(x0, top, w, mid - top))
+                    if bot_kind != "outer":
+                        path.addRect(QRectF(x0, mid, w, bot - mid))
+                else:
+                    path.addRect(QRectF(x0, top, w, bot - top))
+            self._block_item(path, pending[block.tips[0]][1], [l.name for l in block.tips], res)
+
+    def _merged_label_bgs_circ(self, lay, pending: dict, res: RenderResult) -> None:  # type: ignore[no-untyped-def]
+        """Circular/leque: entre folhas vizinhas o fundo é um setor com bordas radiais no
+        ângulo médio; nas pontas do bloco, o retângulo arredondado girado de sempre."""
+        for block in self._label_blocks(lay, pending):
+            n = len(block.tips)
+            if n == 1 and not block.before and not block.after:
+                item, spec, _start, max_h = pending[block.tips[0]]
+                self._label_background(block.tips[0], item, spec, max_h, res)
+                continue
+            path = QPainterPath()
+            path.setFillRule(Qt.FillRule.WindingFill)
+            for i, leaf in enumerate(block.tips):
+                item, spec, start, max_h = pending[leaf]
+                th = lay.pos[leaf][1]
+                a, b = lay.span[leaf]
+                r_in, r_out = start, start + spec.width + 2 * spec.pad
+                lo_kind = self._side(i, n, block.before, True)
+                hi_kind = self._side(i, n, block.after, False)
+                lo = {"inner": a, "neighbor": a - SEAM_OVERLAP / max(r_in, 1.0), "outer": th}[lo_kind]
+                hi = {"inner": b, "neighbor": b, "outer": th}[hi_kind]
+                if "outer" in (lo_kind, hi_kind):
+                    br = item.boundingRect()
+                    h = br.height()
+                    height = min(h + 2 * spec.pad, max_h)
+                    local = QPainterPath()
+                    rect = QRectF(-spec.pad, h / 2 - height / 2, br.width() + 2 * spec.pad, height)
+                    r = max(min(spec.radius, height / 2, rect.width() / 2), 0.0)
+                    local.addRoundedRect(rect, r, r)
+                    path.addPath(item.sceneTransform().map(local))
+                if hi > lo:
+                    path.addPath(annular_sector(r_in, r_out, lo, hi))
+            self._block_item(path, pending[block.tips[0]][1], [l.name for l in block.tips], res)
+
+    def _clade_bg_groups(self, lay, visible: list[ResolvedClade]):  # type: ignore[no-untyped-def]
+        """Clados com fundo encostados: mesma cor → um grupo (um caminho só); cor diferente →
+        o seguinte avança um pouco sob a divisa (``lead_in``) para não sobrar fresta clara."""
+        root = {id(rc): id(rc) for rc in visible}
+
+        def find(k: int) -> int:
+            while root[k] != k:
+                root[k] = root[root[k]]
+                k = root[k]
+            return k
+
+        lead_in: set = set()
+        for a in visible:
+            for b in visible:
+                if a is b or abs(lay.span[a.node][1] - lay.span[b.node][0]) > 1e-9:
+                    continue
+                if a.color.lower() == b.color.lower():
+                    root[find(id(b))] = find(id(a))
+                else:
+                    lead_in.add(id(b))
+        groups: dict[int, list] = {}
+        for rc in visible:
+            groups.setdefault(find(id(rc)), []).append(rc)
+        return [(g[0].color, g, {id(rc) for rc in g if id(rc) in lead_in}) for g in groups.values()]
+
+    def _highlight_blocks(self, lay):  # type: ignore[no-untyped-def]
+        """(destaque, folhas, encostado antes, encostado depois): cada folha fica com o último
+        destaque que a contém; destaques de mesmo estilo vizinhos viram um bloco só."""
+        owner = {}
+        for hl in self._highlights:
+            for name in hl.leaves:
+                owner[name] = hl
+
+        def key(n):  # type: ignore[no-untyped-def]
+            hl = owner.get(n.name) if n.is_leaf else None
+            if hl is None:
+                return None
+            return (hl.color, round(hl.alpha, 4), hl.outline, round(hl.outline_width, 3), round(hl.thickness, 3))
+
+        out = []
+        for block in blocks(self._tip_order(lay), key, self._touching(lay)):
+            out.append((owner[block.tips[0].name], block.tips, block.before, block.after))
+        return out
 
     # --------------------------------------------------------- destaque de linha
     def _highlight_runs(self, lay):  # type: ignore[no-untyped-def]
@@ -1127,6 +1285,7 @@ class TreeRenderer:
                 t.setData(1, TAG_COLLAPSED)
                 t.setPos(far * sx + pad, p.y() - t.boundingRect().height() / 2)
                 label_right = max(label_right, t.sceneBoundingRect().right())
+        label_bgs: dict[Node, tuple] = {}
         for leaf in lay.leaf_order:
             p = pt(leaf)
             res.leaf_points[leaf.name] = p
@@ -1138,9 +1297,15 @@ class TreeRenderer:
             item.setPos(p.x() + pad + self._marker / 2 + spec.pad, p.y() - h / 2)
             res.leaf_items.setdefault(leaf.name, []).append(item)
             label_right = max(label_right, item.sceneBoundingRect().right())
+            if self._merge and spec.bg:
+                label_bgs[leaf] = (item, spec)
+                label_right = max(label_right, item.pos().x() + item.boundingRect().width() + spec.pad)
+                continue
             bg = self._label_background(leaf, item, spec, sy - 1, res)
             if bg is not None:
                 label_right = max(label_right, bg.sceneBoundingRect().right())
+        if label_bgs:
+            self._merged_label_bgs_rect(lay, label_bgs, sy, res)
 
         visible = self._visible_clades(res)
 
@@ -1152,21 +1317,42 @@ class TreeRenderer:
         x = self._draw_tracks_rect(tree, lay, x, sy, pad, visible, y_range)
         if self._context:
             x = self._draw_context(lay, x, sy, pad) + pad
-        for hl, run in self._highlight_runs(lay):
-            first, last = run[0], run[-1]
-            h = sy * max(min(hl.thickness, 1.0), 0.1)
-            x0 = min(pt(l).x() for l in run) + pad / 2
-            rect = QRectF(x0, pt(first).y() - h / 2, x - pad / 2 - x0, pt(last).y() - pt(first).y() + h)
-            path = QPainterPath()
-            path.addRect(rect)
-            self._row_highlight(path, hl)
-        if cs.background and visible:
-            for rc in visible:
-                y0, y1 = y_range(rc.node)
-                x0 = pt(rc.node).x() - pad / 2
+        if self._merge:
+            for hl, run, before, after in self._highlight_blocks(lay):
+                h = sy * max(min(hl.thickness, 1.0), 0.1)
+                x0 = min(pt(l).x() for l in run) + pad / 2
+                top = lay.span[run[0]][0] * sy - SEAM_OVERLAP if before else pt(run[0]).y() - h / 2
+                bottom = lay.span[run[-1]][1] * sy if after else pt(run[-1]).y() + h / 2
                 path = QPainterPath()
-                path.addRect(QRectF(x0, y0, x - pad / 2 - x0, y1 - y0))
-                self._fill(path, rc.color, cs.background_alpha, TAG_CLADE_BG, -2)
+                path.addRect(QRectF(x0, top, x - pad / 2 - x0, bottom - top))
+                self._row_highlight(path, hl)
+        else:
+            for hl, run in self._highlight_runs(lay):
+                first, last = run[0], run[-1]
+                h = sy * max(min(hl.thickness, 1.0), 0.1)
+                x0 = min(pt(l).x() for l in run) + pad / 2
+                rect = QRectF(x0, pt(first).y() - h / 2, x - pad / 2 - x0, pt(last).y() - pt(first).y() + h)
+                path = QPainterPath()
+                path.addRect(rect)
+                self._row_highlight(path, hl)
+        if cs.background and visible:
+            if self._merge:
+                for color, group, lead_in in self._clade_bg_groups(lay, visible):
+                    path = QPainterPath()
+                    path.setFillRule(Qt.FillRule.WindingFill)
+                    for rc in group:
+                        y0, y1 = y_range(rc.node)
+                        y0 -= SEAM_OVERLAP if id(rc) in lead_in else 0.0
+                        x0 = pt(rc.node).x() - pad / 2
+                        path.addRect(QRectF(x0, y0, x - pad / 2 - x0, y1 - y0))
+                    self._fill(path, color, cs.background_alpha, TAG_CLADE_BG, -2)
+            else:
+                for rc in visible:
+                    y0, y1 = y_range(rc.node)
+                    x0 = pt(rc.node).x() - pad / 2
+                    path = QPainterPath()
+                    path.addRect(QRectF(x0, y0, x - pad / 2 - x0, y1 - y0))
+                    self._fill(path, rc.color, cs.background_alpha, TAG_CLADE_BG, -2)
         if cs.show_names and visible:
             for rc in visible:
                 y0, y1 = y_range(rc.node)
@@ -1289,6 +1475,7 @@ class TreeRenderer:
                 item.setData(1, TAG_GUIDES)
                 self.scene.addItem(item)
 
+        circ_bgs: dict[Node, tuple] = {}
         for leaf in lay.leaf_order:
             th = lay.pos[leaf][1]
             res.leaf_points[leaf.name] = pt(geom.leaf_end_radius(lay, leaf), th)
@@ -1303,7 +1490,12 @@ class TreeRenderer:
                 # corda entre folhas vizinhas na borda interna do fundo
                 a, b = lay.span[leaf]
                 chord = 2 * start * math.sin(max(b - a, 0.0) / 2)
-                self._label_background(leaf, item, spec, max(chord - 1, 2.0), res)
+                if self._merge:
+                    circ_bgs[leaf] = (item, spec, start, max(chord - 1, 2.0))
+                else:
+                    self._label_background(leaf, item, spec, max(chord - 1, 2.0), res)
+        if circ_bgs:
+            self._merged_label_bgs_circ(lay, circ_bgs, res)
 
         if style.label.show:
             for node, far in lay.collapsed.items():
@@ -1321,14 +1513,17 @@ class TreeRenderer:
         def th_range(node: Node) -> tuple[float, float]:
             return lay.span[node]
 
-        for hl, run in self._highlight_runs(lay):
+        runs = ([(hl, run, False, False) for hl, run in self._highlight_runs(lay)] if not self._merge
+                else self._highlight_blocks(lay))
+        for hl, run, before, after in runs:
             frac = max(min(hl.thickness, 1.0), 0.1)
             a0, b0 = lay.span[run[0]]
             a1, b1 = lay.span[run[-1]]
-            th0 = (a0 + b0) / 2 - (b0 - a0) / 2 * frac
-            th1 = (a1 + b1) / 2 + (b1 - a1) / 2 * frac
             r0 = geom.tip_ring if geom.align_tips else min(rad(l) for l in run)
-            self._row_highlight(annular_sector(max(r0 - pad / 2, 0.0), outer + pad / 2, th0, th1), hl)
+            r0 = max(r0 - pad / 2, 0.0)
+            th0 = a0 - SEAM_OVERLAP / max(r0, 1.0) if before else (a0 + b0) / 2 - (b0 - a0) / 2 * frac
+            th1 = b1 if after else (a1 + b1) / 2 + (b1 - a1) / 2 * frac
+            self._row_highlight(annular_sector(r0, outer + pad / 2, th0, th1), hl)
 
         root_span = lay.span[tree.root]
         for i, track in enumerate(self._ring_tracks):
@@ -1354,11 +1549,18 @@ class TreeRenderer:
         if not lay.full:
             self._fan_headers(lay, geom, pt)
         if cs.background and visible:
-            for rc in visible:
-                th0, th1 = th_range(rc.node)
-                r0 = max(rad(rc.node) - pad / 2, 0.0)
-                self._fill(annular_sector(r0, outer + pad / 2, th0, th1),
-                           rc.color, cs.background_alpha, TAG_CLADE_BG, -2)
+            groups = (self._clade_bg_groups(lay, visible) if self._merge
+                      else [(rc.color, [rc], set()) for rc in visible])
+            for color, group, lead_in in groups:
+                path = QPainterPath()
+                path.setFillRule(Qt.FillRule.WindingFill)
+                for rc in group:
+                    th0, th1 = th_range(rc.node)
+                    r0 = max(rad(rc.node) - pad / 2, 0.0)
+                    if id(rc) in lead_in:
+                        th0 -= SEAM_OVERLAP / max(r0, 1.0)
+                    path.addPath(annular_sector(r0, outer + pad / 2, th0, th1))
+                self._fill(path, color, cs.background_alpha, TAG_CLADE_BG, -2)
         if cs.show_names and visible:
             r_name = outer + pad * 2
             for rc in visible:

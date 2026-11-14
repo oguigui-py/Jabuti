@@ -83,10 +83,10 @@ def scenarios():  # type: ignore[no-untyped-def]
     clades = [Clade(f"C{i}", s, None, True, "auto") for i, s in enumerate(clades_by_k(tree, 4))]
     names = tree.leaf_names()
 
-    def run(layout, full: bool):  # type: ignore[no-untyped-def]
+    def run(layout, full: bool, merge: bool = False):  # type: ignore[no-untyped-def]
         def draw():  # type: ignore[no-untyped-def]
             scene = QGraphicsScene()
-            st = RenderStyle(layout=layout)
+            st = RenderStyle(layout=layout, merge_backgrounds=merge)
             kw = {}
             if full:
                 st.clades.outer_strip = True
@@ -115,20 +115,30 @@ def scenarios():  # type: ignore[no-untyped-def]
         ("circ-basic", run(LayoutKind.CIRCULAR, False)),
         ("rect-full", run(LayoutKind.RECTANGULAR, True)),
         ("circ-full", run(LayoutKind.CIRCULAR, True)),
+        # padrão atual: fundos vizinhos unidos (os de cima: modo antigo, idêntico ao desenho original)
+        ("rect-full-merged", run(LayoutKind.RECTANGULAR, True, True)),
+        ("circ-full-merged", run(LayoutKind.CIRCULAR, True, True)),
     ]
 
 
 keep: list = []
 
 
-def record() -> None:
+def record(only_missing: bool = False) -> None:
     from PySide6.QtWidgets import QApplication
 
     keep.append(QApplication.instance() or QApplication([]))
-    data = {"font_probe": font_probe(), "scenes": {name: signature(fn()) for name, fn in scenarios()}}
+    old = json.loads(BASELINE.read_text(encoding="utf-8")) if only_missing and BASELINE.exists() else None
+    scenes = dict(old["scenes"]) if old else {}
+    for name, fn in scenarios():
+        if name not in scenes:
+            scenes[name] = signature(fn())
+    data = {"font_probe": old["font_probe"] if old else font_probe(), "scenes": scenes}
     BASELINE.write_text(json.dumps(data, ensure_ascii=False) + "\n", encoding="utf-8")
     print(f"gravado {BASELINE} ({', '.join(f'{k}: {len(v)} itens' for k, v in data['scenes'].items())})")
 
 
 if __name__ == "__main__":
-    record()
+    import sys
+
+    record(only_missing="--novos" in sys.argv)   # --novos: grava só os cenários que faltam

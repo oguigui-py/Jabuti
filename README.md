@@ -197,6 +197,15 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
 - **Barra de escala** — mostrar/ocultar, canto (4 posições) e comprimento automático ou fixo.
 - **Árvore e fundo** — ladderize (crescente/decrescente), desfazer rotações, expandir todos;
   fundo em cor ou transparente (o PNG sai com transparência; na tela aparece um xadrez).
+  **Unir fundos vizinhos** (ligado por padrão): fundos de clados, de rótulos e destaques de linha
+  de grupos encostados viram um bloco contínuo quando têm a mesma cor (um caminho só, sem
+  emenda e sem opacidade dobrada) e, com cores diferentes, se encontram no ponto médio entre a
+  última folha de um e a primeira do outro, sem vão branco (no circular e no leque, bordas
+  radiais no ângulo médio). Entre as linhas de um bloco o fundo ocupa todo o espaço; cantos
+  arredondados só nas pontas externas. Grupos separados por folhas sem fundo, ou por um clado
+  colapsado, continuam separados. Com fundos translúcidos de cores diferentes, a divisa ganha um
+  filete de 0,25 pt da mistura das duas cores (cobre o antialiasing; nunca fica branca).
+  Desmarque para o espaçamento antigo.
   Clique direito num nó: *girar nó* (inverter filhos), *colapsar em triângulo* (com nome do
   clado e nº de folhas) ou *expandir*. Rotações e colapsos também sobrevivem a reenraizamentos.
 - **Presets** — *Salvar/Carregar preset* grava todas as configurações visuais em JSON, inclusive

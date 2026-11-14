@@ -94,9 +94,14 @@ class TreeCanvas(QGraphicsView):
                 if it.contains(it.mapFromScene(scene_pt)):
                     return name
         bg = self.result.label_backgrounds
-        for name, item in bg.items():
-            if item.contains(item.mapFromScene(scene_pt)):
-                return name
+        hits = [name for name, item in bg.items() if item.contains(item.mapFromScene(scene_pt))]
+        if hits:
+            # fundo compartilhado por várias folhas (bloco): a folha cujo rótulo está mais perto
+            def dist(name: str) -> float:
+                c = self.result.leaf_items[name][0].sceneBoundingRect().center()
+                return (c.x() - scene_pt.x()) ** 2 + (c.y() - scene_pt.y()) ** 2
+
+            return min(hits, key=dist)
         scale = self.transform().m11() or 1.0
         tol = (self.PICK_TOLERANCE_PX / scale) ** 2
         best, best_d = None, tol
@@ -150,7 +155,8 @@ class TreeCanvas(QGraphicsView):
             items = self.result.leaf_items.get(name) or []
             if not items:
                 continue
-            ref = self.result.label_backgrounds.get(name) or items[0]
+            shared = name in self.result.shared_backgrounds   # bloco de várias folhas: contorna o texto
+            ref = (None if shared else self.result.label_backgrounds.get(name)) or items[0]
             rect = QGraphicsRectItem(ref.boundingRect().adjusted(-1.5, -1, 1.5, 1))
             rect.setPen(pen)
             rect.setBrush(QBrush(Qt.BrushStyle.NoBrush))

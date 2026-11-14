@@ -70,9 +70,12 @@ def render(qtbot):
 
     from jabuti.views.tree_renderer import TreeRenderer
 
-    def _render(groups=None, layout=LayoutKind.RECTANGULAR, tree=None, clades=None, columns=None, **cs):
+    def _render(groups=None, layout=LayoutKind.RECTANGULAR, tree=None, clades=None, columns=None,
+                merge=False, **cs):
+        # merge=False: um fundo girado por folha (o comportamento que estes testes descrevem);
+        # a união de fundos vizinhos é testada em test_merged_backgrounds.py
         scene = QGraphicsScene()
-        style = RenderStyle(layout=layout, clades=CladeStyle(**cs))
+        style = RenderStyle(layout=layout, clades=CladeStyle(**cs), merge_backgrounds=merge)
         res = TreeRenderer(scene).render(tree or parse_newick_string(BIN), style, clades, None, columns,
                                          label_groups=groups)
         return scene, res
