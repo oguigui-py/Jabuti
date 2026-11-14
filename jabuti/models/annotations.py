@@ -127,3 +127,60 @@ def metadata_column(
 ) -> tuple[LeafColumn, LegendGroup]:
     colors, legend = metadata_colors(by_leaf, column, palette)
     return LeafColumn(f"meta:{column}", column, colors, missing, kind="metadata", width=width), legend
+
+
+# --------------------------------------------------------- contexto gênico
+OTHER_GENE_COLOR = "#cfcfcf"
+
+
+@dataclass
+class ContextGene:
+    label: str
+    start: int          # bp relativo ao centro do gene âncora (âncora sempre "para a direita")
+    end: int
+    forward: bool       # mesma orientação que o âncora
+    is_anchor: bool
+    color: str
+    locus_tag: str = ""
+
+
+def gene_context(
+    genomes: dict[str, Genome],
+    anchor_query: GeneQuery,
+    n: int,
+    color_queries: list[tuple[GeneQuery, str]],
+) -> dict[str, list[ContextGene]]:
+    """Vizinhança (±n genes) do primeiro gene que casa com ``anchor_query`` em cada genoma.
+
+    Coordenadas relativas ao centro do âncora; se o âncora estiver na fita "-", a janela é
+    espelhada para que ele aponte sempre para a direita (alinha os genomas). Genes que casam
+    com alguma consulta recebem a cor dela; os demais ficam cinza.
+    """
+    from jabuti.parsers.gff import neighbors
+
+    matchers = [(q.matcher(), color) for q, color in color_queries]
+    out: dict[str, list[ContextGene]] = {}
+    for leaf, genome in genomes.items():
+        hits = find_genes(genome, anchor_query)
+        if not hits:
+            continue
+        anchor = hits[0]
+        center = (anchor.start + anchor.end) / 2
+        flip = anchor.strand == "-"
+        track: list[ContextGene] = []
+        for f in neighbors(genome, anchor, n):
+            s, e = f.start - center, f.end - center
+            if flip:
+                s, e = -e, -s
+            same = (f.strand == anchor.strand) or f.strand == "." or anchor.strand == "."
+            color = next((c for m, c in matchers if m(f)), OTHER_GENE_COLOR)
+            track.append(ContextGene(f.label or f.locus_tag, round(s), round(e),
+                                     same if f.strand != "." else True, f is anchor, color, f.locus_tag))
+        track.sort(key=lambda g: g.start)
+        out[leaf] = track
+    return out
+
+
+def context_extent(tracks: dict[str, list[ContextGene]]) -> float:
+    """Maior distância (bp) do centro do âncora até a borda de qualquer vizinho."""
+    return max((max(abs(g.start), abs(g.end)) for t in tracks.values() for g in t), default=0.0)

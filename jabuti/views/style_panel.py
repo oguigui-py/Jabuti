@@ -517,6 +517,14 @@ class StylePanel(QWidget):
         for cb in (self.hm_counts, self.hm_headers, self.hm_borders):
             cb.toggled.connect(self._emit)
             f.addRow(cb)
+        f.addRow(QLabel("<b>Contexto gênico</b>"))
+        self.ctx_width = self._spin(100, 2000, 360, 20)
+        self.ctx_width.setDecimals(0)
+        f.addRow("Largura (px):", self.ctx_width)
+        self.ctx_labels = QCheckBox("Nomes dos genes (quando cabem)")
+        self.ctx_labels.setChecked(True)
+        self.ctx_labels.toggled.connect(self._emit)
+        f.addRow(self.ctx_labels)
         hint = QLabel("As colunas vêm das buscas na aba GFF. No circular viram anéis (de dentro para fora "
                       "na ordem da lista; veja a legenda).")
         hint.setWordWrap(True)
@@ -710,6 +718,8 @@ class StylePanel(QWidget):
             self.hm_counts.setChecked(hm.show_counts)
             self.hm_headers.setChecked(hm.show_headers)
             self.hm_borders.setChecked(hm.borders)
+            self.ctx_width.setValue(style.context.width)
+            self.ctx_labels.setChecked(style.context.show_labels)
 
             md = style.metadata
             self.meta_labels.setChecked(md.color_labels)
@@ -1026,6 +1036,8 @@ class StylePanel(QWidget):
         hm.show_counts = self.hm_counts.isChecked()
         hm.show_headers = self.hm_headers.isChecked()
         hm.borders = self.hm_borders.isChecked()
+        style.context.width = self.ctx_width.value()
+        style.context.show_labels = self.ctx_labels.isChecked()
         md = style.metadata
         md.color_by = self.color_by.currentData()
         md.color_labels = self.meta_labels.isChecked()

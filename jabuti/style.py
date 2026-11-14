@@ -137,6 +137,15 @@ class HeatmapStyle:
 
 
 @dataclass
+class ContextStyle:
+    """Contexto gênico (setas dos vizinhos) — layout retangular."""
+
+    width: float = 360.0             # px da janela de contexto
+    arrow_height: float = 0.7        # fração do espaço entre folhas
+    show_labels: bool = True
+
+
+@dataclass
 class MetadataStyle:
     """Cores a partir da tabela de metadados (aba Metadados)."""
 
@@ -164,6 +173,7 @@ class RenderStyle:
     scale_bar: ScaleBarStyle = field(default_factory=ScaleBarStyle)
     heatmap: HeatmapStyle = field(default_factory=HeatmapStyle)
     metadata: MetadataStyle = field(default_factory=MetadataStyle)
+    context: ContextStyle = field(default_factory=ContextStyle)
     clades: CladeStyle = field(default_factory=CladeStyle)
     background: str | None = "#ffffff"  # cor de fundo; None = transparente
 

@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QCompleter,
     QFileDialog,
+    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -20,6 +21,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -139,6 +141,28 @@ class GffTab(QWidget):
         sl.addWidget(self.preview_label)
         sl.addWidget(self.preview)
 
+        ctx_box = QGroupBox("Contexto gênico (layout retangular)")
+        self.ctx_enabled = QCheckBox("Mostrar vizinhos do gene âncora")
+        self.ctx_enabled.toggled.connect(lambda _on: self.changed.emit())
+        self.ctx_anchor = QComboBox()
+        self.ctx_anchor.currentIndexChanged.connect(lambda _i: self.changed.emit())
+        self.ctx_n = QSpinBox()
+        self.ctx_n.setRange(1, 15)
+        self.ctx_n.setValue(3)
+        self.ctx_n.setPrefix("± ")
+        self.ctx_n.setSuffix(" genes")
+        self.ctx_n.valueChanged.connect(lambda _v: self.changed.emit())
+        cl = QFormLayout(ctx_box)
+        cl.addRow(self.ctx_enabled)
+        cl.addRow("Âncora:", self.ctx_anchor)
+        cl.addRow("Vizinhos:", self.ctx_n)
+        ctx_hint = QLabel("Usa o primeiro gene que casa com a coluna escolhida. A janela é espelhada para o "
+                          "âncora apontar sempre para a direita; genes que casam com outras colunas "
+                          "ficam com a cor delas.")
+        ctx_hint.setWordWrap(True)
+        ctx_hint.setStyleSheet("color: #888;")
+        cl.addRow(ctx_hint)
+
         lay = QVBoxLayout(self)
         lay.addLayout(row1)
         lay.addWidget(auto_btn)
@@ -146,6 +170,7 @@ class GffTab(QWidget):
         lay.addWidget(self.summary)
         lay.addWidget(self.table)
         lay.addWidget(search_box)
+        lay.addWidget(ctx_box)
         lay.addStretch(1)
 
     # ------------------------------------------------------------ arquivos
@@ -353,6 +378,21 @@ class GffTab(QWidget):
         self.query_list.blockSignals(False)
         if 0 <= current < len(self.queries):
             self.query_list.setCurrentRow(current)
+        anchor = self.ctx_anchor.currentData()
+        self.ctx_anchor.blockSignals(True)
+        self.ctx_anchor.clear()
+        for q in self.queries:
+            self.ctx_anchor.addItem(q.title, q.title)
+        idx = self.ctx_anchor.findData(anchor)
+        self.ctx_anchor.setCurrentIndex(idx if idx >= 0 else 0)
+        self.ctx_anchor.blockSignals(False)
+
+    def context_query(self) -> GeneQuery | None:
+        """Consulta âncora se o contexto estiver ligado (e houver GFFs)."""
+        if not (self.ctx_enabled.isChecked() and self.genomes):
+            return None
+        title = self.ctx_anchor.currentData()
+        return next((q for q in self.queries if q.title == title), None)
 
     def _query_selected(self, row: int) -> None:
         if 0 <= row < len(self.queries):

@@ -3,11 +3,11 @@
 Visualizador **offline** de árvores filogenéticas para genomas de procariotos (ex.: *Paraburkholderia*),
 no estilo de um iTOL simplificado. App desktop em Python + PySide6 (macOS e Windows), sem servidor e sem internet.
 
-**Já funciona:** abrir Newick / `.treefile` (IQ-TREE), resumo e suporte (bootstrap, `SH-aLRT/UFBoot`),
+**Já funciona:** GFF3 (heatmap de genes e contexto gênico), metadados TSV/CSV, abrir Newick / `.treefile` (IQ-TREE), resumo e suporte (bootstrap, `SH-aLRT/UFBoot`),
 enraizamento midpoint ou por folha, layouts retangular e circular (pontas alinhadas no anel
 externo, estilo iTOL), clados coloridos, estilos de linha, rótulos e símbolos, edição da árvore
 (ladderize, girar, colapsar), presets JSON, zoom/pan, busca de folhas e exportação SVG / PDF / PNG.
-**Próximas fases:** contexto gênico, anotações iTOL simples e builds `.app` / `.exe`.
+**Próximas fases:** anotações iTOL simples e builds `.app` / `.exe`.
 
 ## GFF3 e heatmap de genes (aba **GFF**)
 
@@ -21,6 +21,12 @@ externo, estilo iTOL), clados coloridos, estilos de linha, rótulos e símbolos,
   circular. Folha sem GFF aparece como **sem GFF** (cinza), diferente de **ausente** (branco);
   clados colapsados com valores diferentes aparecem como “misto”. Cores, largura, nº de cópias,
   nomes das colunas e bordas ficam na seção *Heatmap de genes* do painel.
+- **Contexto gênico** (layout retangular): na aba GFF, ligue *Mostrar vizinhos do gene âncora*,
+  escolha a coluna âncora e ±N vizinhos. Cada genoma mostra o primeiro gene que casa com a
+  âncora e seus vizinhos no mesmo contig, como setas proporcionais ao tamanho; a janela é
+  espelhada para o âncora apontar sempre para a direita (alinha os genomas). Genes que casam
+  com outras colunas usam a cor delas (paleta), os demais ficam cinza; nomes aparecem dentro
+  das setas quando cabem. Largura e nomes ficam no painel (*Heatmap de genes*).
 
 Exemplos sintéticos: `examples/gff/*.gff3` (22 genomas) para `examples/paraburkholderia_40.treefile`.
 

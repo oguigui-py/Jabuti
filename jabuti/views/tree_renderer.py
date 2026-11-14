@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from jabuti.layout.circular import CircGeometry, circular_geometry, circular_layout
 from jabuti.layout.rectangular import rectangular_layout, visible_nodes
 from jabuti.models.clades import Clade, ResolvedClade, assign_nodes, resolve_clades
-from jabuti.models.annotations import LeafColumn
+from jabuti.models.annotations import ContextGene, LeafColumn, context_extent
 from jabuti.models.document import TreeEdits, collapsed_nodes
 from jabuti.models.tree import SUPPORT_ALL, Node, Tree, support_value
 from jabuti.style import GuideStyle, LayoutKind, RenderStyle
@@ -39,6 +39,7 @@ TAG_COLLAPSED = "collapsed"
 TAG_HEATMAP = "heatmap"
 TAG_META_STRIP = "metadata-strip"
 TAG_COLUMN_HEADER = "column-header"
+TAG_CONTEXT = "gene-context"
 
 
 @dataclass
@@ -166,8 +167,10 @@ class TreeRenderer:
         collapsed: list[frozenset[str]] | None = None,
         columns: list[LeafColumn] | None = None,
         meta_colors: dict[str, str] | None = None,
+        context: dict[str, list[ContextGene]] | None = None,
     ) -> RenderResult:
         self.scene.clear()
+        self._context = context or {}
         self._columns = list(columns or [])
         self._meta_node = self._propagate_meta(tree, meta_colors or {})
         self.style = style
@@ -304,6 +307,73 @@ class TreeRenderer:
         t.setData(1, TAG_HEATMAP)
         br = t.boundingRect()
         t.setPos(center.x() - br.width() / 2, center.y() - br.height() / 2)
+
+    def _draw_context(self, lay, x0: float, sy: float, pad: float) -> float:  # type: ignore[no-untyped-def]
+        """Setas dos genes vizinhos por folha (retangular). Devolve o x final."""
+        cst = self.style.context
+        extent = context_extent(self._context) or 1.0
+        half = cst.width / 2
+        scale = half / extent
+        cx = x0 + half
+        h = sy * cst.arrow_height
+        base_pen = QPen(QColor("#9a9a9a"), 0.6)
+        outline = QPen(QColor("#555555"), 0.5)
+        # nome dentro da seta (nunca invade a linha vizinha); fonte pela altura da seta
+        inner = QFont(self._font)
+        inner.setPointSizeF(max(min(h * 0.55, self.style.label.size * 0.75), 3.5))
+        inner_fm = QFontMetricsF(inner)
+        for leaf in lay.leaf_order:
+            track = self._context.get(leaf.name)
+            if not track:
+                continue
+            y = lay.pos[leaf][1] * sy
+            line = QPainterPath()
+            line.moveTo(cx + track[0].start * scale, y)
+            line.lineTo(cx + track[-1].end * scale, y)
+            self._add_path(line, "#9a9a9a", 0.6, TAG_CONTEXT).setPen(base_pen)
+            for g in track:
+                a, b = cx + g.start * scale, cx + g.end * scale
+                w = b - a
+                head = min(w * 0.45, h * 0.9)
+                path = QPainterPath()
+                if g.forward:
+                    path.moveTo(a, y - h * 0.3)
+                    path.lineTo(b - head, y - h * 0.3)
+                    path.lineTo(b - head, y - h / 2)
+                    path.lineTo(b, y)
+                    path.lineTo(b - head, y + h / 2)
+                    path.lineTo(b - head, y + h * 0.3)
+                    path.lineTo(a, y + h * 0.3)
+                else:
+                    path.moveTo(b, y - h * 0.3)
+                    path.lineTo(a + head, y - h * 0.3)
+                    path.lineTo(a + head, y - h / 2)
+                    path.lineTo(a, y)
+                    path.lineTo(a + head, y + h / 2)
+                    path.lineTo(a + head, y + h * 0.3)
+                    path.lineTo(b, y + h * 0.3)
+                path.closeSubpath()
+                item = QGraphicsPathItem(path)
+                item.setBrush(QBrush(QColor(g.color)))
+                pen = QPen(QColor("#202020"), 1.2) if g.is_anchor else outline
+                item.setPen(pen)
+                item.setData(1, TAG_CONTEXT)
+                item.setData(2, g.label)
+                self.scene.addItem(item)
+                body = w - head  # parte retangular da seta
+                if cst.show_labels and g.label and inner_fm.horizontalAdvance(g.label) <= body - 2:
+                    c = QColor(g.color)
+                    lum = 0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()
+                    t = QGraphicsSimpleTextItem(g.label)
+                    t.setFont(inner)
+                    t.setBrush(QBrush(QColor("#ffffff" if lum < 140 else "#202020")))
+                    t.setData(1, TAG_CONTEXT)
+                    br = t.boundingRect()
+                    body_mid = (a + b - head) / 2 if g.forward else (a + head + b) / 2
+                    t.setPos(body_mid - br.width() / 2, y - br.height() / 2)
+                    t.setZValue(1)
+                    self.scene.addItem(t)
+        return x0 + cst.width
 
     def _collapsed_label(self, node: Node) -> str:
         n = len(node.leaves())
@@ -525,6 +595,8 @@ class TreeRenderer:
                     h.setPos(x + cw / 2 + hh / 2, top - 3 - hh)
                 x += cw
             x += pad
+        if self._context:
+            x = self._draw_context(lay, x, sy, pad) + pad
         if cs.background and visible:
             for rc in visible:
                 y0, y1 = y_range(rc.node)

@@ -25,7 +25,9 @@ from PySide6.QtWidgets import (
 
 from jabuti import __version__
 from jabuti.models.annotations import (
+    OTHER_GENE_COLOR,
     LegendGroup,
+    gene_context,
     metadata_colors,
     metadata_column,
     presence_columns,
@@ -221,6 +223,21 @@ class MainWindow(QMainWindow):
                                        for i, c in enumerate(columns)]))
         return columns, groups, meta_colors
 
+    def context_tracks(self, style: RenderStyle):  # type: ignore[no-untyped-def]
+        """Trilhas de contexto gênico (só retangular) e a legenda de cores."""
+        anchor = self.gff_tab.context_query()
+        if anchor is None:
+            return None, None
+        if style.layout == LayoutKind.CIRCULAR:
+            self._render_notes.append("contexto gênico aparece só no layout retangular")
+            return None, None
+        palette = style.palette_colors()
+        color_queries = [(q, palette[i % len(palette)]) for i, q in enumerate(self.gff_tab.queries)]
+        tracks = gene_context(self.gff_tab.genomes_by_leaf(), anchor, self.gff_tab.ctx_n.value(), color_queries)
+        legend = LegendGroup(f"Contexto de {anchor.title} (±{self.gff_tab.ctx_n.value()})",
+                             [(q.title, c) for q, c in color_queries] + [("outros genes", OTHER_GENE_COLOR)])
+        return tracks, legend
+
     def render_live(self) -> None:
         """Redesenha preservando zoom e posição (mudanças no painel de estilo)."""
         self._live_timer.stop()
@@ -262,14 +279,18 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Nenhuma árvore carregada.")
             return
         style = self.current_style()
+        self._render_notes: list[str] = []
         if self.style_panel.use_lengths != style.use_lengths:
             self.style_panel.set_tree(self.tree, style.use_lengths)
         edits = self.style_panel.edits
         try:
             self.display_tree = apply_edits(self.tree, edits)
             columns, groups, meta_colors = self.annotation_columns(style)
+            context, ctx_group = self.context_tracks(style)
+            if ctx_group is not None:
+                groups.append(ctx_group)
             result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
-                                          edits.collapsed, columns, meta_colors)
+                                          edits.collapsed, columns, meta_colors, context)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
@@ -278,7 +299,10 @@ class MainWindow(QMainWindow):
         self.style_panel.update_status(result.clades, groups)
         if self.search_box.text().strip():
             self.do_search()
-        self.statusBar().showMessage(f"{len(self.tree.leaves())} folhas desenhadas.")
+        msg = f"{len(self.tree.leaves())} folhas desenhadas."
+        if self._render_notes:
+            msg += " Obs.: " + "; ".join(self._render_notes) + "."
+        self.statusBar().showMessage(msg)
 
     # ------------------------------------------------------------ presets
     def collect_preset(self, include_tree_state: bool = True) -> dict:
