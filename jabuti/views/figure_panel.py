@@ -41,7 +41,9 @@ from jabuti.style import (
     HEADER_ROTATIONS,
     MATRIX_SELECT,
     PALETTES,
+    SCALE_MODES,
     BarSpec,
+    ColumnScale,
     LayoutKind,
     MatrixSpec,
     RenderStyle,
@@ -105,6 +107,7 @@ class FigurePanel(QWidget):
         self.bars: list[BarSpec] = []
         self.stacked: list[StackedSpec] = []
         self.matrices: list[MatrixSpec] = []
+        self.scales: list[ColumnScale] = []
         self._custom_colors: dict[tuple[str, str], str] = {}   # cor escolhida para série desmarcada
         self.metadata_by_leaf = lambda: {}          # fornecido pela janela (aba Metadados)
         self.metadata_columns = lambda: []
@@ -237,6 +240,7 @@ class FigurePanel(QWidget):
         v.addWidget(self.bar_hint)
         v.addWidget(self._build_stacked())
         v.addWidget(self._build_matrix())
+        v.addWidget(self._build_scales())
         self.layout_hint = _hint("")
         self.layout_hint.setVisible(False)
         v.addWidget(self.layout_hint)
@@ -244,6 +248,77 @@ class FigurePanel(QWidget):
         self.refresh_bars()
         self.refresh_stacked()
         self.refresh_matrices()
+        self.refresh_scales()
+        return w
+
+    def _build_scales(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 6, 0, 0)
+        v.addWidget(QLabel("<b>Escalas dos metadados numéricos</b>"))
+        v.addWidget(_hint("Vale para as faixas e para “Colorir por” (painel Estilo) de colunas numéricas "
+                          "da aba Metadados."))
+        f = QFormLayout()
+        f.setContentsMargins(0, 0, 0, 0)
+        self.sc_column = QComboBox()
+        self.sc_column.currentIndexChanged.connect(self._scale_column_changed)
+        self.sc_mode = QComboBox()
+        self.sc_mode.addItem("Padrão (gradiente)", "")
+        for key, text in SCALE_MODES.items():
+            self.sc_mode.addItem(text, key)
+        self.sc_mode.currentIndexChanged.connect(self._scale_edited)
+        f.addRow("Coluna:", self.sc_column)
+        f.addRow("Modo:", self.sc_mode)
+        v.addLayout(f)
+        grad = QWidget()
+        g = QFormLayout(grad)
+        g.setContentsMargins(0, 0, 0, 0)
+        self.sc_cmap = QComboBox()
+        for name in COLORMAPS:
+            self.sc_cmap.addItem(name, name)
+        self.sc_cmap.currentIndexChanged.connect(self._scale_edited)
+        self.sc_strip = SwatchStrip(COLORMAPS["viridis"])
+        self.sc_auto_min = QCheckBox("auto")
+        self.sc_auto_max = QCheckBox("auto")
+        self.sc_min = self._spin(-1e9, 1e9, 0.0)
+        self.sc_max = self._spin(-1e9, 1e9, 1.0)
+        for cb, sp in ((self.sc_auto_min, self.sc_min), (self.sc_auto_max, self.sc_max)):
+            cb.setChecked(True)
+            sp.setEnabled(False)
+            cb.toggled.connect(lambda on, s=sp: s.setEnabled(not on))
+            cb.toggled.connect(self._scale_edited)
+            sp.valueChanged.connect(self._scale_edited)
+        mrow = QHBoxLayout()
+        mrow.addWidget(self.sc_min, 1)
+        mrow.addWidget(self.sc_auto_min)
+        xrow = QHBoxLayout()
+        xrow.addWidget(self.sc_max, 1)
+        xrow.addWidget(self.sc_auto_max)
+        g.addRow("Cores:", self.sc_cmap)
+        g.addRow(self.sc_strip)
+        g.addRow("Mínimo:", mrow)
+        g.addRow("Máximo:", xrow)
+        self.sc_gradient = grad
+        v.addWidget(grad)
+        bins = QWidget()
+        b = QFormLayout(bins)
+        b.setContentsMargins(0, 0, 0, 0)
+        self.sc_cutoffs = QLineEdit()
+        self.sc_cutoffs.setPlaceholderText("ex.: 5; 50; 200")
+        self.sc_cutoffs.setToolTip("Pontos de corte: ≤5, 6–50, 51–200, >200")
+        self.sc_cutoffs.editingFinished.connect(self._scale_edited)
+        self.sc_bin_colors = QWidget()
+        self.sc_bin_layout = QHBoxLayout(self.sc_bin_colors)
+        self.sc_bin_layout.setContentsMargins(0, 0, 0, 0)
+        self.sc_bin_layout.setSpacing(3)
+        self.sc_bin_labels = _hint("")
+        b.addRow("Cortes:", self.sc_cutoffs)
+        b.addRow("Cores:", self.sc_bin_colors)
+        b.addRow(self.sc_bin_labels)
+        self.sc_bins = bins
+        v.addWidget(bins)
+        self.scale_hint = _hint("")
+        v.addWidget(self.scale_hint)
         return w
 
     def _build_matrix(self) -> QWidget:
@@ -637,6 +712,7 @@ class FigurePanel(QWidget):
                 item.setText(f"⚠ {b.column}  ({self.source_label(b.source)}: sem dados)")
             self.bar_list.addItem(item)
         self.bar_list.blockSignals(False)
+        self.bar_list.setVisible(bool(self.bars))
         if self.bars:
             self.bar_list.setCurrentRow(max(0, min(row, len(self.bars) - 1)))
         self._bar_selected(self.bar_list.currentRow())
@@ -648,6 +724,8 @@ class FigurePanel(QWidget):
             self.refresh_stacked()
         if hasattr(self, "matrix_list"):
             self.refresh_matrices()
+        if hasattr(self, "sc_column"):
+            self.refresh_scales()
 
     def _bar_selected(self, row: int) -> None:
         spec = self.bars[row] if 0 <= row < len(self.bars) else None
@@ -763,6 +841,7 @@ class FigurePanel(QWidget):
         for spec in self.stacked:
             self.stacked_list.addItem(self._stacked_title(spec))
         self.stacked_list.blockSignals(False)
+        self.stacked_list.setVisible(bool(self.stacked))
         if self.stacked:
             self.stacked_list.setCurrentRow(max(0, min(row, len(self.stacked) - 1)))
         self._stacked_selected(self.stacked_list.currentRow())
@@ -919,6 +998,7 @@ class FigurePanel(QWidget):
         for spec in self.matrices:
             self.matrix_list.addItem(self._matrix_title(spec))
         self.matrix_list.blockSignals(False)
+        self.matrix_list.setVisible(bool(self.matrices))
         if self.matrices:
             self.matrix_list.setCurrentRow(max(0, min(row, len(self.matrices) - 1)))
         self._matrix_selected(self.matrix_list.currentRow())
@@ -1014,6 +1094,128 @@ class FigurePanel(QWidget):
             item.setText(self._matrix_title(spec))
         self._emit()
 
+    # ------------------------------------------------------------- escalas
+    def scale_for(self, column: str | None) -> ColumnScale | None:
+        return next((sc for sc in self.scales if sc.column == column), None)
+
+    def refresh_scales(self) -> None:
+        current = self.sc_column.currentData()
+        cols = self.columns_of(METADATA_SOURCE)
+        names = cols + [sc.column for sc in self.scales if sc.column not in cols]
+        self.sc_column.blockSignals(True)
+        self.sc_column.clear()
+        for c in names:
+            label = c if c in cols else f"⚠ {c} (ausente)"
+            if self.scale_for(c) is not None:
+                label += "  ✎"
+            self.sc_column.addItem(label, c)
+        idx = self.sc_column.findData(current)
+        self.sc_column.setCurrentIndex(max(idx, 0))
+        self.sc_column.setEnabled(bool(names))
+        self.sc_column.blockSignals(False)
+        if not names:
+            self.scale_hint.setText("Carregue metadados com colunas numéricas (aba Metadados).")
+        else:
+            self.scale_hint.setText("")
+        self._scale_column_changed()
+
+    def _scale_column_changed(self) -> None:
+        col = self.sc_column.currentData()
+        sc = self.scale_for(col)
+        self._filling = True
+        try:
+            self.sc_mode.setEnabled(col is not None)
+            self.sc_mode.setCurrentIndex(max(self.sc_mode.findData(sc.mode if sc else ""), 0))
+            if sc is not None:
+                self.sc_cmap.setCurrentIndex(max(self.sc_cmap.findData(sc.colormap), 0))
+                self.sc_auto_min.setChecked(sc.vmin is None)
+                self.sc_auto_max.setChecked(sc.vmax is None)
+                if sc.vmin is not None:
+                    self.sc_min.setValue(sc.vmin)
+                if sc.vmax is not None:
+                    self.sc_max.setValue(sc.vmax)
+                self.sc_cutoffs.setText("; ".join(f"{c:g}" for c in sc.cutoffs))
+            else:
+                self.sc_cutoffs.setText("")
+            self._sync_scale_widgets(sc)
+        finally:
+            self._filling = False
+
+    def _sync_scale_widgets(self, sc: ColumnScale | None) -> None:
+        from jabuti.models.annotations import bin_colors, bin_labels
+
+        self.sc_gradient.setVisible(sc is not None and sc.mode == "gradient")
+        self.sc_bins.setVisible(sc is not None and sc.mode == "bins")
+        if sc is None:
+            return
+        self.sc_strip.colors = COLORMAPS.get(sc.colormap, COLORMAPS["viridis"])
+        self.sc_strip.update()
+        if sc.mode != "bins":
+            return
+        while self.sc_bin_layout.count():
+            wdg = self.sc_bin_layout.takeAt(0).widget()
+            if wdg is not None:
+                wdg.hide()
+                wdg.setParent(None)
+                wdg.deleteLater()
+        integers = all(c == int(c) for c in sc.cutoffs)
+        labels = bin_labels(sc.cutoffs, integers)
+        colors = bin_colors(sc, len(labels))
+        sc.colors = colors
+        for i, (lab, color) in enumerate(zip(labels, colors)):
+            btn = ColorButton(color, self.palette)
+            btn.setToolTip(lab)
+            btn.color_changed.connect(lambda c, k=i: self._bin_color_changed(k, c))
+            self.sc_bin_layout.addWidget(btn)
+        self.sc_bin_layout.addStretch(1)
+        self.sc_bin_labels.setText("  ".join(labels))
+
+    def _bin_color_changed(self, index: int, color: str) -> None:
+        sc = self.scale_for(self.sc_column.currentData())
+        if sc is not None and index < len(sc.colors):
+            sc.colors[index] = color
+            self._emit()
+
+    def _scale_edited(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        if self._filling:
+            return
+        col = self.sc_column.currentData()
+        if col is None:
+            return
+        mode = self.sc_mode.currentData()
+        sc = self.scale_for(col)
+        if not mode:
+            if sc is not None:
+                self.scales.remove(sc)
+            self._sync_scale_widgets(None)
+            self._mark_scale_column(col, False)
+            self._emit()
+            return
+        if sc is None:
+            sc = ColumnScale(column=col)
+            self.scales.append(sc)
+            self._mark_scale_column(col, True)
+        sc.mode = mode
+        sc.colormap = self.sc_cmap.currentData()
+        sc.vmin = None if self.sc_auto_min.isChecked() else self.sc_min.value()
+        sc.vmax = None if self.sc_auto_max.isChecked() else self.sc_max.value()
+        try:
+            cuts = sorted(set(parse_refs(self.sc_cutoffs.text())))
+            if cuts != sc.cutoffs:
+                sc.cutoffs = cuts
+                sc.colors = []          # recalcula as cores das faixas
+            self.scale_hint.setText("" if cuts or mode != "bins" else "Defina os pontos de corte (ex.: 5; 50; 200).")
+        except ValueError as exc:
+            self.scale_hint.setText(f"⚠ {exc}")
+        self._sync_scale_widgets(sc)
+        self._emit()
+
+    def _mark_scale_column(self, col: str, on: bool) -> None:
+        idx = self.sc_column.findData(col)
+        if idx >= 0:
+            text = self.sc_column.itemText(idx).replace("  ✎", "")
+            self.sc_column.setItemText(idx, text + ("  ✎" if on else ""))
+
     # ------------------------------------------------------------- estilo
     def apply_to(self, style: RenderStyle) -> RenderStyle:
         fig = style.figure
@@ -1023,6 +1225,8 @@ class FigurePanel(QWidget):
         fig.stacked = [StackedSpec(**{**vars(x), "columns": list(x.columns), "colors": list(x.colors)})
                        for x in self.stacked]
         fig.matrices = [MatrixSpec(**{**vars(m), "features": list(m.features)}) for m in self.matrices]
+        fig.scales = [ColumnScale(**{**vars(x), "cutoffs": list(x.cutoffs), "colors": list(x.colors)})
+                      for x in self.scales if x.mode != "bins" or x.cutoffs]
         return style
 
     def load_style(self, style: RenderStyle) -> list[str]:
@@ -1059,6 +1263,11 @@ class FigurePanel(QWidget):
                 warnings.append(f"Matriz “{m.name or m.source}”: a tabela {m.source or '(nenhuma)'} "
                                 "não está carregada (carregue-a no painel Figura).")
         self.refresh_matrices(select=0)
+        self.scales = []
+        for x in fig.scales:
+            if x.column and self.scale_for(x.column) is None:
+                self.scales.append(ColumnScale(**{**vars(x), "cutoffs": sorted(x.cutoffs), "colors": list(x.colors)}))
+        self.refresh_scales()
         return warnings
 
 

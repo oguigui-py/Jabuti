@@ -562,3 +562,74 @@ def test_gui_matrix_top_n_and_legend(window):
     assert spec.features == [fp.mx_features.item(0).data(256)]
     window.render_live()
     assert len({i.data(2) for i in tagged(window.canvas.tree_scene, "matrix")}) == 1
+
+
+# ------------------------------------------------------------------ escalas
+def test_bin_labels_and_index():
+    from jabuti.models.annotations import bin_index, bin_labels
+
+    assert bin_labels([5, 50, 200], integers=True) == ["≤5", "6–50", "51–200", ">200"]
+    assert bin_labels([0.5, 2], integers=False) == ["≤0.5", "0.5–2", ">2"]
+    assert [bin_index(v, [5, 50, 200]) for v in (0, 5, 6, 50, 51, 200, 201)] == [0, 0, 1, 1, 2, 2, 3]
+
+
+def test_metadata_colors_with_bins_and_counts():
+    from jabuti.models.annotations import metadata_colors
+    from jabuti.style import ColumnScale
+
+    rows = {"A": {"n": "3"}, "B": {"n": "40"}, "C": {"n": "120"}, "D": {"n": "900"}, "E": {"n": "NA"}}
+    sc = ColumnScale("n", "bins", cutoffs=[5, 50, 200], colors=["#111111", "#222222"])   # faltam 2 cores
+    colors, legend = metadata_colors(rows, "n", [], scale=sc)
+    assert colors["A"] == "#111111" and colors["B"] == "#222222" and "E" not in colors
+    assert [e[0] for e in legend.entries] == ["≤5 (1)", "6–50 (1)", "51–200 (1)", ">200 (1)"]
+    assert len({c for _t, c in legend.entries}) == 4                 # completadas pelo colormap
+
+
+def test_metadata_colors_with_colormap_gives_colorbar():
+    from jabuti.models.annotations import metadata_colors
+    from jabuti.models.colormaps import COLORMAPS
+    from jabuti.style import ColumnScale
+
+    rows = {"A": {"g": "60"}, "B": {"g": "70"}}
+    colors, legend = metadata_colors(rows, "g", [], scale=ColumnScale("g", "gradient", "magma", 50, 70))
+    assert colors["B"] == COLORMAPS["magma"][-1] and colors["A"] != COLORMAPS["magma"][0]
+    assert legend.kind == "colorbar" and [t for _f, t in legend.ticks] == ["50", "60", "70"]
+
+
+def test_metadata_default_unchanged_without_scale():
+    from jabuti.models.annotations import GRADIENT, metadata_colors
+
+    rows = {"A": {"g": "60"}, "B": {"g": "62"}, "C": {"g": "66"}}
+    colors, legend = metadata_colors(rows, "g", [])
+    assert colors["A"] == GRADIENT[0] and legend.kind == "swatches"
+
+
+def test_preset_roundtrip_scales():
+    from jabuti.presets import preset_from_dict, preset_to_dict
+    from jabuti.style import ColumnScale
+
+    st = RenderStyle()
+    st.figure.scales = [ColumnScale("gc", "bins", "Reds", None, None, [-1.0, 5.0], ["#000000", "#111111", "#222222"])]
+    loaded = preset_from_dict(preset_to_dict(st))
+    assert loaded.warnings == [] and loaded.style.figure.scales == st.figure.scales
+
+
+def test_gui_bins_scale_on_strip_and_color_by(window):
+    window.metadata_tab.load("examples/metadata.tsv")
+    sp, fp = window.style_panel, window.figure_panel
+    sp.set_strip_checked("gc_percent", True)
+    fp.sc_column.setCurrentIndex(fp.sc_column.findData("gc_percent"))
+    fp.sc_mode.setCurrentIndex(fp.sc_mode.findData("bins"))
+    fp.sc_cutoffs.setText("62; 65")
+    fp.sc_cutoffs.editingFinished.emit()
+    assert fp.sc_bin_layout.count() == 4                               # 3 cores + espaço
+    fp.sc_bin_layout.itemAt(0).widget().set_color("#ff0000", emit=True)
+    window.render_live()
+    strip = [g for g in sp.legend.groups if g.title == "Faixa: gc_percent"][0]
+    assert [t.split(" (")[0] for t, _c in strip.entries] == ["≤62", "62–65", ">65"]
+    assert strip.entries[0][1] == "#ff0000"
+    cells = {i.brush().color().name() for i in tagged(window.canvas.tree_scene, "metadata-strip")}
+    assert "#ff0000" in cells
+    # voltar ao padrão remove a escala
+    fp.sc_mode.setCurrentIndex(0)
+    assert fp.scales == []

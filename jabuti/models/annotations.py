@@ -105,15 +105,79 @@ def _to_float(v: str) -> float | None:
         return None
 
 
+def _num(x: float) -> str:
+    return str(int(x)) if x == int(x) else f"{x:g}"
+
+
+def bin_labels(cutoffs: list[float], integers: bool) -> list[str]:
+    """Rótulos das faixas: ≤5, 6–50, 51–200, >200 (inteiros) ou ≤a, a–b, >b."""
+    cuts = sorted(cutoffs)
+    if not cuts:
+        return ["todos"]
+    labels = [f"≤{_num(cuts[0])}"]
+    for a, b in zip(cuts, cuts[1:]):
+        lo = _num(a + 1) if integers else _num(a)
+        labels.append(f"{lo}–{_num(b)}")
+    labels.append(f">{_num(cuts[-1])}")
+    return labels
+
+
+def bin_index(v: float, cutoffs: list[float]) -> int:
+    """Faixa do valor: v ≤ c1 → 0; c1 < v ≤ c2 → 1; …; v > ck → k."""
+    return next((i for i, c in enumerate(sorted(cutoffs)) if v <= c), len(cutoffs))
+
+
+def bin_colors(scale, n: int) -> list[str]:  # type: ignore[no-untyped-def]
+    """Cores das faixas: as do usuário, completadas com paradas do colormap."""
+    from jabuti.models.colormaps import stops
+
+    out = list(scale.colors[:n])
+    cm = stops(scale.colormap)
+    for i in range(len(out), n):
+        out.append(gradient_color(i / max(n - 1, 1), cm))
+    return out
+
+
+def scaled_colors(nums: dict[str, float], column: str, scale) -> tuple[dict[str, str], LegendGroup]:  # type: ignore[no-untyped-def]
+    """Cores por uma escala configurada (colormap contínuo ou faixas)."""
+    from jabuti.models.colormaps import ColorScale
+
+    if scale.mode == "bins":
+        cuts = sorted(scale.cutoffs)
+        integers = all(v == int(v) for v in nums.values()) and all(c == int(c) for c in cuts)
+        labels = bin_labels(cuts, integers)
+        colors = bin_colors(scale, len(labels))
+        counts = [0] * len(labels)
+        out = {}
+        for leaf, v in nums.items():
+            i = bin_index(v, cuts)
+            counts[i] += 1
+            out[leaf] = colors[i]
+        return out, LegendGroup(column, [(f"{lab} ({n})", c) for lab, c, n in zip(labels, colors, counts)])
+    lo = scale.vmin if scale.vmin is not None else min(nums.values(), default=0.0)
+    hi = scale.vmax if scale.vmax is not None else max(nums.values(), default=1.0)
+    cs = ColorScale(scale.colormap, lo, hi)
+    out = {leaf: cs.color(v) for leaf, v in nums.items()}
+    ticks = [(f, _num(round(v, 2))) for f, v in cs.ticks(3)]
+    return out, LegendGroup(column, [], "colorbar", list(cs.stops), ticks)
+
+
 def metadata_colors(
-    by_leaf: dict[str, dict[str, str]], column: str, palette: list[str], numeric: bool | None = None
+    by_leaf: dict[str, dict[str, str]], column: str, palette: list[str], numeric: bool | None = None,
+    scale=None,  # type: ignore[no-untyped-def]
 ) -> tuple[dict[str, str], LegendGroup]:
     """Cor de cada folha por uma coluna: categorias com a paleta (mais frequentes primeiro)
-    ou gradiente para valores numéricos. Valores ausentes ficam sem cor."""
+    ou gradiente para valores numéricos. Valores ausentes ficam sem cor.
+
+    ``scale`` (``style.ColumnScale``) troca o gradiente padrão por um colormap ou por faixas."""
     from jabuti.parsers.metadata import column_is_numeric, is_missing
 
     values = {leaf: row.get(column, "") for leaf, row in by_leaf.items()}
     present = {leaf: v.strip() for leaf, v in values.items() if not is_missing(v)}
+    if scale is not None:
+        nums = {leaf: f for leaf, v in present.items() if (f := _to_float(v)) is not None}
+        if nums:
+            return scaled_colors(nums, column, scale)
     if numeric is None:
         numeric = column_is_numeric(list(present.values()))
     if numeric:
@@ -137,9 +201,10 @@ def metadata_colors(
 
 
 def metadata_column(
-    by_leaf: dict[str, dict[str, str]], column: str, palette: list[str], missing: str, width: float | None = None
+    by_leaf: dict[str, dict[str, str]], column: str, palette: list[str], missing: str, width: float | None = None,
+    scale=None,  # type: ignore[no-untyped-def]
 ) -> tuple[LeafColumn, LegendGroup]:
-    colors, legend = metadata_colors(by_leaf, column, palette)
+    colors, legend = metadata_colors(by_leaf, column, palette, scale=scale)
     return LeafColumn(f"meta:{column}", column, colors, missing, kind="metadata", width=width), legend
 
 

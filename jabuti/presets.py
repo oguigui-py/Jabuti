@@ -24,6 +24,7 @@ from jabuti.style import (
     BAR_COLOR_MODES,
     HEADER_ROTATIONS,
     MATRIX_SELECT,
+    SCALE_MODES,
     GUIDE_KINDS,
     LEGEND_POSITIONS,
     PALETTES,
@@ -50,10 +51,13 @@ CHOICES: dict[tuple[str, str], set[str]] = {
     ("MatrixSpec", "select"): set(MATRIX_SELECT),
     ("MatrixSpec", "scale"): set(SCALES),
     ("MatrixSpec", "colormap"): set(COLORMAPS),
+    ("ColumnScale", "mode"): set(SCALE_MODES),
+    ("ColumnScale", "colormap"): set(COLORMAPS),
 }
 # floats que podem ser negativos (os demais precisam ser >= 0)
 SIGNED: set[tuple[str, str]] = {("BarSpec", "vmin"), ("BarSpec", "vmax"), ("BarSpec", "refs"),
-                                 ("MatrixSpec", "vmin"), ("MatrixSpec", "vmax")}
+                                 ("MatrixSpec", "vmin"), ("MatrixSpec", "vmax"),
+                                 ("ColumnScale", "vmin"), ("ColumnScale", "vmax"), ("ColumnScale", "cutoffs")}
 INT_CHOICES: dict[tuple[str, str], set[int]] = {("SupportStyle", "index"): {-1, 0, 1, 99},
                                                ("MatrixSpec", "header_rotation"): set(HEADER_ROTATIONS)}
 # campos fora do preset (estado de tela, não configuração)

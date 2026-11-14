@@ -230,6 +230,22 @@ class MatrixSpec:
     cell_width: float = 1.0         # em múltiplos do espaço entre folhas
 
 
+SCALE_MODES: dict[str, str] = {"gradient": "Colormap contínuo", "bins": "Por faixas"}
+
+
+@dataclass
+class ColumnScale:
+    """Escala de cor de uma coluna numérica dos metadados (faixas e "colorir por")."""
+
+    column: str = ""
+    mode: str = "gradient"          # chave de SCALE_MODES
+    colormap: str = "viridis"
+    vmin: float | None = None
+    vmax: float | None = None
+    cutoffs: list[float] = field(default_factory=list)   # modo "bins": pontos de corte crescentes
+    colors: list[str] = field(default_factory=list)      # modo "bins": len(cutoffs) + 1 cores
+
+
 @dataclass
 class FigureConfig:
     """Opções do painel "Figura" (todas desligadas por padrão)."""
@@ -237,6 +253,7 @@ class FigureConfig:
     bars: list[BarSpec] = field(default_factory=list)
     stacked: list[StackedSpec] = field(default_factory=list)
     matrices: list[MatrixSpec] = field(default_factory=list)
+    scales: list[ColumnScale] = field(default_factory=list)
     track_order: list[str] = field(default_factory=list)    # chaves das trilhas, da árvore para fora
     hidden_tracks: list[str] = field(default_factory=list)
 
@@ -266,6 +283,9 @@ class RenderStyle:
     @property
     def font_size(self) -> float:
         return self.label.size
+
+    def scale_for(self, column: str | None) -> ColumnScale | None:
+        return next((sc for sc in self.figure.scales if sc.column == column), None) if column else None
 
     def palette_colors(self) -> list[str]:
         return PALETTES.get(self.clades.palette) or next(iter(PALETTES.values()))

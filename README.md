@@ -85,6 +85,11 @@ desenho é exatamente o de antes. As opções vão para os presets (os dados car
   A legenda mostra uma **barra de cor** (também na figura exportada, como gradiente no SVG). No
   circular, cada característica é um anel, listado na legenda *Anéis*. Convive com o heatmap
   de genes (aba GFF) sem substituí-lo.
+- **Escalas dos metadados numéricos** — para uma coluna numérica da aba Metadados (usada em
+  faixas ou em *Colorir por*): *Colormap contínuo* (colormap, mínimo/máximo, barra de cor na
+  legenda) ou *Por faixas* (pontos de corte como `5; 50; 200`, uma cor por faixa e rótulos
+  automáticos ≤5, 6–50, 51–200, >200 com a contagem de folhas; com decimais: ≤a, a–b, >b).
+  *Padrão* mantém o gradiente de antes. As legendas aparecem no painel e na figura exportada.
 
 Exemplos sintéticos: `examples/traits.tsv` (tamanho do genoma, nº de contigs com `NA` e
 contagens de CAZy por classe) e `examples/cazy_counts.tsv` (matriz de 31 famílias CAZy).

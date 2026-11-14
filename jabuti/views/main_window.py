@@ -279,7 +279,8 @@ class MainWindow(QMainWindow):
         by_leaf = self.metadata_tab.by_leaf()
         available = set(self.metadata_tab.value_columns())
         if by_leaf and md.color_by in available and (md.color_labels or md.color_branches):
-            meta_colors, legend = metadata_colors(by_leaf, md.color_by, palette)
+            meta_colors, legend = metadata_colors(by_leaf, md.color_by, palette,
+                                                  scale=style.scale_for(md.color_by))
             legend.title = f"Cor: {md.color_by}"
             groups.append(legend)
         blocks: dict[str, list] = {}
@@ -287,7 +288,8 @@ class MainWindow(QMainWindow):
             blocks[CLADE_STRIP] = [CLADE_STRIP]
         for col_name in md.strips:
             if by_leaf and col_name in available:
-                col, legend = metadata_column(by_leaf, col_name, palette, md.missing_color, md.strip_width)
+                col, legend = metadata_column(by_leaf, col_name, palette, md.missing_color, md.strip_width,
+                                              scale=style.scale_for(col_name))
                 blocks[col.key] = [col]
                 if col_name != md.color_by or not meta_colors:
                     legend.title = f"Faixa: {col_name}"
