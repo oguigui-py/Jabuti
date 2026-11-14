@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence
 from PySide6.QtWidgets import (
+    QDockWidget,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
 from jabuti import __version__
 from jabuti.models.tree import Tree
 from jabuti.views.canvas import TreeCanvas
+from jabuti.views.color_panel import ColorPanel
 from jabuti.views.errors import show_error
 from jabuti.views.export import export_pdf, export_png, export_svg
 from jabuti.views.tree_renderer import TreeRenderer
@@ -45,6 +47,7 @@ def _scroll(w: QWidget) -> QScrollArea:
     area.setWidget(w)
     area.setWidgetResizable(True)
     area.setFrameShape(QScrollArea.Shape.NoFrame)
+    area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     return area
 
 
@@ -97,6 +100,17 @@ class MainWindow(QMainWindow):
         split.setSizes([360, 940])
         self.setCentralWidget(split)
 
+        # painel de cores fixo (não flutua, não fecha, não se move)
+        self.color_panel = ColorPanel()
+        self.color_dock = QDockWidget("Cores", self)
+        self.color_dock.setObjectName("color_dock")
+        self.color_dock.setWidget(_scroll(self.color_panel))
+        self.color_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.color_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+        self.color_dock.setMinimumWidth(240)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.color_dock)
+        self.color_panel.changed.connect(self.on_colors_changed)
+
         self.tree_tab.tree_changed.connect(self.on_tree_changed)
         self.viz_tab.generate_requested.connect(self.generate)
         self.viz_tab.export_requested.connect(self.export)
@@ -125,12 +139,23 @@ class MainWindow(QMainWindow):
         self.generate()
         self.canvas.fit()
 
+    def current_style(self):  # type: ignore[no-untyped-def]
+        return self.color_panel.apply_to(self.viz_tab.render_style())
+
+    def on_colors_changed(self) -> None:
+        """Cores atualizam o canvas na hora, preservando zoom e posição."""
+        if self.tree is None:
+            return
+        center = self.canvas.mapToScene(self.canvas.viewport().rect().center())
+        self.generate()
+        self.canvas.centerOn(center)
+
     def generate(self) -> None:
         if self.tree is None:
             self.statusBar().showMessage("Nenhuma árvore carregada.")
             return
         try:
-            result = self.renderer.render(self.tree, self.viz_tab.render_style())
+            result = self.renderer.render(self.tree, self.current_style())
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return

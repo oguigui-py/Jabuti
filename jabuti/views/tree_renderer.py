@@ -14,12 +14,13 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
 )
 
-from jabuti.layout.circular import circular_layout
+from jabuti.layout.circular import CircGeometry, circular_geometry, circular_layout
 from jabuti.layout.rectangular import rectangular_layout
 from jabuti.models.tree import Node, Tree
 from jabuti.style import LayoutKind, RenderStyle
 
 HIGHLIGHT = QColor("#ffe066")
+GUIDE_COLOR = "#a0a0a0"
 
 
 @dataclass
@@ -61,6 +62,7 @@ def _nice_scale(max_len: float) -> float:
 class TreeRenderer:
     def __init__(self, scene: QGraphicsScene) -> None:
         self.scene = scene
+        self.geometry: CircGeometry | None = None  # do último desenho circular
 
     def render(self, tree: Tree, style: RenderStyle) -> RenderResult:
         self.scene.clear()
@@ -68,10 +70,11 @@ class TreeRenderer:
         font.setPointSizeF(style.font_size)
         self._font = font
         self._fm = QFontMetricsF(font)
-        self._pen = QPen(QColor("#202020"), style.branch_width)
+        self._pen = QPen(QColor(style.branch_color), style.branch_width)
         self._pen.setCapStyle(Qt.PenCapStyle.FlatCap)
         self._pen.setCosmetic(False)
         res = RenderResult()
+        self.geometry = None
         if style.layout == LayoutKind.CIRCULAR:
             self._render_circular(tree, style, res)
         else:
@@ -135,7 +138,7 @@ class TreeRenderer:
         if style.show_leaf_labels:
             for leaf in lay.leaf_order:
                 p = pt(leaf)
-                item = self._text(leaf.name)
+                item = self._text(leaf.name, color=style.label_color)
                 h = item.boundingRect().height()
                 item.setPos(p.x() + label_x_pad, p.y() - h / 2)
                 res.leaf_items.setdefault(leaf.name, []).append(item)
@@ -155,45 +158,65 @@ class TreeRenderer:
     # -------------------------------------------------------- circular
     def _render_circular(self, tree: Tree, style: RenderStyle, res: RenderResult) -> None:
         lay = circular_layout(tree, style.use_lengths)
-        n = len(lay.leaf_order)
         spacing = style.font_size * style.leaf_spacing
-        # raio mínimo para as folhas não se sobreporem
-        min_r = n * spacing / (2 * math.pi)
-        r_target = max(style.base_width * 0.5, min_r) * style.branch_scale
-        sr = r_target / lay.max_r if lay.max_r > 0 else 1.0
+        geom = circular_geometry(
+            lay,
+            font_size=style.font_size,
+            leaf_spacing=style.leaf_spacing,
+            base_width=style.base_width,
+            branch_scale=style.branch_scale,
+            align_tips=style.align_tips,
+        )
+        self.geometry = geom
+        sr = geom.scale
 
-        def pt(r: float, th: float) -> QPointF:
-            return QPointF(r * sr * math.cos(th), r * sr * math.sin(th))
+        def pt(r_px: float, th: float) -> QPointF:
+            return QPointF(r_px * math.cos(th), r_px * math.sin(th))
+
+        def rad(node: Node) -> float:
+            return geom.tip_radius(lay, node)
 
         path = QPainterPath()
         for node in tree.root.traverse_preorder():
-            r, th = lay.pos[node]
+            r, th = rad(node), lay.pos[node][1]
             if node.parent is not None:
-                pr, _ = lay.pos[node.parent]
-                path.moveTo(pt(pr, th))
+                path.moveTo(pt(rad(node.parent), th))
                 path.lineTo(pt(r, th))
-            if node.children:
+            if node.children and r > 0:
                 th0 = lay.pos[node.children[0]][1]
                 th1 = lay.pos[node.children[-1]][1]
-                rad = r * sr
-                if rad > 0:
-                    rect = QRectF(-rad, -rad, 2 * rad, 2 * rad)
-                    # Qt: ângulos em graus, sentido anti-horário, eixo y para baixo
-                    path.arcMoveTo(rect, -math.degrees(th0))
-                    path.arcTo(rect, -math.degrees(th0), -math.degrees(th1 - th0))
+                rect = QRectF(-r, -r, 2 * r, 2 * r)
+                # Qt: graus, anti-horário com y para baixo -> sinais invertidos
+                path.arcMoveTo(rect, -math.degrees(th0))
+                path.arcTo(rect, -math.degrees(th0), -math.degrees(th1 - th0))
         self._add_path(path)
+
+        # linhas-guia pontilhadas: da ponta do ramo até o anel externo
+        if geom.align_tips:
+            guides = QPainterPath()
+            for leaf in lay.leaf_order:
+                tip, th = rad(leaf), lay.pos[leaf][1]
+                if geom.tip_ring - tip > 0.5:
+                    guides.moveTo(pt(tip, th))
+                    guides.lineTo(pt(geom.tip_ring, th))
+            if not guides.isEmpty():
+                pen = QPen(QColor(GUIDE_COLOR), max(style.branch_width * 0.5, 0.5))
+                pen.setStyle(Qt.PenStyle.DotLine)
+                item = QGraphicsPathItem(guides)
+                item.setPen(pen)
+                item.setData(1, "tip-guides")
+                self.scene.addItem(item)
 
         pad = style.font_size * 0.5
         if style.show_leaf_labels:
             for leaf in lay.leaf_order:
-                r, th = lay.pos[leaf]
-                item = self._text(leaf.name)
+                th = lay.pos[leaf][1]
+                start = geom.label_radius if geom.align_tips else rad(leaf) + pad
+                item = self._text(leaf.name, color=style.label_color)
                 br = item.boundingRect()
                 deg = math.degrees(th) % 360
-                flip = 90 < deg < 270
-                anchor = pt(r, th)
-                anchor = QPointF(anchor.x() + pad * math.cos(th), anchor.y() + pad * math.sin(th))
-                if flip:
+                anchor = pt(start, th)
+                if 90 < deg < 270:  # metade esquerda: inverte para não ficar de cabeça para baixo
                     item.setTransformOriginPoint(br.width(), br.height() / 2)
                     item.setRotation(deg - 180)
                     item.setPos(anchor.x() - br.width(), anchor.y() - br.height() / 2)
@@ -202,11 +225,11 @@ class TreeRenderer:
                     item.setRotation(deg)
                     item.setPos(anchor.x(), anchor.y() - br.height() / 2)
                 res.leaf_items.setdefault(leaf.name, []).append(item)
-                res.leaf_points[leaf.name] = pt(r, th)
+        for leaf in lay.leaf_order:
+            res.leaf_points[leaf.name] = pt(geom.leaf_end_radius(lay, leaf), lay.pos[leaf][1])
 
         def place(node: Node, item: QGraphicsSimpleTextItem) -> None:
-            r, th = lay.pos[node]
-            p = pt(r, th)
+            p = pt(rad(node), lay.pos[node][1])
             br = item.boundingRect()
             item.setPos(p.x() - br.width() / 2, p.y() - br.height() / 2)
 

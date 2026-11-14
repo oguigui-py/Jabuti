@@ -4,8 +4,8 @@ Visualizador **offline** de árvores filogenéticas para genomas de procariotos 
 no estilo de um iTOL simplificado. App desktop em Python + PySide6 (macOS e Windows), sem servidor e sem internet.
 
 **Já funciona:** abrir Newick / `.treefile` (IQ-TREE), resumo e suporte (bootstrap, `SH-aLRT/UFBoot`),
-enraizamento midpoint ou por folha, layouts retangular e circular, zoom/pan, busca de folhas e
-exportação SVG / PDF / PNG.
+enraizamento midpoint ou por folha, layouts retangular e circular (pontas alinhadas no anel
+externo, estilo iTOL), painel fixo de cores, zoom/pan, busca de folhas e exportação SVG / PDF / PNG.
 **Próximas fases:** GFF3 + busca de genes (heatmap de presença/ausência), metadados TSV/CSV,
 anotações iTOL simples e builds `.app` / `.exe`.
 

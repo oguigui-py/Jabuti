@@ -62,3 +62,50 @@ def test_rooting_via_gui(window, data_dir):
     window.tree_tab.rb_mid.setChecked(True)
     window.tree_tab.apply_rooting()
     assert window.shown_errors == []
+
+
+def test_color_panel_is_fixed_dock(window):
+    from PySide6.QtWidgets import QDockWidget
+
+    dock = window.color_dock
+    assert dock.features() == QDockWidget.DockWidgetFeature.NoDockWidgetFeatures
+    assert not dock.isFloating()
+    assert window.color_panel.legend.entries == []
+    assert not window.color_panel.color_by.isEnabled()  # sem metadados ainda
+
+
+def test_color_change_updates_canvas_immediately(window, data_dir):
+    from PySide6.QtWidgets import QGraphicsPathItem
+
+    window.tree_tab.load(data_dir / "small.nwk")
+    window.color_panel.branch_buttons["#b22222"].click()
+    window.color_panel.label_buttons["#1f4e79"].click()
+    paths = [i for i in window.canvas.tree_scene.items() if isinstance(i, QGraphicsPathItem)]
+    assert any(p.pen().color().name() == "#b22222" for p in paths)
+    label = window.canvas.result.leaf_items["A"][0]
+    assert label.brush().color().name() == "#1f4e79"
+    window.color_panel.palette_buttons["Set2"].click()
+    assert window.current_style().palette == "Set2"
+
+
+def test_reroot_in_gui_keeps_circular_alignment(window, data_dir):
+    import math
+
+    window.tree_tab.load(data_dir / "iqtree_ufboot.treefile")
+    vt = window.viz_tab
+    vt.layout_cb.setCurrentIndex(vt.layout_cb.findData(LayoutKind.CIRCULAR))
+    assert vt.align_tips.isEnabled() and vt.align_tips.isChecked()
+    for mode in ("mid", "out"):
+        if mode == "mid":
+            window.tree_tab.rb_mid.setChecked(True)
+        else:
+            window.tree_tab.rb_out.setChecked(True)
+            window.tree_tab.outgroup.setCurrentText("Burkholderia_cepacia_ATCC25416")
+        window.tree_tab.apply_rooting()
+        pts = window.canvas.result.leaf_points.values()
+        d = [math.hypot(p.x(), p.y()) for p in pts]
+        assert max(d) - min(d) < 1e-6
+        assert d[0] == pytest.approx(window.renderer.geometry.tip_ring)
+    vt.layout_cb.setCurrentIndex(vt.layout_cb.findData(LayoutKind.RECTANGULAR))
+    assert not vt.align_tips.isEnabled()
+    assert window.shown_errors == []

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from jabuti.style import PALETTES, LayoutKind, RenderStyle
+from jabuti.style import LayoutKind, RenderStyle
 
 
 class VizTab(QWidget):
@@ -32,8 +32,16 @@ class VizTab(QWidget):
         self.layout_cb = QComboBox()
         self.layout_cb.addItem("Retangular", LayoutKind.RECTANGULAR)
         self.layout_cb.addItem("Circular", LayoutKind.CIRCULAR)
-        self.use_lengths = QCheckBox("Usar comprimentos de ramo (desmarcado = cladograma)")
+        self.use_lengths = QCheckBox("Usar comprimentos de ramo")
+        self.use_lengths.setToolTip("Desmarcado = cladograma (todas as folhas alinhadas)")
         self.use_lengths.setChecked(True)
+        self.align_tips = QCheckBox("Alinhar pontas no anel externo")
+        self.align_tips.setChecked(True)
+        self.align_tips.setToolTip(
+            "Circular: todas as folhas terminam no mesmo raio; a diferença até o anel\n"
+            "é ligada por uma linha pontilhada cinza. Desmarque para ver o desenho original."
+        )
+        self.layout_cb.currentIndexChanged.connect(self._sync_layout_options)
         self.show_labels = QCheckBox("Mostrar nomes das folhas")
         self.show_labels.setChecked(True)
         self.show_support = QCheckBox("Mostrar suporte (bootstrap/UFBoot)")
@@ -57,13 +65,13 @@ class VizTab(QWidget):
         self.branch_width.setRange(0.2, 10)
         self.branch_width.setSingleStep(0.2)
         self.branch_width.setValue(1.2)
-        self.palette = QComboBox()
-        self.palette.addItems(list(PALETTES))
         self.set_support_options(0)
+        self._sync_layout_options()
 
         form = QFormLayout()
         form.addRow("Layout:", self.layout_cb)
         form.addRow(self.use_lengths)
+        form.addRow(self.align_tips)
         form.addRow(self.show_labels)
         form.addRow(self.show_support)
         form.addRow("Valor de suporte:", self.support_which)
@@ -72,7 +80,6 @@ class VizTab(QWidget):
         form.addRow("Escala dos ramos:", self.branch_scale)
         form.addRow("Espaço entre folhas:", self.spacing)
         form.addRow("Espessura dos ramos:", self.branch_width)
-        form.addRow("Paleta de cores:", self.palette)
 
         exp = QGroupBox("Exportar")
         self.dpi = QSpinBox()
@@ -93,6 +100,9 @@ class VizTab(QWidget):
         lay.addLayout(form)
         lay.addWidget(exp)
         lay.addStretch(1)
+
+    def _sync_layout_options(self) -> None:
+        self.align_tips.setEnabled(self.layout_cb.currentData() == LayoutKind.CIRCULAR)
 
     def set_support_options(self, n_values: int) -> None:
         self.support_which.clear()
@@ -115,10 +125,10 @@ class VizTab(QWidget):
             branch_scale=self.branch_scale.value() / 100,
             leaf_spacing=self.spacing.value(),
             use_lengths=self.use_lengths.isChecked(),
+            align_tips=self.align_tips.isChecked(),
             show_support=self.show_support.isChecked(),
             support_index=self.support_which.currentData(),
             support_threshold=self.support_threshold.value(),
             show_leaf_labels=self.show_labels.isChecked(),
             branch_width=self.branch_width.value(),
-            palette=self.palette.currentText(),
         )

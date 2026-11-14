@@ -29,10 +29,14 @@ class RenderStyle:
     branch_scale: float = 1.0          # multiplicador horizontal / radial
     leaf_spacing: float = 1.6          # espaçamento entre folhas em múltiplos da fonte
     use_lengths: bool = True           # False = cladograma
+    align_tips: bool = True            # circular: pontas alinhadas no anel externo
     show_support: bool = False
     support_index: int = -1            # qual valor exibir quando há "a/b" (-1 = último; 99 = todos)
     support_threshold: float = 0.0     # só exibe suporte >= limiar
     show_leaf_labels: bool = True
     branch_width: float = 1.2
     palette: str = "Tableau 10"
+    branch_color: str = "#202020"
+    label_color: str = "#202020"
+    color_by: str | None = None        # coluna de metadados (Fase 2)
     base_width: float = 600.0          # largura (px) da árvore com escala 1.0
