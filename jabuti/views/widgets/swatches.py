@@ -89,9 +89,16 @@ class SwatchRow(QWidget):
         return next((c for c, b in self.buttons.items() if b.isChecked()), next(iter(self.buttons)))
 
     def set_color(self, color: str) -> None:
+        """Seleciona a amostra; cor fora da lista (ex.: vinda de um preset) vira amostra extra."""
+        color = color.lower()
         b = self.buttons.get(color)
-        if b is not None:
-            b.setChecked(True)
+        if b is None:
+            b = swatch_button(color, f"Personalizada ({color})")
+            self.group.addButton(b)
+            self.buttons[color] = b
+            lay = self.layout()
+            lay.insertWidget(lay.count() - 1, b)  # antes do stretch
+        b.setChecked(True)
 
 
 def color_menu(parent: QWidget, palette: list[str], on_pick, allow_auto: bool = True) -> QMenu:  # type: ignore[no-untyped-def]

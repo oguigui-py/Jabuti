@@ -88,6 +88,14 @@ class VizTab(QWidget):
     def _sync_layout_options(self) -> None:
         self.align_tips.setEnabled(self.layout_cb.currentData() == LayoutKind.CIRCULAR)
 
+    def load_style(self, style: RenderStyle) -> None:
+        self.layout_cb.setCurrentIndex(max(self.layout_cb.findData(style.layout), 0))
+        self.use_lengths.setChecked(style.use_lengths)
+        self.align_tips.setChecked(style.align_tips)
+        self.branch_scale.setValue(round(style.branch_scale * 100))
+        self.spacing.setValue(style.leaf_spacing)
+        self._sync_layout_options()
+
     def render_style(self) -> RenderStyle:
         return RenderStyle(
             layout=self.layout_cb.currentData(),

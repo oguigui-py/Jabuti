@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, Qt, QTimer
+import os
+
+from PySide6.QtCore import QPoint, QStandardPaths, Qt, QTimer
 from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
@@ -24,6 +26,14 @@ from PySide6.QtWidgets import (
 
 from jabuti import __version__
 from jabuti.models.document import apply_edits
+from jabuti.presets import (
+    LoadedPreset,
+    load_preset,
+    preset_from_dict,
+    preset_to_dict,
+    save_preset,
+)
+from jabuti.style import RenderStyle
 from jabuti.models.tree import Tree
 from jabuti.views.canvas import TreeCanvas
 from jabuti.views.style_panel import StylePanel
@@ -42,6 +52,14 @@ def _placeholder(text: str) -> QWidget:
     lbl.setAlignment(Qt.AlignmentFlag.AlignTop)
     lay.addWidget(lbl)
     return w
+
+
+def user_default_preset_path() -> Path:
+    """Arquivo do "meu padrão" (JABUTI_CONFIG_DIR sobrepõe, usado nos testes)."""
+    base = os.environ.get("JABUTI_CONFIG_DIR") or QStandardPaths.writableLocation(
+        QStandardPaths.StandardLocation.AppDataLocation
+    )
+    return Path(base) / "default_preset.json"
 
 
 def _scroll(w: QWidget) -> QScrollArea:
@@ -121,12 +139,14 @@ class MainWindow(QMainWindow):
         self.style_panel.changed.connect(self._live_timer.start)
         self.style_panel.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.canvas.node_context_requested.connect(self.show_node_menu)
+        self.style_panel.preset_action.connect(self.on_preset_action)
 
         self.tree_tab.tree_changed.connect(self.on_tree_changed)
         self.viz_tab.generate_requested.connect(self.generate)
         self.viz_tab.export_requested.connect(self.export)
         self._build_menu()
         self.statusBar().showMessage("Abra uma árvore (aba Árvore) ou arraste um arquivo para a janela.")
+        self._load_user_default()
 
     def _build_menu(self) -> None:
         m = self.menuBar().addMenu("Arquivo")
@@ -213,6 +233,68 @@ class MainWindow(QMainWindow):
         if self.search_box.text().strip():
             self.do_search()
         self.statusBar().showMessage(f"{len(self.tree.leaves())} folhas desenhadas.")
+
+    # ------------------------------------------------------------ presets
+    def collect_preset(self, include_tree_state: bool = True) -> dict:
+        sp = self.style_panel
+        style = self.current_style()
+        if include_tree_state:
+            return preset_to_dict(style, sp.clade_set, sp.edits, sp.detection_dict())
+        return preset_to_dict(style, detection=sp.detection_dict())
+
+    def apply_preset(self, loaded: LoadedPreset) -> list[str]:
+        sp = self.style_panel
+        self.viz_tab.load_style(loaded.style)
+        warnings = list(loaded.warnings) + sp.load_style(loaded.style)
+        sp.load_detection(loaded.detection)
+        sp.load_tree_state(loaded.clade_set, loaded.edits)
+        if self.tree is not None:
+            self.render_live()
+        return warnings
+
+    def _report_preset(self, what: str, warnings: list[str]) -> None:
+        if warnings:
+            show_error(self, Exception(f"{what} com avisos:\n• " + "\n• ".join(warnings[:12])), "Preset")
+        self.statusBar().showMessage(what, 8000)
+
+    def _load_user_default(self) -> None:
+        path = user_default_preset_path()
+        self.style_panel.set_default_info(str(path) if path.exists() else None)
+        if not path.exists():
+            return
+        try:
+            loaded = load_preset(path)
+        except Exception as exc:  # noqa: BLE001
+            show_error(self, exc, "Meu padrão não pôde ser lido")
+            return
+        # o padrão pessoal traz só estilo e detecção
+        self.apply_preset(loaded._replace(clade_set=None, edits=None))
+
+    def on_preset_action(self, action: str) -> None:
+        try:
+            if action == "save":
+                path, _ = QFileDialog.getSaveFileName(self, "Salvar preset", "jabuti_preset.json", "Preset (*.json)")
+                if path:
+                    save_preset(path if path.lower().endswith(".json") else path + ".json", self.collect_preset())
+                    self.statusBar().showMessage(f"Preset salvo: {path}", 8000)
+            elif action == "load":
+                path, _ = QFileDialog.getOpenFileName(self, "Carregar preset", "", "Preset (*.json);;Todos (*)")
+                if path:
+                    self._report_preset(f"Preset carregado: {Path(path).name}", self.apply_preset(load_preset(path)))
+            elif action == "save_default":
+                path = save_preset(user_default_preset_path(), self.collect_preset(include_tree_state=False))
+                self.style_panel.set_default_info(str(path))
+                self.statusBar().showMessage("Estilo atual salvo como seu padrão.", 8000)
+            elif action == "restore":
+                factory = preset_from_dict(preset_to_dict(RenderStyle()))
+                self._report_preset("Padrão de fábrica restaurado (clados, rotações e colapsos mantidos).",
+                                    self.apply_preset(factory))
+            elif action == "forget_default":
+                user_default_preset_path().unlink(missing_ok=True)
+                self.style_panel.set_default_info(None)
+                self.statusBar().showMessage("Padrão pessoal removido.", 8000)
+        except Exception as exc:  # noqa: BLE001
+            show_error(self, exc, "Preset")
 
     def do_search(self) -> None:
         q = self.search_box.text()

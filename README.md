@@ -5,7 +5,8 @@ no estilo de um iTOL simplificado. App desktop em Python + PySide6 (macOS e Wind
 
 **Já funciona:** abrir Newick / `.treefile` (IQ-TREE), resumo e suporte (bootstrap, `SH-aLRT/UFBoot`),
 enraizamento midpoint ou por folha, layouts retangular e circular (pontas alinhadas no anel
-externo, estilo iTOL), painel fixo de cores, zoom/pan, busca de folhas e exportação SVG / PDF / PNG.
+externo, estilo iTOL), clados coloridos, estilos de linha, rótulos e símbolos, edição da árvore
+(ladderize, girar, colapsar), presets JSON, zoom/pan, busca de folhas e exportação SVG / PDF / PNG.
 **Próximas fases:** GFF3 + busca de genes (heatmap de presença/ausência), metadados TSV/CSV,
 anotações iTOL simples e builds `.app` / `.exe`.
 
@@ -37,6 +38,12 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
   fundo em cor ou transparente (o PNG sai com transparência; na tela aparece um xadrez).
   Clique direito num nó: *girar nó* (inverter filhos), *colapsar em triângulo* (com nome do
   clado e nº de folhas) ou *expandir*. Rotações e colapsos também sobrevivem a reenraizamentos.
+- **Presets** — *Salvar/Carregar preset* grava todas as configurações visuais em JSON, inclusive
+  clados (por nomes de folhas), parâmetros de detecção, ladderize, rotações e colapsos.
+  *Salvar como meu padrão* guarda só estilo e detecção, aplicados ao abrir o app;
+  *Restaurar padrão* volta ao padrão de fábrica do estilo sem apagar clados nem edições.
+  Opções desconhecidas são ignoradas e valores inválidos geram aviso (o padrão é mantido);
+  clados com folhas que não existem na árvore aberta aparecem com ⚠.
 
 A aba **Visualização** fica com layout, comprimentos/cladograma, alinhamento no anel,
 escala dos ramos, espaço entre folhas e exportação.

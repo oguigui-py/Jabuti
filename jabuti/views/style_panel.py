@@ -98,6 +98,7 @@ class LegendWidget(QFrame):
 class StylePanel(QWidget):
     changed = Signal()          # qualquer mudança visual -> redesenhar
     status_message = Signal(str)
+    preset_action = Signal(str)  # "save" | "load" | "save_default" | "restore" | "forget_default"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -117,6 +118,7 @@ class StylePanel(QWidget):
         self._add_section(lay, "symbols", "Símbolos e suporte", self._build_symbols(), False)
         self._add_section(lay, "scale", "Barra de escala", self._build_scale_bar(), False)
         self._add_section(lay, "tree", "Árvore e fundo", self._build_tree_bg(), False)
+        self._add_section(lay, "presets", "Presets", self._build_presets(), False)
         self._add_section(lay, "meta", "Metadados e legenda", self._build_meta(), True)
         lay.addStretch(1)
         # combos não podem alargar o painel fixo (o texto longo aparece na lista aberta)
@@ -234,6 +236,21 @@ class StylePanel(QWidget):
         v.addLayout(names)
         self.opt_names.toggled.connect(lambda _on: self.changed.emit())
         self.name_mode.currentIndexChanged.connect(lambda _i: self.changed.emit())
+        extra = QHBoxLayout()
+        self.strip_width = self._spin(2, 80, 12, 1)
+        self.strip_width.setToolTip("Largura da faixa externa (px)")
+        self.bg_alpha = QSpinBox()
+        self.bg_alpha.setRange(5, 100)
+        self.bg_alpha.setSingleStep(5)
+        self.bg_alpha.setValue(18)
+        self.bg_alpha.setSuffix(" %")
+        self.bg_alpha.setToolTip("Opacidade da faixa de fundo")
+        self.bg_alpha.valueChanged.connect(self._emit)
+        extra.addWidget(QLabel("Faixa:"))
+        extra.addWidget(self.strip_width)
+        extra.addWidget(QLabel("Fundo:"))
+        extra.addWidget(self.bg_alpha)
+        v.addLayout(extra)
 
         v.addWidget(QLabel("Fora de clados (neutro):"))
         self.neutral = SwatchRow(selected="#8a8a8a")
@@ -516,6 +533,151 @@ class StylePanel(QWidget):
         self.edits.collapsed.clear()
         self.changed.emit()
 
+    def _build_presets(self) -> QWidget:
+        w = QWidget()
+        g = QGridLayout(w)
+        g.setContentsMargins(8, 0, 0, 6)
+        buttons = [
+            ("Salvar preset…", "save", "Todas as configurações visuais, clados e edições em um arquivo JSON"),
+            ("Carregar preset…", "load", "Aplica um preset salvo (clados com folhas ausentes ficam marcados com ⚠)"),
+            ("Salvar como meu padrão", "save_default", "Estilo e detecção (sem clados/edições) usados ao abrir o app"),
+            ("Restaurar padrão", "restore", "Volta ao padrão de fábrica do estilo (mantém clados, rotações e colapsos)"),
+        ]
+        self.preset_buttons: dict[str, QPushButton] = {}
+        for i, (label, key, tip) in enumerate(buttons):
+            b = QPushButton(label)
+            b.setToolTip(tip)
+            b.clicked.connect(lambda _=False, k=key: self.preset_action.emit(k))
+            self.preset_buttons[key] = b
+            g.addWidget(b, i // 2, i % 2)
+        self.default_info = QLabel("")
+        self.default_info.setWordWrap(True)
+        self.default_info.setStyleSheet("color: #888;")
+        g.addWidget(self.default_info, 2, 0, 1, 2)
+        self.forget_default_btn = QPushButton("Esquecer meu padrão")
+        self.forget_default_btn.clicked.connect(lambda: self.preset_action.emit("forget_default"))
+        g.addWidget(self.forget_default_btn, 3, 0, 1, 2)
+        return w
+
+    def set_default_info(self, path: str | None) -> None:
+        if path:
+            self.default_info.setText(f"Meu padrão: {path}")
+        else:
+            self.default_info.setText("Sem padrão pessoal: o app abre com o padrão de fábrica.")
+        self.forget_default_btn.setEnabled(bool(path))
+
+    # ------------------------------------------------------------ presets
+    def detection_dict(self) -> dict:
+        return {
+            "mode": self.current_mode(),
+            "k": self.k_spin.value(),
+            "support_threshold": float(self.sup_thr.value()),
+            "support_index": self.sup_index.currentData() if self.sup_index.currentData() is not None else 1,
+            "distance_fraction": self.dist_slider.value() / SLIDER_STEPS,
+            "show_cut": self.show_cut.isChecked(),
+        }
+
+    def load_detection(self, det: dict) -> None:
+        was = self.blockSignals(True)
+        try:
+            self.mode.setCurrentIndex(max(self.mode.findData(det["mode"]), 0))
+            self.k_spin.setValue(int(det["k"]))
+            self.sup_thr.setValue(float(det["support_threshold"]))
+            idx = self.sup_index.findData(det["support_index"])
+            if idx >= 0:
+                self.sup_index.setCurrentIndex(idx)
+            self.dist_slider.setValue(round(float(det["distance_fraction"]) * SLIDER_STEPS))
+            self.show_cut.setChecked(bool(det["show_cut"]))
+        finally:
+            self.blockSignals(was)
+
+    def load_style(self, style: RenderStyle) -> list[str]:
+        """Põe o estilo nos controles (sem redesenhar a cada campo). Devolve avisos."""
+        warnings: list[str] = []
+        was = self.blockSignals(True)
+        try:
+            cs = style.clades
+            self.palette_buttons.get(cs.palette, next(iter(self.palette_buttons.values()))).setChecked(True)
+            self.opt_branches.setChecked(cs.color_branches)
+            self.opt_labels.setChecked(cs.color_labels)
+            self.opt_background.setChecked(cs.background)
+            self.opt_strip.setChecked(cs.outer_strip)
+            self.opt_names.setChecked(cs.show_names)
+            self.name_mode.setCurrentIndex(max(self.name_mode.findData(cs.name_mode), 0))
+            self.neutral.set_color(cs.neutral_color)
+            self.strip_width.setValue(cs.strip_width)
+            self.bg_alpha.setValue(round(cs.background_alpha * 100))
+
+            b = style.branch
+            self.branch_row.set_color(b.color)
+            self.branch_width.setValue(b.width)
+            self.branch_cap.setCurrentIndex(max(self.branch_cap.findData(b.cap), 0))
+            self.width_by_support.setChecked(b.width_by_support)
+            self.min_width.setValue(b.min_width)
+            self.max_width.setValue(b.max_width)
+
+            g = style.guide
+            self.guide_kind.setCurrentIndex(max(self.guide_kind.findData(g.kind), 0))
+            self.guide_row.set_color(g.color)
+            self.guide_width.setValue(g.width)
+            self.guide_opacity.setValue(round(g.opacity * 100))
+
+            lab = style.label
+            self.show_labels.setChecked(lab.show)
+            fam = self.font_family.findData(lab.family) if lab.family else 0
+            if fam < 0:
+                warnings.append(f"Fonte “{lab.family}” não instalada; usando a padrão do sistema.")
+                fam = 0
+            self.font_family.setCurrentIndex(fam)
+            self.font_size.setValue(lab.size)
+            self.font_bold.setChecked(lab.bold)
+            self.font_italic.setChecked(lab.italic)
+            self.label_row.set_color(lab.color)
+
+            sym = style.symbols
+            self.tip_shape.setCurrentIndex(max(self.tip_shape.findData(sym.shape), 0))
+            self.tip_size.setValue(sym.size)
+            self.tip_row.set_color(sym.color)
+            self.tip_clade_color.setChecked(sym.use_clade_color)
+
+            sup = style.support
+            self.support_mode.setCurrentIndex(max(self.support_mode.findData(sup.mode), 0))
+            idx = self.support_which.findData(sup.index)
+            if idx >= 0:
+                self.support_which.setCurrentIndex(idx)
+            self.support_threshold.setValue(sup.threshold)
+            self.support_symbol_size.setValue(sup.symbol_size)
+            self.support_size_by_value.setChecked(sup.size_by_value)
+            self.support_row.set_color(sup.color)
+
+            sb = style.scale_bar
+            self.scale_show.setChecked(sb.show)
+            self.scale_pos.setCurrentIndex(max(self.scale_pos.findData(sb.position), 0))
+            self.scale_auto.setChecked(sb.length is None)
+            if sb.length is not None:
+                self.scale_len.setValue(sb.length)
+
+            self.bg_transparent.setChecked(style.background is None)
+            if style.background:
+                self.bg_row.set_color(style.background)
+            self.clade_list.palette = self.palette_colors()
+        finally:
+            self.blockSignals(was)
+        return warnings
+
+    def load_tree_state(self, clade_set: CladeSet | None, edits: TreeEdits | None) -> None:
+        if clade_set is not None:
+            self.clade_set.clades = clade_set.clades
+            self.clade_set.auto_mode = clade_set.auto_mode
+            self.clade_list.refresh()
+        if edits is not None:
+            self.edits.ladderize = edits.ladderize
+            self.edits.rotations = list(edits.rotations)
+            self.edits.collapsed = list(edits.collapsed)
+            was = self.ladder.blockSignals(True)
+            self.ladder.setCurrentIndex(max(self.ladder.findData(edits.ladderize), 0))
+            self.ladder.blockSignals(was)
+
     def _build_meta(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
@@ -682,6 +844,8 @@ class StylePanel(QWidget):
         cs.show_names = self.opt_names.isChecked()
         cs.name_mode = self.name_mode.currentData()
         cs.neutral_color = self.neutral.color()
+        cs.strip_width = self.strip_width.value()
+        cs.background_alpha = self.bg_alpha.value() / 100
         show_line = self.current_mode() == MODE_DISTANCE and self.show_cut.isChecked() and self.tree is not None
         cs.cut_distance = self.cut_distance() if show_line else None
         b = style.branch
