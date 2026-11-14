@@ -53,6 +53,7 @@ TAG_STACKED = "stacked-bar"
 TAG_MATRIX = "matrix"
 TAG_BREAK = "branch-break"
 TAG_ROW_HIGHLIGHT = "row-highlight"
+TAG_SUPPORT_LEVEL = "support-level"
 
 
 @dataclass
@@ -980,8 +981,33 @@ class TreeRenderer:
         pen.setStyle(Qt.PenStyle.DashLine)
         return pen
 
+    def _support_levels(self, tree: Tree, point) -> None:  # type: ignore[no-untyped-def]
+        """Círculos nos nós, cor pela faixa de suporte (painel Figura → Suporte)."""
+        from jabuti.models.support import level_of
+
+        lv = self.style.figure.support_levels
+        if not lv.enabled:
+            return
+        colors = list(lv.colors) + ["#888888"] * (len(lv.cutoffs) + 1 - len(lv.colors))
+        paths: dict[int, QPainterPath] = {}
+        r = lv.size / 2
+        for node in tree.root.traverse_preorder():
+            if node.is_leaf or not node.supports or node is tree.root or node not in self._visible:
+                continue
+            k = level_of(support_value(node.supports, lv.index), lv.cutoffs)
+            paths.setdefault(k, QPainterPath()).addEllipse(point(node), r, r)
+        for k, path in sorted(paths.items()):
+            item = QGraphicsPathItem(path)
+            item.setBrush(QBrush(QColor(colors[k])))
+            item.setPen(QPen(QColor("#404040"), max(lv.size * 0.08, 0.4)))
+            item.setZValue(2.5)
+            item.setData(1, TAG_SUPPORT_LEVEL)
+            item.setData(2, k)
+            self.scene.addItem(item)
+
     def _support_items(self, tree: Tree, style: RenderStyle, place, point) -> None:  # type: ignore[no-untyped-def]
         """Suporte como números (``place`` posiciona o texto) ou símbolos (em ``point(node)``)."""
+        self._support_levels(tree, point)
         sup = style.support
         if sup.mode == "none":
             return

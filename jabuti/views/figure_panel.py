@@ -47,6 +47,7 @@ from jabuti.style import (
     ColumnScale,
     LayoutKind,
     MatrixSpec,
+    SupportLevels,
     RenderStyle,
     StackedSpec,
 )
@@ -136,6 +137,7 @@ class FigurePanel(QWidget):
         self._add_section(lay, "columns", "Colunas de dados", self._build_columns(), True)
         self._add_section(lay, "pruning", "Enraizamento e poda", self._build_pruning(), False)
         self._add_section(lay, "names", "Nomes e destaques", self._build_names(), False)
+        self._add_section(lay, "support", "Suporte e resumo", self._build_support(), False)
         lay.addStretch(1)
         for cb in self.findChildren(QComboBox):
             cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -738,6 +740,116 @@ class FigurePanel(QWidget):
             self.list_report.setText("Cole os nomes (um por linha) ou carregue um arquivo.")
             return
         self.clade_from_list_requested.emit(names, self.list_name.text().strip(), self.list_color.color())
+
+    # ------------------------------------------------------- suporte e resumo
+    def _build_support(self) -> QWidget:
+        from PySide6.QtWidgets import QPlainTextEdit
+
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(8, 0, 0, 6)
+        self.lv_enabled = QCheckBox("Suporte em níveis (círculos coloridos nos nós)")
+        self.lv_enabled.toggled.connect(self._levels_edited)
+        v.addWidget(self.lv_enabled)
+        f = QFormLayout()
+        f.setContentsMargins(0, 0, 0, 0)
+        self.lv_index = QComboBox()
+        for text, idx in (("Último valor (UFBoot no IQ-TREE)", -1), ("1º valor (SH-aLRT)", 0), ("2º valor (UFBoot)", 1)):
+            self.lv_index.addItem(text, idx)
+        self.lv_index.currentIndexChanged.connect(self._levels_edited)
+        self.lv_cutoffs = QLineEdit("95; 70")
+        self.lv_cutoffs.setToolTip("Pontos de corte decrescentes: ≥95, 70–94, <70")
+        self.lv_cutoffs.editingFinished.connect(self._levels_edited)
+        self.lv_colors_box = QWidget()
+        self.lv_colors_layout = QHBoxLayout(self.lv_colors_box)
+        self.lv_colors_layout.setContentsMargins(0, 0, 0, 0)
+        self.lv_colors_layout.setSpacing(3)
+        self.lv_size = self._spin(2, 30, 6, 0.5, " px")
+        self.lv_size.valueChanged.connect(self._levels_edited)
+        self.lv_legend = QCheckBox("Níveis na legenda")
+        self.lv_legend.setChecked(True)
+        self.lv_legend.toggled.connect(self._levels_edited)
+        f.addRow("Valor:", self.lv_index)
+        f.addRow("Cortes:", self.lv_cutoffs)
+        f.addRow("Cores:", self.lv_colors_box)
+        f.addRow("Tamanho:", self.lv_size)
+        f.addRow(self.lv_legend)
+        self.lv_box = QWidget()
+        self.lv_box.setLayout(f)
+        v.addWidget(self.lv_box)
+        self.lv_hint = _hint("")
+        v.addWidget(self.lv_hint)
+        self.levels = SupportLevels()
+        self._levels_colors()
+
+        v.addWidget(QLabel("<b>Resumo da árvore</b>"))
+        self.summary_text = QPlainTextEdit()
+        self.summary_text.setReadOnly(True)
+        self.summary_text.setMaximumHeight(130)
+        self.summary_text.setPlaceholderText("Abra uma árvore.")
+        v.addWidget(self.summary_text)
+        copy = QPushButton("Copiar resumo")
+        copy.clicked.connect(self.copy_summary)
+        v.addWidget(copy)
+        v.addWidget(_hint("Contado na árvore desenhada (sem as folhas ocultas). Com dois valores "
+                          "(SH-aLRT/UFBoot), segue a convenção do IQ-TREE."))
+        return w
+
+    def _levels_colors(self) -> None:
+        from jabuti.models.support import level_labels
+
+        while self.lv_colors_layout.count():
+            wdg = self.lv_colors_layout.takeAt(0).widget()
+            if wdg is not None:
+                wdg.hide()
+                wdg.setParent(None)
+                wdg.deleteLater()
+        labels = level_labels(self.levels.cutoffs)
+        defaults = ["#2f9e44", "#f2c94c", "#e03131", "#868e96", "#1971c2"]
+        while len(self.levels.colors) < len(labels):
+            self.levels.colors.append(defaults[len(self.levels.colors) % len(defaults)])
+        self.levels.colors = self.levels.colors[:len(labels)]
+        for i, (lab, color) in enumerate(zip(labels, self.levels.colors)):
+            btn = ColorButton(color, ["#2f9e44", "#f2c94c", "#e03131", "#1971c2", "#868e96", "#202020"])
+            btn.setToolTip(lab)
+            btn.color_changed.connect(lambda c, k=i: self._level_color(k, c))
+            self.lv_colors_layout.addWidget(btn)
+        self.lv_colors_layout.addStretch(1)
+        self.lv_box.setEnabled(self.levels.enabled)
+
+    def _level_color(self, k: int, color: str) -> None:
+        self.levels.colors[k] = color
+        self._emit()
+
+    def _levels_edited(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        if self._filling:
+            return
+        lv = self.levels
+        lv.enabled = self.lv_enabled.isChecked()
+        lv.index = self.lv_index.currentData()
+        lv.size = self.lv_size.value()
+        lv.legend = self.lv_legend.isChecked()
+        try:
+            cuts = sorted(set(parse_refs(self.lv_cutoffs.text())), reverse=True)
+            if not cuts:
+                raise ValueError("Defina pelo menos um ponto de corte (ex.: 95; 70).")
+            if cuts != lv.cutoffs:
+                lv.cutoffs = cuts
+                self._levels_colors()
+            self.lv_hint.setText("")
+        except ValueError as exc:
+            self.lv_hint.setText(f"⚠ {exc}")
+        self.lv_box.setEnabled(lv.enabled)
+        self._emit()
+
+    def set_summary(self, text: str) -> None:
+        self.summary_text.setPlainText(text)
+
+    def copy_summary(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.clipboard().setText(self.summary_text.toPlainText())
+        self.status_message.emit("Resumo da árvore copiado.")
 
     def _build_order(self) -> QWidget:
         w = QWidget()
@@ -1821,6 +1933,8 @@ class FigurePanel(QWidget):
         nr.abbreviate_genus = self.opt_abbrev.isChecked()
         nr.patterns, nr.replacements = self.rules()
         nr.mark_prefix = self.mark_prefix.text()
+        lv = self.levels
+        fig.support_levels = SupportLevels(lv.enabled, lv.index, list(lv.cutoffs), list(lv.colors), lv.size, lv.legend)
         fig.break_legend = self.break_legend.isChecked()
         fig.break_legend_text = self.break_text.text().strip() or "outgroup branch not to scale"
         return style
@@ -1879,6 +1993,20 @@ class FigurePanel(QWidget):
         finally:
             self._filling = was
         self.refresh_names()
+        lv = fig.support_levels
+        self.levels = SupportLevels(lv.enabled, lv.index, sorted(lv.cutoffs, reverse=True) or [95.0, 70.0],
+                                    list(lv.colors), lv.size, lv.legend)
+        was = self._filling
+        self._filling = True
+        try:
+            self.lv_enabled.setChecked(lv.enabled)
+            self.lv_index.setCurrentIndex(max(self.lv_index.findData(lv.index), 0))
+            self.lv_cutoffs.setText("; ".join(f"{c:g}" for c in self.levels.cutoffs))
+            self.lv_size.setValue(lv.size)
+            self.lv_legend.setChecked(lv.legend)
+        finally:
+            self._filling = was
+        self._levels_colors()
         self.break_legend.setChecked(fig.break_legend)
         self.break_text.setText(fig.break_legend_text)
         self.refresh_pruning()

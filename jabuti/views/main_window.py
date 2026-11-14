@@ -65,7 +65,7 @@ from jabuti.views.style_panel import StylePanel
 from jabuti.views.errors import show_error
 from jabuti.views.gff_tab import GffTab
 from jabuti.views.metadata_tab import MetadataTab
-from jabuti.views.export import export_pdf, export_png, export_svg
+from jabuti.views.export import export_pdf, export_png, export_svg, export_tiff
 from jabuti.views.figure_panel import FigureDock, FigurePanel
 from jabuti.views.tree_renderer import TreeRenderer
 from jabuti.views.tree_tab import TreeTab
@@ -233,7 +233,7 @@ class MainWindow(QMainWindow):
         a.setShortcut(QKeySequence.StandardKey.Open)
         a.triggered.connect(self.tree_tab._choose_file)
         m.addAction(a)
-        for fmt in ("svg", "pdf", "png"):
+        for fmt in ("svg", "pdf", "png", "tiff"):
             act = QAction(f"Exportar {fmt.upper()}…", self)
             act.triggered.connect(lambda _=False, f=fmt: self.export(f))
             m.addAction(act)
@@ -613,6 +613,12 @@ class MainWindow(QMainWindow):
                 groups.append(ctx_group)
             label_groups = self.style_panel.label_groups
             groups.extend(self._label_legend(label_groups))
+            lv = style.figure.support_levels
+            if lv.enabled and lv.legend and self.display_tree.max_support_values():
+                from jabuti.models.support import level_labels, value_name
+
+                name = value_name(lv.index, self.display_tree.max_support_values())
+                groups.append(LegendGroup(f"Suporte ({name})", list(zip(level_labels(lv.cutoffs), lv.colors))))
             if self.display_tree.broken and style.figure.break_legend:
                 groups.append(LegendGroup("Escala", [(f"// {style.figure.break_legend_text}", None)]))
             result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
@@ -623,6 +629,9 @@ class MainWindow(QMainWindow):
             show_error(self, exc, "Erro ao desenhar")
             return
         self._render_notes += [n for n in result.notes if n not in self._render_notes]
+        from jabuti.models.support import tree_summary
+
+        self.figure_panel.set_summary(tree_summary(self.display_tree, len(edits.hidden & set(self.tree.leaf_names()))))
         self.canvas.show_transparency(style.background is None)
         self.canvas.set_result(result)
         self.style_panel.update_status(result.clades, groups)
@@ -752,11 +761,11 @@ class MainWindow(QMainWindow):
             show_error(self, Exception("Carregue e gere uma árvore antes de exportar."), "Exportar")
             return
         base = self.tree_tab.path.stem if self.tree_tab.path else "arvore"
-        filters = {"svg": "SVG (*.svg)", "pdf": "PDF (*.pdf)", "png": "PNG (*.png)"}
+        filters = {"svg": "SVG (*.svg)", "pdf": "PDF (*.pdf)", "png": "PNG (*.png)", "tiff": "TIFF (*.tif *.tiff)"}
         path, _ = QFileDialog.getSaveFileName(self, f"Exportar {fmt.upper()}", f"{base}.{fmt}", filters[fmt])
         if not path:
             return
-        if not path.lower().endswith(f".{fmt}"):
+        if not path.lower().endswith(f".{fmt}") and not (fmt == "tiff" and path.lower().endswith(".tif")):
             path += f".{fmt}"
         scene = self.canvas.tree_scene
         try:
@@ -764,6 +773,8 @@ class MainWindow(QMainWindow):
                 export_svg(scene, path)
             elif fmt == "pdf":
                 export_pdf(scene, path)
+            elif fmt == "tiff":
+                export_tiff(scene, path, self.viz_tab.tiff_dpi.value(), self.viz_tab.tiff_lzw.isChecked())
             else:
                 export_png(scene, path, self.viz_tab.dpi.value())
         except Exception as exc:  # noqa: BLE001

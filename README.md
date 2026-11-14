@@ -6,7 +6,7 @@ no estilo de um iTOL simplificado. App desktop em Python + PySide6 (macOS e Wind
 **Já funciona:** GFF3 (heatmap de genes e contexto gênico), metadados TSV/CSV, abrir Newick / `.treefile` (IQ-TREE), resumo e suporte (bootstrap, `SH-aLRT/UFBoot`),
 enraizamento midpoint ou por folha, layouts retangular e circular (pontas alinhadas no anel
 externo, estilo iTOL), clados coloridos, estilos de linha, rótulos e símbolos, edição da árvore
-(ladderize, girar, colapsar), presets JSON, zoom/pan, busca de folhas e exportação SVG / PDF / PNG.
+(ladderize, girar, colapsar), presets JSON, zoom/pan, busca de folhas e exportação SVG / PDF / PNG / TIFF.
 **Próximas fases:** anotações iTOL simples e builds `.app` / `.exe`.
 
 ## GFF3 e heatmap de genes (aba **GFF**)
@@ -135,6 +135,19 @@ Folhas ocultas e ramos encurtados vão para os presets, junto com clados e colap
   um arquivo, dê nome e cor e clique *Criar clado*. Os nomes são casados com as mesmas regras
   tolerantes dos GFFs (os não encontrados são listados); o clado é o ancestral comum. Se o
   grupo não for monofilético, uma confirmação lista as folhas extras.
+
+### Suporte e resumo
+
+- **Suporte em níveis** — círculos nos nós coloridos por faixas (padrão: ≥95 verde, 70–94
+  amarelo, <70 vermelho), com o valor escolhido (UFBoot ou SH-aLRT, na convenção
+  `SH-aLRT/UFBoot` do IQ-TREE), pontos de corte e cores editáveis, tamanho e legenda dos
+  níveis. Combina com os números de suporte do painel Estilo.
+- **Resumo da árvore** — folhas, nós internos e nós por faixa de suporte (UFBoot ≥95, 70–94,
+  <70; SH-aLRT ≥80, <80; e os dois juntos), contados na árvore desenhada; *Copiar resumo* leva
+  o texto para a área de transferência.
+- **TIFF** — na aba Visualização (ou *Arquivo → Exportar TIFF…*): 600 dpi com compressão LZW
+  por padrão (DPI e compressão ajustáveis), igual ao PNG. Imagens acima de 30000 px por lado
+  ou ~2 GB na memória são recusadas com mensagem pedindo DPI menor (ou SVG/PDF).
 
 ## Personalização (painel **Estilo**, à direita)
 

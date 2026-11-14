@@ -258,6 +258,18 @@ class ColumnScale:
 
 
 @dataclass
+class SupportLevels:
+    """Círculos nos nós coloridos por faixas de suporte (ex.: ≥95 verde, 70–94 amarelo, <70 vermelho)."""
+
+    enabled: bool = False
+    index: int = -1                 # 0 = 1º valor (SH-aLRT), 1 = 2º (UFBoot), -1 = último
+    cutoffs: list[float] = field(default_factory=lambda: [95.0, 70.0])   # decrescentes
+    colors: list[str] = field(default_factory=lambda: ["#2f9e44", "#f2c94c", "#e03131"])
+    size: float = 6.0
+    legend: bool = True
+
+
+@dataclass
 class FigureConfig:
     """Opções do painel "Figura" (todas desligadas por padrão)."""
 
@@ -268,6 +280,7 @@ class FigureConfig:
     track_order: list[str] = field(default_factory=list)    # chaves das trilhas, da árvore para fora
     hidden_tracks: list[str] = field(default_factory=list)
     names: NameRules = field(default_factory=NameRules)
+    support_levels: SupportLevels = field(default_factory=SupportLevels)
     break_legend: bool = False                               # nota do ramo encurtado na legenda
     break_legend_text: str = "outgroup branch not to scale"
 

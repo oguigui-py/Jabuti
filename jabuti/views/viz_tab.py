@@ -22,7 +22,7 @@ from jabuti.style import LayoutKind, RenderStyle
 
 class VizTab(QWidget):
     generate_requested = Signal()
-    export_requested = Signal(str)  # "svg" | "pdf" | "png"
+    export_requested = Signal(str)  # "svg" | "pdf" | "png" | "tiff"
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -65,14 +65,24 @@ class VizTab(QWidget):
         self.dpi.setRange(72, 1200)
         self.dpi.setValue(300)
         self.dpi.setSuffix(" dpi")
+        self.tiff_dpi = QSpinBox()
+        self.tiff_dpi.setRange(72, 2400)
+        self.tiff_dpi.setValue(600)
+        self.tiff_dpi.setSuffix(" dpi")
+        self.tiff_lzw = QCheckBox("Compressão LZW")
+        self.tiff_lzw.setChecked(True)
         row = QHBoxLayout()
-        for fmt in ("svg", "pdf", "png"):
+        for fmt in ("svg", "pdf", "png", "tiff"):
             b = QPushButton(fmt.upper())
             b.clicked.connect(lambda _=False, f=fmt: self.export_requested.emit(f))
             row.addWidget(b)
         el = QFormLayout(exp)
         el.addRow(row)
         el.addRow("Resolução PNG:", self.dpi)
+        trow = QHBoxLayout()
+        trow.addWidget(self.tiff_dpi, 1)
+        trow.addWidget(self.tiff_lzw)
+        el.addRow("TIFF:", trow)
 
         lay = QVBoxLayout(self)
         lay.addWidget(self.gen_btn)

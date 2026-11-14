@@ -59,7 +59,8 @@ SIGNED: set[tuple[str, str]] = {("BarSpec", "vmin"), ("BarSpec", "vmax"), ("BarS
                                  ("MatrixSpec", "vmin"), ("MatrixSpec", "vmax"),
                                  ("ColumnScale", "vmin"), ("ColumnScale", "vmax"), ("ColumnScale", "cutoffs")}
 INT_CHOICES: dict[tuple[str, str], set[int]] = {("SupportStyle", "index"): {-1, 0, 1, 99},
-                                               ("MatrixSpec", "header_rotation"): set(HEADER_ROTATIONS)}
+                                               ("MatrixSpec", "header_rotation"): set(HEADER_ROTATIONS),
+                                               ("SupportLevels", "index"): {-1, 0, 1}}
 # campos fora do preset (estado de tela, não configuração)
 SKIP: set[tuple[str, str]] = {("CladeStyle", "cut_distance")}
 
