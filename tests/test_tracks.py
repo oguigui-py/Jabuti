@@ -633,3 +633,72 @@ def test_gui_bins_scale_on_strip_and_color_by(window):
     # voltar ao padrão remove a escala
     fp.sc_mode.setCurrentIndex(0)
     assert fp.scales == []
+
+
+# ------------------------------------------------------------ ordem e visibilidade
+def _setup_tracks(window):
+    window.metadata_tab.load("examples/metadata.tsv")
+    window.style_panel.set_strip_checked("habitat", True)
+    fp = window.figure_panel
+    assert fp.load_table("examples/traits.tsv")
+    fp.add_bar()
+    window.render_live()
+    return fp
+
+
+def test_order_list_lists_all_tracks_new_at_end(window):
+    fp = _setup_tracks(window)
+    assert fp.track_keys() == ["meta:habitat", "bar:bar1"]
+    assert [fp.order_list.item(i).text() for i in range(2)] == ["Faixa: habitat", "Barras: genome_size_mb"]
+
+
+def test_drag_reorders_tracks(window):
+    fp = _setup_tracks(window)
+    from PySide6.QtCore import QModelIndex
+
+    fp.order_list.model().moveRow(QModelIndex(), 1, QModelIndex(), 0)   # como arrastar
+    assert fp.track_order[:2] == ["bar:bar1", "meta:habitat"]
+    window.render_live()
+    scene = window.canvas.tree_scene
+    bar_right = max(i.sceneBoundingRect().right() for i in tagged(scene, "bar"))
+    strip_left = min(i.sceneBoundingRect().left() for i in tagged(scene, "metadata-strip"))
+    assert bar_right < strip_left
+
+
+def test_buttons_move_and_uncheck_hides(window):
+    fp = _setup_tracks(window)
+    fp.order_list.setCurrentRow(0)
+    fp.move_track(1)
+    assert fp.track_keys() == ["bar:bar1", "meta:habitat"]
+    item = fp.order_list.item(1)
+    item.setCheckState(item.checkState().Unchecked)
+    assert fp.hidden_tracks == ["meta:habitat"]
+    window.render_live()
+    scene = window.canvas.tree_scene
+    assert not tagged(scene, "metadata-strip") and tagged(scene, "bar")
+    assert not [g for g in window.style_panel.legend.groups if g.title == "Faixa: habitat"]
+    assert fp.track_keys() == ["bar:bar1", "meta:habitat"]                # continua listada (desmarcada)
+
+
+def test_ring_legend_follows_order(window):
+    fp = _setup_tracks(window)
+    fp.order_list.setCurrentRow(1)
+    fp.move_track(-1)
+    window.viz_tab.layout_cb.setCurrentIndex(1)
+    window.generate()
+    (rings,) = [g for g in window.style_panel.legend.groups if g.title.startswith("Anéis")]
+    assert [t for t, _c in rings.entries] == ["1. genome_size_mb", "2. habitat"]
+
+
+def test_order_in_preset(window):
+    fp = _setup_tracks(window)
+    fp.order_list.setCurrentRow(0)
+    fp.move_track(1)
+    data = window.collect_preset()
+    assert data["style"]["figure"]["track_order"][:2] == ["bar:bar1", "meta:habitat"]
+    from jabuti.presets import preset_from_dict
+
+    data["style"]["figure"]["hidden_tracks"] = ["bar:bar1"]
+    window.apply_preset(preset_from_dict(data))
+    assert not tagged(window.canvas.tree_scene, "bar")
+    assert fp.order_list.item(0).checkState() == fp.order_list.item(0).checkState().Unchecked

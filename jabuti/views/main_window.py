@@ -284,21 +284,26 @@ class MainWindow(QMainWindow):
             legend.title = f"Cor: {md.color_by}"
             groups.append(legend)
         blocks: dict[str, list] = {}
+        labels: dict[str, str] = {}
+        legends: dict[str, list] = {}     # legenda de cada trilha (some quando a trilha é ocultada)
         if style.clades.outer_strip:
             blocks[CLADE_STRIP] = [CLADE_STRIP]
+            labels[CLADE_STRIP] = "Faixa de clados"
         for col_name in md.strips:
             if by_leaf and col_name in available:
                 col, legend = metadata_column(by_leaf, col_name, palette, md.missing_color, md.strip_width,
                                               scale=style.scale_for(col_name))
                 blocks[col.key] = [col]
+                labels[col.key] = f"Faixa: {col_name}"
                 if col_name != md.color_by or not meta_colors:
                     legend.title = f"Faixa: {col_name}"
-                    groups.append(legend)
+                    legends[col.key] = [legend]
         hm = style.heatmap
         if self.gff_tab.queries and self.gff_tab.genomes:
             blocks[GENE_BLOCK] = presence_columns(self.gff_tab.matrix(), hm.present_color, hm.absent_color,
                                                   hm.missing_color, hm.show_counts)
-            groups.append(presence_legend(hm.present_color, hm.absent_color, hm.missing_color))
+            labels[GENE_BLOCK] = f"Heatmap de genes ({len(blocks[GENE_BLOCK])} colunas)"
+            legends[GENE_BLOCK] = [presence_legend(hm.present_color, hm.absent_color, hm.missing_color)]
         fp = self.figure_panel
         for b in fig.bars:
             rows = fp.by_leaf(b.source)
@@ -312,6 +317,7 @@ class MainWindow(QMainWindow):
                 f"bar:{b.id}", b.column, values, vmin=b.vmin, vmax=b.vmax, color=b.color,
                 color_mode=b.color_mode, colors=meta_colors, refs=list(b.refs), show_values=b.show_values,
                 width=b.width, missing_color=md.missing_color)]
+            labels[f"bar:{b.id}"] = f"Barras: {b.column}"
         for st in fig.stacked:
             rows = fp.by_leaf(st.source)
             series = [c for c in st.columns if numeric_column(rows, c)]
@@ -325,7 +331,8 @@ class MainWindow(QMainWindow):
                                   {c: numeric_column(rows, c) for c in series}, st.vmax,
                                   width=st.width, missing_color=md.missing_color)
             blocks[track.key] = [track]
-            groups.append(LegendGroup(f"Séries: {header}", list(zip(series, colors))))
+            labels[track.key] = f"Empilhadas: {header}"
+            legends[track.key] = [LegendGroup(f"Séries: {header}", list(zip(series, colors)))]
         row_h = style.label.size * style.leaf_spacing
         for mx in fig.matrices:
             rows = fp.by_leaf(mx.source)
@@ -338,10 +345,15 @@ class MainWindow(QMainWindow):
                                       mx.vmax, mx.show_values, row_h * mx.cell_width, md.missing_color,
                                       mx.header_rotation)
             blocks[f"matrix:{mx.id}"] = cols
+            labels[f"matrix:{mx.id}"] = f"Matriz: {title} ({len(cols)} colunas)"
             scale = "" if mx.scale == "linear" else f" — escala {SCALES[mx.scale]}"
-            groups.append(LegendGroup(f"{title}{scale}", [("sem dado", md.missing_color)], "colorbar",
-                                      list(cs.stops), [(f, fmt_value(round(v, 1 if abs(v) < 10 else 0))) for f, v in cs.ticks(3)]))
+            legends[f"matrix:{mx.id}"] = [LegendGroup(f"{title}{scale}", [("sem dado", md.missing_color)], "colorbar",
+                                      list(cs.stops), [(f, fmt_value(round(v, 1 if abs(v) < 10 else 0))) for f, v in cs.ticks(3)])]
         keys = order_keys(list(blocks), fig.track_order, fig.hidden_tracks)
+        self.figure_panel.set_available_tracks(
+            [(k, labels.get(k, k)) for k in order_keys(list(blocks), fig.track_order)])
+        for k in keys:
+            groups.extend(legends.get(k, []))
         columns = [t for k in keys for t in blocks[k]]
         rings = [t for t in columns if t != CLADE_STRIP]
         if style.layout == LayoutKind.CIRCULAR and rings:

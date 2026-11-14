@@ -108,6 +108,8 @@ class FigurePanel(QWidget):
         self.stacked: list[StackedSpec] = []
         self.matrices: list[MatrixSpec] = []
         self.scales: list[ColumnScale] = []
+        self.track_order: list[str] = []
+        self.hidden_tracks: list[str] = []
         self._custom_colors: dict[tuple[str, str], str] = {}   # cor escolhida para série desmarcada
         self.metadata_by_leaf = lambda: {}          # fornecido pela janela (aba Metadados)
         self.metadata_columns = lambda: []
@@ -241,6 +243,7 @@ class FigurePanel(QWidget):
         v.addWidget(self._build_stacked())
         v.addWidget(self._build_matrix())
         v.addWidget(self._build_scales())
+        v.addWidget(self._build_order())
         self.layout_hint = _hint("")
         self.layout_hint.setVisible(False)
         v.addWidget(self.layout_hint)
@@ -250,6 +253,89 @@ class FigurePanel(QWidget):
         self.refresh_matrices()
         self.refresh_scales()
         return w
+
+    def _build_order(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(0, 6, 0, 0)
+        v.addWidget(QLabel("<b>Ordem das colunas</b>"))
+        v.addWidget(_hint("Da árvore para fora (anéis: de dentro para fora). Arraste para reordenar; "
+                          "desmarque para ocultar. Colunas novas entram no fim."))
+        self.order_list = QListWidget()
+        self.order_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        self.order_list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.order_list.setMaximumHeight(150)
+        self.order_list.itemChanged.connect(self._order_changed)
+        self.order_list.model().rowsMoved.connect(self._order_changed)
+        v.addWidget(self.order_list)
+        row = QHBoxLayout()
+        up = QPushButton("↑")
+        dn = QPushButton("↓")
+        up.setToolTip("Mover para perto da árvore")
+        dn.setToolTip("Mover para fora")
+        up.clicked.connect(lambda: self.move_track(-1))
+        dn.clicked.connect(lambda: self.move_track(1))
+        row.addWidget(up)
+        row.addWidget(dn)
+        row.addStretch(1)
+        v.addLayout(row)
+        self.order_hint = _hint("Nenhuma coluna ativa.")
+        v.addWidget(self.order_hint)
+        self.order_list.setVisible(False)
+        return w
+
+    def set_available_tracks(self, items: list[tuple[str, str]]) -> None:
+        """Trilhas existentes (na ordem atual) — chamado pela janela a cada desenho."""
+        current = [(self.order_list.item(i).data(Qt.ItemDataRole.UserRole), self.order_list.item(i).text())
+                   for i in range(self.order_list.count())]
+        if current == list(items) and all(
+                (self.order_list.item(i).checkState() == Qt.CheckState.Unchecked) == (k in self.hidden_tracks)
+                for i, (k, _t) in enumerate(items)):
+            return
+        was = self._filling
+        self._filling = True
+        self.order_list.blockSignals(True)
+        try:
+            self.order_list.clear()
+            for key, label in items:
+                item = QListWidgetItem(label)
+                item.setData(Qt.ItemDataRole.UserRole, key)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsDragEnabled)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsDropEnabled)
+                item.setCheckState(Qt.CheckState.Unchecked if key in self.hidden_tracks else Qt.CheckState.Checked)
+                self.order_list.addItem(item)
+        finally:
+            self.order_list.blockSignals(False)
+            self._filling = was
+        self.order_list.setVisible(bool(items))
+        self.order_hint.setVisible(not items)
+
+    def track_keys(self) -> list[str]:
+        return [self.order_list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.order_list.count())]
+
+    def move_track(self, delta: int) -> None:
+        row = self.order_list.currentRow()
+        new = row + delta
+        if row < 0 or not 0 <= new < self.order_list.count():
+            return
+        self.order_list.blockSignals(True)
+        item = self.order_list.takeItem(row)
+        self.order_list.insertItem(new, item)
+        self.order_list.setCurrentRow(new)
+        self.order_list.blockSignals(False)
+        self._order_changed()
+
+    def _order_changed(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        if self._filling:
+            return
+        keys = self.track_keys()
+        # chaves de trilhas que não existem agora (ex.: tabela ainda não carregada) mantêm a posição relativa
+        self.track_order = keys + [k for k in self.track_order if k not in keys]
+        visible_hidden = {self.order_list.item(i).data(Qt.ItemDataRole.UserRole)
+                          for i in range(self.order_list.count())
+                          if self.order_list.item(i).checkState() == Qt.CheckState.Unchecked}
+        self.hidden_tracks = sorted(visible_hidden | {k for k in self.hidden_tracks if k not in keys})
+        self._emit()
 
     def _build_scales(self) -> QWidget:
         w = QWidget()
@@ -503,7 +589,7 @@ class FigurePanel(QWidget):
         ok = self.layout_kind.value != "unrooted"
         for wdg in (self.add_bar_btn, self.bar_editor, self.bar_list,
                     self.add_stacked_btn, self.stacked_editor, self.stacked_list,
-                    self.add_matrix_btn, self.matrix_editor, self.matrix_list):
+                    self.add_matrix_btn, self.matrix_editor, self.matrix_list, self.order_list):
             wdg.setEnabled(ok)
             wdg.setToolTip("" if ok else NOT_FOR_UNROOTED)
         self.layout_hint.setText("" if ok else NOT_FOR_UNROOTED)
@@ -809,6 +895,8 @@ class FigurePanel(QWidget):
             self.stacked_hint.setText("Carregue uma tabela com pelo menos duas colunas numéricas.")
             return None
         cols = self.columns_of(source)
+        if len(cols) > 8:
+            cols = cols[:6]                         # tabela larga: começa com as 6 primeiras séries
         spec = StackedSpec(id=self._next_id("stk", [x.id for x in self.stacked]), source=source,
                            columns=list(cols), colors=[self.palette[i % len(self.palette)] for i in range(len(cols))])
         self.stacked.append(spec)
@@ -1227,6 +1315,8 @@ class FigurePanel(QWidget):
         fig.matrices = [MatrixSpec(**{**vars(m), "features": list(m.features)}) for m in self.matrices]
         fig.scales = [ColumnScale(**{**vars(x), "cutoffs": list(x.cutoffs), "colors": list(x.colors)})
                       for x in self.scales if x.mode != "bins" or x.cutoffs]
+        fig.track_order = list(self.track_order)
+        fig.hidden_tracks = list(self.hidden_tracks)
         return style
 
     def load_style(self, style: RenderStyle) -> list[str]:
@@ -1268,6 +1358,8 @@ class FigurePanel(QWidget):
             if x.column and self.scale_for(x.column) is None:
                 self.scales.append(ColumnScale(**{**vars(x), "cutoffs": sorted(x.cutoffs), "colors": list(x.colors)}))
         self.refresh_scales()
+        self.track_order = list(fig.track_order)
+        self.hidden_tracks = list(fig.hidden_tracks)
         return warnings
 
 

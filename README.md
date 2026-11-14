@@ -90,6 +90,10 @@ desenho é exatamente o de antes. As opções vão para os presets (os dados car
   legenda) ou *Por faixas* (pontos de corte como `5; 50; 200`, uma cor por faixa e rótulos
   automáticos ≤5, 6–50, 51–200, >200 com a contagem de folhas; com decimais: ≤a, a–b, >b).
   *Padrão* mantém o gradiente de antes. As legendas aparecem no painel e na figura exportada.
+- **Ordem das colunas** — lista com todas as trilhas (faixa de clados, faixas de metadados,
+  heatmap de genes como um bloco, barras, empilhadas e matrizes), da árvore para fora (anéis:
+  de dentro para fora). Arraste (ou ↑/↓) para reordenar e desmarque para ocultar — a legenda
+  da trilha oculta some junto. Trilhas novas entram no fim; a ordem vai para os presets.
 
 Exemplos sintéticos: `examples/traits.tsv` (tamanho do genoma, nº de contigs com `NA` e
 contagens de CAZy por classe) e `examples/cazy_counts.tsv` (matriz de 31 famílias CAZy).
