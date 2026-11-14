@@ -20,6 +20,22 @@ PALETTES: dict[str, list[str]] = {
 class LayoutKind(str, Enum):
     RECTANGULAR = "rectangular"
     CIRCULAR = "circular"
+    FAN = "fan"                 # circular com ângulo total e inicial ajustáveis
+    SLANTED = "slanted"         # retangular com ramos inclinados (diagonal)
+    UNROOTED = "unrooted"       # não enraizada (radial, equal-angle)
+
+    @property
+    def is_radial(self) -> bool:
+        """Circular ou leque: colunas viram anéis."""
+        return self in (LayoutKind.CIRCULAR, LayoutKind.FAN)
+
+    @property
+    def is_rect(self) -> bool:
+        return self in (LayoutKind.RECTANGULAR, LayoutKind.SLANTED)
+
+
+LAYOUT_NAMES: dict[str, str] = {"rectangular": "Retangular", "circular": "Circular", "fan": "Leque",
+                                "slanted": "Diagonal", "unrooted": "Não enraizada"}
 
 
 GUIDE_KINDS: dict[str, str] = {
@@ -286,6 +302,19 @@ class FigureConfig:
 
 
 @dataclass
+class FanStyle:
+    angle: float = 180.0            # ângulo total do leque (graus)
+    start: float = 0.0              # direção da primeira folha (graus; 0 = direita, horário)
+
+
+@dataclass
+class UnrootedStyle:
+    rotation: float = 0.0           # graus
+    mirror: bool = False
+    daylight: bool = False          # refinamento "equal daylight" (Felsenstein)
+
+
+@dataclass
 class RenderStyle:
     layout: LayoutKind = LayoutKind.RECTANGULAR
     branch_scale: float = 1.0      # multiplicador horizontal / radial
@@ -304,6 +333,8 @@ class RenderStyle:
     context: ContextStyle = field(default_factory=ContextStyle)
     clades: CladeStyle = field(default_factory=CladeStyle)
     legend: LegendStyle = field(default_factory=LegendStyle)
+    fan: FanStyle = field(default_factory=FanStyle)
+    unrooted: UnrootedStyle = field(default_factory=UnrootedStyle)
     figure: FigureConfig = field(default_factory=FigureConfig)
     background: str | None = "#ffffff"  # cor de fundo; None = transparente
 

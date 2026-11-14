@@ -991,6 +991,14 @@ class StylePanel(QWidget):
             [(rc.clade.name, rc.color) for rc in resolved if rc.valid and rc.clade.visible], groups
         )
 
+    def set_layout(self, kind) -> None:  # type: ignore[no-untyped-def]
+        """Desativa (com dica) as opções de clado que não se aplicam à árvore não enraizada."""
+        ok = getattr(kind, "value", kind) != "unrooted"
+        tip = "" if ok else "Não se aplica à árvore não enraizada (as cores valem nos ramos e rótulos)."
+        for w in (self.opt_background, self.opt_strip, self.opt_names, self.name_mode):
+            w.setEnabled(ok)
+            w.setToolTip(tip)
+
     def _palette_changed(self) -> None:
         self.clade_list.palette = self.palette_colors()
         self.changed.emit()

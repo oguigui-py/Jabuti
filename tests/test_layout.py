@@ -48,4 +48,9 @@ def test_partial_fan(data_dir):
     t = load_tree(data_dir / "small.nwk")
     lay = circular_layout(t, arc_degrees=180)
     angles = [lay.pos[l][1] for l in lay.leaf_order]
-    assert angles[0] == 0 and math.isclose(angles[-1], math.pi)
+    step = math.pi / len(angles)
+    # as faixas das folhas preenchem exatamente o arco: nada aparece no vão do leque
+    assert math.isclose(angles[0], step / 2) and math.isclose(angles[-1], math.pi - step / 2)
+    assert math.isclose(lay.span[t.root][0], 0, abs_tol=1e-12) and math.isclose(lay.span[t.root][1], math.pi)
+    lay = circular_layout(t, arc_degrees=90, start_degrees=-90)
+    assert math.isclose(lay.span[t.root][0], -math.pi / 2) and math.isclose(lay.span[t.root][1], 0, abs_tol=1e-12)

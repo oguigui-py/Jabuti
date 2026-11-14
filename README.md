@@ -4,8 +4,9 @@ Visualizador **offline** de árvores filogenéticas para genomas de procariotos 
 no estilo de um iTOL simplificado. App desktop em Python + PySide6 (macOS e Windows), sem servidor e sem internet.
 
 **Já funciona:** GFF3 (heatmap de genes e contexto gênico), metadados TSV/CSV, abrir Newick / `.treefile` (IQ-TREE), resumo e suporte (bootstrap, `SH-aLRT/UFBoot`),
-enraizamento midpoint ou por folha, layouts retangular e circular (pontas alinhadas no anel
-externo, estilo iTOL), clados coloridos, estilos de linha, rótulos e símbolos, edição da árvore
+enraizamento midpoint, por folha ou no grupo selecionado, layouts retangular, circular (pontas
+alinhadas no anel externo, estilo iTOL), leque, diagonal e não enraizado, colunas de dados
+(barras, barras empilhadas, matriz), clados coloridos, estilos de linha, rótulos e símbolos, edição da árvore
 (ladderize, girar, colapsar), presets JSON, zoom/pan, busca de folhas e exportação SVG / PDF / PNG / TIFF.
 **Próximas fases:** anotações iTOL simples e builds `.app` / `.exe`.
 
@@ -209,6 +210,27 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
 
 A aba **Visualização** fica com layout, comprimentos/cladograma, alinhamento no anel,
 escala dos ramos, espaço entre folhas e exportação.
+
+### Layouts
+
+- **Retangular** e **Circular** — como antes.
+- **Leque** — o circular com *ângulo* total (30°–350°, ex.: 180° ou 270°) e *início* (direção da
+  primeira folha) ajustáveis. As faixas das folhas preenchem exatamente o arco, então anéis,
+  clados e destaques não invadem o vão; o raio cresce quando o arco diminui, para os rótulos
+  não se sobreporem. Os nomes das colunas/anéis aparecem no vão, um por anel.
+- **Diagonal** — ramos inclinados, do nó pai direto ao filho; colunas à direita, clados,
+  rótulos, suporte, colapso e contexto gênico como no retangular.
+- **Não enraizada** — algoritmo *equal-angle* (Felsenstein), com refinamento *daylight*
+  opcional (iguala os vãos entre subárvores; desativado acima de 2000 folhas), comprimentos de
+  ramo proporcionais, rótulos na direção do ramo (invertidos à esquerda para leitura),
+  *girar* e *espelhar*. Cores de clados (ramos e rótulos), grupos de rótulos, suporte (números,
+  símbolos e níveis), colapso (leque triangular), ramo encurtado e barra de escala funcionam;
+  colunas de dados, faixa/fundo/nome de clado e alinhar pontas não se aplicam (os controles
+  ficam desativados com uma dica, e a barra de status avisa). Com ramos internos muito curtos
+  os rótulos podem se encostar: aumente a *Escala dos ramos* ou ligue o *daylight*.
+
+Todos respeitam reenraizamento, ladderize, colapso, folhas ocultas, ramo encurtado e a
+exportação SVG/PDF/PNG/TIFF.
 
 Exemplo para testar: `python -m jabuti examples/paraburkholderia_40.treefile` (árvore sintética).
 

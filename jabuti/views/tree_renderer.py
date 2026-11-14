@@ -253,8 +253,11 @@ class TreeRenderer:
         self._collapsed_names = {
             id(rc.node): rc.clade.name for rc in res.clades if rc.valid and rc.node in self._collapsed
         }
-        if style.layout == LayoutKind.CIRCULAR:
+        layout = LayoutKind(style.layout)
+        if layout.is_radial:
             self._render_circular(tree, style, res)
+        elif layout == LayoutKind.UNROOTED:
+            self._render_unrooted(tree, style, res)
         else:
             self._render_rectangular(tree, style, res)
         if style.legend.in_figure:
@@ -1084,23 +1087,29 @@ class TreeRenderer:
             x, y = lay.pos[node]
             return QPointF(x * sx, y * sy)
 
+        slanted = LayoutKind(style.layout) == LayoutKind.SLANTED
         edges = _EdgeBatch(style.branch.cap)
         for node in visible_nodes(tree, self._collapsed):
             p = pt(node)
             res.node_points[node] = p
             if node.parent is not None:
                 pp = pt(node.parent)
-                edges.seg(self._edge_color(node), self._width(node), QPointF(pp.x(), p.y()), p)
+                start = pp if slanted else QPointF(pp.x(), p.y())   # diagonal: direto do pai
+                edges.seg(self._edge_color(node), self._width(node), start, p)
             if node in self._collapsed:
                 continue
-            if node.children:
+            if node.children and not slanted:
                 top, bot = pt(node.children[0]), pt(node.children[-1])
                 edges.seg(self._node_color(node), self._width(node), QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()))
         edges.flush(self.scene)
         for node in self._broken(tree):
             pp = pt(node.parent)
             p = pt(node)
-            self._break_mark(QPointF((pp.x() + p.x()) / 2, p.y()), 0.0, self._width(node))
+            if slanted:
+                ang = math.atan2(p.y() - pp.y(), p.x() - pp.x())
+                self._break_mark(QPointF((pp.x() + p.x()) / 2, (pp.y() + p.y()) / 2), ang, self._width(node))
+            else:
+                self._break_mark(QPointF((pp.x() + p.x()) / 2, p.y()), 0.0, self._width(node))
 
         tree_right = lay.max_x * sx
         label_right = tree_right
@@ -1192,7 +1201,10 @@ class TreeRenderer:
 
     # -------------------------------------------------------- circular
     def _render_circular(self, tree: Tree, style: RenderStyle, res: RenderResult) -> None:
-        lay = circular_layout(tree, style.use_lengths, collapsed=self._collapsed)
+        fan = LayoutKind(style.layout) == LayoutKind.FAN
+        lay = circular_layout(tree, style.use_lengths, collapsed=self._collapsed,
+                              arc_degrees=style.fan.angle if fan else 360.0,
+                              start_degrees=style.fan.start if fan else 0.0)
         spacing = style.label.size * style.leaf_spacing
         pad = style.label.size * 0.5
         cs = style.clades
@@ -1339,6 +1351,8 @@ class TreeRenderer:
                         mid = (a + b) / 2
                         self._cell_text(track.texts[names[0]], pt((r0 + r1) / 2, mid), color)
                 self._flush_cells(by_color, track)
+        if not lay.full:
+            self._fan_headers(lay, geom, pt)
         if cs.background and visible:
             for rc in visible:
                 th0, th1 = th_range(rc.node)
@@ -1360,7 +1374,13 @@ class TreeRenderer:
         if cs.cut_distance is not None and lay.max_r > 0:
             rc_px = cs.cut_distance * sr
             circle = QPainterPath()
-            circle.addEllipse(QPointF(0, 0), rc_px, rc_px)
+            if lay.full:
+                circle.addEllipse(QPointF(0, 0), rc_px, rc_px)
+            else:                                         # leque: só o arco
+                th0, th1 = root_span
+                rect = QRectF(-rc_px, -rc_px, 2 * rc_px, 2 * rc_px)
+                circle.arcMoveTo(rect, _qt_deg(th0))
+                circle.arcTo(rect, _qt_deg(th0), _qt_deg(th1) - _qt_deg(th0))
             item = QGraphicsPathItem(circle)
             item.setPen(self._cut_pen())
             item.setData(1, TAG_CUT)
@@ -1377,6 +1397,125 @@ class TreeRenderer:
 
         if lay.uses_lengths and lay.max_r > 0:
             self._scale_bar(lay.max_r, sr, spacing)
+
+    # ------------------------------------------------------- não enraizada
+    def _render_unrooted(self, tree: Tree, style: RenderStyle, res: RenderResult) -> None:
+        from jabuti.layout.unrooted import unrooted_layout
+
+        ur = style.unrooted
+        lay = unrooted_layout(tree, style.use_lengths, self._collapsed, ur.daylight, ur.rotation, ur.mirror)
+        scale = (style.base_width * style.branch_scale / 2) / lay.extent if lay.extent > 0 else 1.0
+        pad = style.label.size * 0.5
+        row_h = style.label.size * style.leaf_spacing
+        if any(t != CLADE_STRIP for t in self._tracks):
+            self.notes.append("colunas de dados não se aplicam à árvore não enraizada")
+        cs = style.clades
+        if cs.background or cs.outer_strip or cs.show_names:
+            self.notes.append("faixas, fundo e nomes de clado não se aplicam à árvore não enraizada "
+                              "(as cores dos clados valem nos ramos e rótulos)")
+
+        def pt(node: Node) -> QPointF:
+            x, y = lay.pos[node]
+            return QPointF(x * scale, y * scale)
+
+        edges = _EdgeBatch(style.branch.cap)
+        for node in visible_nodes(tree, self._collapsed):
+            p = pt(node)
+            res.node_points[node] = p
+            if node.parent is not None:
+                edges.seg(self._edge_color(node), self._width(node), pt(node.parent), p)
+        edges.flush(self.scene)
+        for node in self._broken(tree):
+            pp, p = pt(node.parent), pt(node)
+            self._break_mark((pp + p) / 2, math.atan2(p.y() - pp.y(), p.x() - pp.x()), self._width(node))
+
+        # clados colapsados: leque triangular a partir do nó, na direção do ramo
+        for node, far in lay.collapsed.items():
+            ang = lay.edge_angle(node) if node.parent is not None else 0.0
+            a0, a1 = lay.wedge[node]
+            half = min(max((a1 - a0) / 2, math.radians(4)), math.radians(25))
+            p = pt(node)
+            r = max(far * scale, style.label.size)
+            tri = QPainterPath()
+            tri.moveTo(p)
+            tri.lineTo(p + QPointF(math.cos(ang - half), math.sin(ang - half)) * r)
+            tri.lineTo(p + QPointF(math.cos(ang + half), math.sin(ang + half)) * r)
+            tri.closeSubpath()
+            self._collapsed_triangle(tri, node)
+            if style.label.show:
+                t = self._text(self._collapsed_label(node), color=self._branch_color(node))
+                t.setData(1, TAG_COLLAPSED)
+                self._rotate_radial(t, p + QPointF(math.cos(ang), math.sin(ang)) * (r + pad), ang)
+
+        hl_by_leaf: dict[str, object] = {}
+        for hl in self._highlights:
+            for name in hl.leaves:
+                hl_by_leaf[name] = hl
+        for leaf in lay.leaf_order:
+            p = pt(leaf)
+            res.leaf_points[leaf.name] = p
+            if not style.label.show:
+                continue
+            ang = lay.edge_angle(leaf) if leaf.parent is not None else 0.0
+            spec = self._label_spec(leaf)
+            item = self._leaf_text(leaf, spec)
+            anchor = p + QPointF(math.cos(ang), math.sin(ang)) * (pad + self._marker / 2 + spec.pad)
+            self._rotate_radial(item, anchor, ang)
+            res.leaf_items.setdefault(leaf.name, []).append(item)
+            self._label_background(leaf, item, spec, row_h - 1, res)
+            hl = hl_by_leaf.get(leaf.name)
+            if hl is not None:                    # sem colunas: o destaque fica atrás do rótulo
+                br = item.boundingRect()
+                path = QPainterPath()
+                path.addRect(br.adjusted(-pad / 2, -1, pad / 2, 1))
+                band = QGraphicsPathItem(path)
+                band.setTransformOriginPoint(item.transformOriginPoint())
+                band.setRotation(item.rotation())
+                band.setPos(item.pos())
+                c = QColor(hl.color)  # type: ignore[attr-defined]
+                c.setAlphaF(max(0.0, min(hl.alpha, 1.0)))  # type: ignore[attr-defined]
+                band.setBrush(QBrush(c))
+                band.setPen(QPen(QColor(hl.outline), hl.outline_width) if hl.outline  # type: ignore[attr-defined]
+                            else QPen(Qt.PenStyle.NoPen))
+                band.setZValue(-3)
+                band.setData(1, TAG_ROW_HIGHLIGHT)
+                self.scene.addItem(band)
+
+        def place(node: Node, item: QGraphicsSimpleTextItem) -> None:
+            p = pt(node)
+            br = item.boundingRect()
+            item.setPos(p.x() + 2, p.y() - br.height())
+
+        self._tip_symbols(lay.leaf_order, pt)
+        self._support_items(tree, style, place, pt)
+        if lay.uses_lengths and lay.extent > 0:
+            self._scale_bar(lay.extent, scale, row_h)
+
+    def _fan_headers(self, lay, geom: CircGeometry, pt) -> None:  # type: ignore[no-untyped-def]
+        """Leque: nomes das colunas/anéis no vão, logo antes do início do arco, um por anel."""
+        if 2 * math.pi - lay.arc < math.radians(15) or not (self.style.heatmap.show_headers or any(
+                isinstance(t, LeafColumn) and t.kind == "matrix" for t in self._ring_tracks)):
+            return
+        th = lay.start
+        u = th - math.pi / 2                    # tangente apontando para dentro do vão
+        for i, track in enumerate(self._ring_tracks):
+            if track == CLADE_STRIP:
+                continue
+            r0, r1 = geom.ring_bounds(i)
+            ring_w = r1 - r0
+            size = max(self.style.label.size * 0.85, 4)
+            t = self._text(track.header, size)
+            t.setData(1, TAG_COLUMN_HEADER)
+            hh = t.boundingRect().height()
+            while hh > ring_w * 0.95 and size > 4:       # cabe na largura do anel
+                size = max(size * min(ring_w * 0.95 / hh, 0.92), 4)
+                f = t.font()
+                f.setPointSizeF(size)
+                t.setFont(f)
+                hh = t.boundingRect().height()
+            rm = (r0 + r1) / 2
+            anchor = pt(rm, th) + QPointF(math.cos(u), math.sin(u)) * 3
+            self._rotate_radial(t, anchor, u)
 
     def _rotate_radial(self, item: QGraphicsSimpleTextItem, anchor: QPointF, th: float) -> None:
         """Texto radial começando em ``anchor``; invertido na metade esquerda para leitura."""

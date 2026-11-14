@@ -20,6 +20,12 @@ class CircLayout:
     span: dict[Node, tuple[float, float]] = field(default_factory=dict)  # faixa angular ocupada
     collapsed: dict[Node, float] = field(default_factory=dict)  # nó -> raio da folha mais distante
     n_slots: float = 0.0
+    arc: float = 2 * math.pi        # ângulo total ocupado (rad)
+    start: float = 0.0              # ângulo onde o arco começa (rad)
+
+    @property
+    def full(self) -> bool:
+        return self.arc >= 2 * math.pi - 1e-9
 
 
 def circular_layout(
@@ -27,20 +33,34 @@ def circular_layout(
     use_lengths: bool = True,
     arc_degrees: float = 360.0,
     collapsed: set[Node] | frozenset[Node] = frozenset(),
+    start_degrees: float = 0.0,
 ) -> CircLayout:
     depth, used = node_depths(tree, use_lengths)
     lay = CircLayout(uses_lengths=used)
     center, span, leaves, total = tip_slots(tree, collapsed)
     arc = math.radians(min(max(arc_degrees, 10.0), 360.0))
-    # círculo completo: passo uniforme (inclusive entre a última e a primeira posição);
-    # leque parcial: posições nas duas extremidades do arco
     full = arc_degrees >= 359.999
-    step = arc / total if full else arc / max(total - 1, 1)
     lay.leaf_order = leaves
     lay.n_slots = total
-    for node, c in center.items():
-        lay.pos[node] = (depth[node], c * step)
-    lay.span = {n: (a * step, b * step) for n, (a, b) in span.items()}
+    lay.arc = 2 * math.pi if full else arc
+    if full:
+        # círculo completo: passo uniforme (inclusive entre a última e a primeira posição)
+        step = arc / total
+        for node, c in center.items():
+            lay.pos[node] = (depth[node], c * step)
+        lay.span = {n: (a * step, b * step) for n, (a, b) in span.items()}
+    else:
+        # leque: as faixas das folhas preenchem exatamente o arco (nada no vão)
+        step = arc / max(total, 1)
+        start = math.radians(start_degrees)
+        lay.start = start
+
+        def ang(x: float) -> float:
+            return start + (x + 0.5) * step
+
+        for node, c in center.items():
+            lay.pos[node] = (depth[node], ang(c))
+        lay.span = {n: (ang(a), ang(b)) for n, (a, b) in span.items()}
     lay.collapsed = collapsed_far(depth, collapsed)
     lay.max_r = max(depth.values(), default=0.0)
     return lay
@@ -82,6 +102,7 @@ def outer_ring_radius(
     leaf_spacing: float,
     base_width: float,
     branch_scale: float,
+    arc: float = 2 * math.pi,
 ) -> float:
     """Raio (px) do anel externo das pontas.
 
@@ -89,7 +110,7 @@ def outer_ring_radius(
     são desenhados em anéis concêntricos a partir dele. Nunca fica menor que o
     necessário para os rótulos não se sobreporem.
     """
-    min_r = n_leaves * font_size * leaf_spacing / (2 * math.pi)
+    min_r = n_leaves * font_size * leaf_spacing / max(arc, 1e-6)   # leque: arco menor, raio maior
     return max(base_width * 0.5 * branch_scale, min_r)
 
 
@@ -111,7 +132,8 @@ def circular_geometry(
     (usado quando os rótulos ficam nas pontas, sem alinhamento, para não cobrir os anéis).
     ``marker``: tamanho do símbolo desenhado na ponta (empurra anéis e rótulos para fora).
     """
-    tip_ring = outer_ring_radius(math.ceil(lay.n_slots), font_size, leaf_spacing, base_width, branch_scale)
+    tip_ring = outer_ring_radius(math.ceil(lay.n_slots), font_size, leaf_spacing, base_width, branch_scale,
+                                 lay.arc)
     scale = tip_ring / lay.max_r if lay.max_r > 0 else 1.0
     pad = font_size * 0.5
     after_tip = tip_ring + marker / 2

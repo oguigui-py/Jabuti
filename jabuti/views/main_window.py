@@ -188,8 +188,11 @@ class MainWindow(QMainWindow):
         self.figure_panel.hidden_changed.connect(self.canvas.clear_selection)
         self.figure_panel.clade_from_list_requested.connect(self.clade_from_list)
         self.metadata_tab.columns_changed.connect(lambda _c: self.figure_panel.metadata_changed())
-        self.viz_tab.layout_cb.currentIndexChanged.connect(
-            lambda _i: self.figure_panel.set_layout(self.viz_tab.layout_cb.currentData()))
+        self.viz_tab.layout_cb.currentIndexChanged.connect(self._layout_changed)
+        for w in (self.viz_tab.fan_angle, self.viz_tab.fan_start, self.viz_tab.rotation):
+            w.valueChanged.connect(self._live_timer.start)
+        for w in (self.viz_tab.mirror, self.viz_tab.daylight):
+            w.toggled.connect(self._live_timer.start)
         self.metadata_tab.changed.connect(self._live_timer.start)
         self.metadata_tab.columns_changed.connect(self._metadata_columns_changed)
         self.metadata_tab.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
@@ -260,6 +263,11 @@ class MainWindow(QMainWindow):
         style = self.style_panel.apply_to(self.viz_tab.render_style())
         self.figure_panel.set_palette(style.palette_colors())
         return self.figure_panel.apply_to(style)
+
+    def _layout_changed(self, _i: int = 0) -> None:
+        kind = self.viz_tab.layout_cb.currentData()
+        self.figure_panel.set_layout(kind)
+        self.style_panel.set_layout(kind)
 
     def _figure_collapsed(self, on: bool) -> None:
         width = 30 if on else FigureDock.EXPANDED_WIDTH
@@ -366,7 +374,13 @@ class MainWindow(QMainWindow):
             groups.extend(legends.get(k, []))
         columns = [t for k in keys for t in blocks[k]]
         rings = [t for t in columns if t != CLADE_STRIP]
-        if style.layout == LayoutKind.CIRCULAR and rings:
+        if LayoutKind(style.layout) == LayoutKind.UNROOTED:
+            # sem colunas na não enraizada: só as legendas que não dependem delas
+            if any(k != CLADE_STRIP for k in keys):
+                self._render_notes.append("colunas de dados não se aplicam à árvore não enraizada")
+            groups = [g for g in groups if not any(g in v for v in legends.values())]
+            return [], groups, meta_colors
+        if LayoutKind(style.layout).is_radial and rings:
             groups.append(LegendGroup("Anéis (de dentro para fora)",
                                       [(f"{i + 1}. {c.header}", self._ring_color(c, hm.present_color))
                                        for i, c in enumerate(rings)]))
@@ -387,8 +401,8 @@ class MainWindow(QMainWindow):
         anchor = self.gff_tab.context_query()
         if anchor is None:
             return None, None
-        if style.layout == LayoutKind.CIRCULAR:
-            self._render_notes.append("contexto gênico aparece só no layout retangular")
+        if not LayoutKind(style.layout).is_rect:
+            self._render_notes.append("contexto gênico aparece só nos layouts retangular e diagonal")
             return None, None
         palette = style.palette_colors()
         color_queries = [(q, palette[i % len(palette)]) for i, q in enumerate(self.gff_tab.queries)]
