@@ -32,6 +32,7 @@ from jabuti.models.clades import (
     clades_by_k,
     clades_by_support,
 )
+from jabuti.models.document import LADDERIZE, TreeEdits
 from jabuti.models.tree import SUPPORT_ALL, Tree
 from jabuti.style import (
     GUIDE_KINDS,
@@ -47,6 +48,8 @@ from jabuti.views.widgets.swatches import BASE_COLORS, SwatchRow, SwatchStrip
 
 GUIDE_COLORS = {"Cinza claro": "#a0a0a0", "Cinza": "#6b6b6b", "Preto": "#202020",
                 **{k: v for k, v in BASE_COLORS.items() if k in ("Azul", "Vermelho", "Verde")}}
+BACKGROUNDS = {"Branco": "#ffffff", "Cinza muito claro": "#f4f4f4", "Creme": "#fbf7ee",
+               "Azul muito claro": "#eef3f9", "Cinza escuro": "#2b2b2b"}
 
 MODE_K, MODE_SUPPORT, MODE_DISTANCE, MODE_MANUAL = "k", "support", "distance", "manual"
 SLIDER_STEPS = 1000
@@ -99,6 +102,7 @@ class StylePanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.clade_set = CladeSet()
+        self.edits = TreeEdits()
         self.tree: Tree | None = None
         self.use_lengths = True
         self.max_depth = 0.0
@@ -112,6 +116,7 @@ class StylePanel(QWidget):
         self._add_section(lay, "labels", "Rótulos", self._build_labels(), False)
         self._add_section(lay, "symbols", "Símbolos e suporte", self._build_symbols(), False)
         self._add_section(lay, "scale", "Barra de escala", self._build_scale_bar(), False)
+        self._add_section(lay, "tree", "Árvore e fundo", self._build_tree_bg(), False)
         self._add_section(lay, "meta", "Metadados e legenda", self._build_meta(), True)
         lay.addStretch(1)
         # combos não podem alargar o painel fixo (o texto longo aparece na lista aberta)
@@ -457,6 +462,60 @@ class StylePanel(QWidget):
             self.support_mode.setCurrentIndex(0)
         self.support_which.blockSignals(False)
 
+    def _build_tree_bg(self) -> QWidget:
+        w = QWidget()
+        f = QFormLayout(w)
+        f.setContentsMargins(8, 0, 0, 6)
+        self.ladder = QComboBox()
+        for key, label in LADDERIZE.items():
+            self.ladder.addItem(label, key)
+        self.ladder.currentIndexChanged.connect(self._ladder_changed)
+        f.addRow("Ladderize:", self.ladder)
+        row = QHBoxLayout()
+        self.reset_rot_btn = QPushButton("Desfazer rotações")
+        self.expand_all_btn = QPushButton("Expandir todos")
+        self.reset_rot_btn.clicked.connect(self.reset_rotations)
+        self.expand_all_btn.clicked.connect(self.expand_all)
+        row.addWidget(self.reset_rot_btn)
+        row.addWidget(self.expand_all_btn)
+        f.addRow(row)
+        hint = QLabel("Clique direito num nó: girar (inverter filhos), colapsar em triângulo ou expandir.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #888;")
+        f.addRow(hint)
+        self.bg_row = SwatchRow(BACKGROUNDS, selected="#ffffff")
+        self.bg_row.color_changed.connect(self._emit)
+        f.addRow("Fundo:", self.bg_row)
+        self.bg_transparent = QCheckBox("Transparente (também no export)")
+        self.bg_transparent.toggled.connect(lambda on: (self.bg_row.setEnabled(not on), self._emit()))
+        f.addRow(self.bg_transparent)
+        return w
+
+    # ------------------------------------------------------- edições
+    def _ladder_changed(self) -> None:
+        self.edits.ladderize = self.ladder.currentData()
+        self.changed.emit()
+
+    def rotate(self, leaves: frozenset[str]) -> None:
+        self.edits.toggle_rotation(leaves)
+        self.changed.emit()
+
+    def reset_rotations(self) -> None:
+        self.edits.rotations.clear()
+        self.changed.emit()
+
+    def collapse(self, leaves: frozenset[str]) -> None:
+        self.edits.collapse(leaves)
+        self.changed.emit()
+
+    def expand(self, leaves: frozenset[str]) -> None:
+        self.edits.expand(leaves)
+        self.changed.emit()
+
+    def expand_all(self) -> None:
+        self.edits.collapsed.clear()
+        self.changed.emit()
+
     def _build_meta(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
@@ -660,5 +719,6 @@ class StylePanel(QWidget):
         sb.show = self.scale_show.isChecked()
         sb.position = self.scale_pos.currentData()
         sb.length = None if self.scale_auto.isChecked() else self.scale_len.value()
+        style.background = None if self.bg_transparent.isChecked() else self.bg_row.color()
         style.color_by = self.color_by.currentData()
         return style

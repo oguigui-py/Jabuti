@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from jabuti import __version__
+from jabuti.models.document import apply_edits
 from jabuti.models.tree import Tree
 from jabuti.views.canvas import TreeCanvas
 from jabuti.views.style_panel import StylePanel
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow):
         self.resize(1300, 850)
         self.setAcceptDrops(True)
         self.tree: Tree | None = None
+        self.display_tree: Tree | None = None
 
         self.tree_tab = TreeTab()
         self.viz_tab = VizTab()
@@ -175,11 +177,19 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         title = node.name if node.is_leaf else f"Nó interno ({len(leaves)} folhas)"
         menu.addSection(title)
-        existing = self.style_panel.clade_set.find(leaves)
+        sp = self.style_panel
+        existing = sp.clade_set.find(leaves)
         if existing is None:
-            menu.addAction("Definir como clado", lambda: self.style_panel.add_manual_clade(leaves))
+            menu.addAction("Definir como clado", lambda: sp.add_manual_clade(leaves))
         else:
-            menu.addAction(f"Remover clado “{existing.name}”", lambda: self.style_panel.remove_clade_with(leaves))
+            menu.addAction(f"Remover clado “{existing.name}”", lambda: sp.remove_clade_with(leaves))
+        if not node.is_leaf:
+            menu.addSeparator()
+            menu.addAction("Girar nó (inverter filhos)", lambda: sp.rotate(leaves))
+            if sp.edits.is_collapsed(leaves):
+                menu.addAction("Expandir", lambda: sp.expand(leaves))
+            elif node.parent is not None:
+                menu.addAction("Colapsar em triângulo", lambda: sp.collapse(leaves))
         return menu
 
     def generate(self) -> None:
@@ -189,11 +199,15 @@ class MainWindow(QMainWindow):
         style = self.current_style()
         if self.style_panel.use_lengths != style.use_lengths:
             self.style_panel.set_tree(self.tree, style.use_lengths)
+        edits = self.style_panel.edits
         try:
-            result = self.renderer.render(self.tree, style, self.style_panel.clade_set.clades)
+            self.display_tree = apply_edits(self.tree, edits)
+            result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
+                                          edits.collapsed)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
+        self.canvas.show_transparency(style.background is None)
         self.canvas.set_result(result)
         self.style_panel.update_status(result.clades)
         if self.search_box.text().strip():
@@ -207,7 +221,11 @@ class MainWindow(QMainWindow):
             return
         matches = self.canvas.search(q)
         if not matches:
-            self.statusBar().showMessage(f"Nenhuma folha contém “{q}”.")
+            hidden = self.tree is not None and any(q.strip().lower() in n.lower() for n in self.tree.leaf_names())
+            if hidden:
+                self.statusBar().showMessage(f"“{q}” está dentro de um clado colapsado (clique direito → Expandir).")
+            else:
+                self.statusBar().showMessage(f"Nenhuma folha contém “{q}”.")
         elif len(matches) == 1:
             self.statusBar().showMessage(f"Encontrada: {matches[0]}")
         else:

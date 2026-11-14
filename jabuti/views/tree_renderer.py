@@ -16,8 +16,9 @@ from PySide6.QtWidgets import (
 )
 
 from jabuti.layout.circular import CircGeometry, circular_geometry, circular_layout
-from jabuti.layout.rectangular import rectangular_layout
+from jabuti.layout.rectangular import rectangular_layout, visible_nodes
 from jabuti.models.clades import Clade, ResolvedClade, assign_nodes, resolve_clades
+from jabuti.models.document import TreeEdits, collapsed_nodes
 from jabuti.models.tree import SUPPORT_ALL, Node, Tree, support_value
 from jabuti.style import GuideStyle, LayoutKind, RenderStyle
 
@@ -33,6 +34,7 @@ TAG_CUT = "cut-line"
 TAG_TIP_SYMBOL = "tip-symbol"
 TAG_SUPPORT_SYMBOL = "support-symbol"
 TAG_SCALE = "scale-bar"
+TAG_COLLAPSED = "collapsed"
 
 
 @dataclass
@@ -152,9 +154,19 @@ class TreeRenderer:
         self.scene = scene
         self.geometry: CircGeometry | None = None  # do último desenho circular
 
-    def render(self, tree: Tree, style: RenderStyle, clades: list[Clade] | None = None) -> RenderResult:
+    def render(
+        self,
+        tree: Tree,
+        style: RenderStyle,
+        clades: list[Clade] | None = None,
+        collapsed: list[frozenset[str]] | None = None,
+    ) -> RenderResult:
         self.scene.clear()
         self.style = style
+        bg = style.background
+        self.scene.setBackgroundBrush(QBrush(QColor(bg)) if bg else QBrush(Qt.BrushStyle.NoBrush))
+        self._collapsed = collapsed_nodes(tree, TreeEdits(collapsed=list(collapsed or [])))
+        self._visible = set(visible_nodes(tree, self._collapsed))
         lab = style.label
         font = QFont(lab.family) if lab.family else QFont()
         font.setPointSizeF(lab.size)
@@ -173,6 +185,9 @@ class TreeRenderer:
         self._assign = assign_nodes(tree, res.clades)
         self._has_clades = bool(self._assign)
         self._prepare_widths(tree)
+        self._collapsed_names = {
+            id(rc.node): rc.clade.name for rc in res.clades if rc.valid and rc.node in self._collapsed
+        }
         if style.layout == LayoutKind.CIRCULAR:
             self._render_circular(tree, style, res)
         else:
@@ -218,7 +233,25 @@ class TreeRenderer:
         return round(b.min_width + (b.max_width - b.min_width) * frac, 2)
 
     def _visible_clades(self, res: RenderResult) -> list[ResolvedClade]:
-        return [rc for rc in res.clades if rc.valid and rc.clade.visible and rc.node is not None]
+        return [rc for rc in res.clades
+                if rc.valid and rc.clade.visible and rc.node is not None and rc.node in self._visible]
+
+    def _collapsed_label(self, node: Node) -> str:
+        n = len(node.leaves())
+        name = self._collapsed_names.get(id(node))
+        return f"{name} ({n})" if name else f"{n} folhas"
+
+    def _collapsed_triangle(self, path: QPainterPath, node: Node) -> None:
+        color = self._branch_color(node)
+        c = QColor(color)
+        c.setAlphaF(0.35)
+        item = QGraphicsPathItem(path)
+        item.setBrush(QBrush(c))
+        pen = QPen(QColor(color), self._width(node))
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        item.setPen(pen)
+        item.setData(1, TAG_COLLAPSED)
+        self.scene.addItem(item)
 
     # ----------------------------------------------------------- helpers
     def _text(self, text: str, size: float | None = None, color: str = "#202020",
@@ -264,7 +297,7 @@ class TreeRenderer:
         if sup.mode == "none":
             return
         nodes = [n for n in tree.root.traverse_preorder()
-                 if not n.is_leaf and n.supports and n is not tree.root]
+                 if not n.is_leaf and n.supports and n is not tree.root and n in self._visible]
         if sup.mode == "numbers":
             small = max(style.label.size * 0.75, 4)
             for node in nodes:
@@ -325,7 +358,7 @@ class TreeRenderer:
 
     # ----------------------------------------------------- rectangular
     def _render_rectangular(self, tree: Tree, style: RenderStyle, res: RenderResult) -> None:
-        lay = rectangular_layout(tree, style.use_lengths)
+        lay = rectangular_layout(tree, style.use_lengths, self._collapsed)
         sx = (style.base_width * style.branch_scale) / lay.max_x if lay.max_x > 0 else 1.0
         sy = style.label.size * style.leaf_spacing
         bw = style.branch.width
@@ -337,12 +370,14 @@ class TreeRenderer:
             return QPointF(x * sx, y * sy)
 
         edges = _EdgeBatch(style.branch.cap)
-        for node in tree.root.traverse_preorder():
+        for node in visible_nodes(tree, self._collapsed):
             p = pt(node)
             res.node_points[node] = p
             if node.parent is not None:
                 pp = pt(node.parent)
                 edges.seg(self._branch_color(node.parent), self._width(node), QPointF(pp.x(), p.y()), p)
+            if node in self._collapsed:
+                continue
             if node.children:
                 top, bot = pt(node.children[0]), pt(node.children[-1])
                 edges.seg(self._branch_color(node), self._width(node), QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()))
@@ -350,6 +385,20 @@ class TreeRenderer:
 
         tree_right = lay.max_x * sx
         label_right = tree_right
+        for node, far in lay.collapsed.items():
+            p = pt(node)
+            y0, y1 = lay.span[node][0] * sy + sy * 0.15, lay.span[node][1] * sy - sy * 0.15
+            tri = QPainterPath()
+            tri.moveTo(p)
+            tri.lineTo(far * sx, y0)
+            tri.lineTo(far * sx, y1)
+            tri.closeSubpath()
+            self._collapsed_triangle(tri, node)
+            if style.label.show:
+                t = self._text(self._collapsed_label(node), color=self._branch_color(node))
+                t.setData(1, TAG_COLLAPSED)
+                t.setPos(far * sx + pad, p.y() - t.boundingRect().height() / 2)
+                label_right = max(label_right, t.sceneBoundingRect().right())
         for leaf in lay.leaf_order:
             p = pt(leaf)
             res.leaf_points[leaf.name] = p
@@ -364,8 +413,8 @@ class TreeRenderer:
         visible = self._visible_clades(res)
 
         def y_range(node: Node) -> tuple[float, float]:
-            ys = [lay.pos[l][1] * sy for l in node.leaves()]
-            return min(ys) - sy / 2, max(ys) + sy / 2
+            a, b = lay.span[node]
+            return a * sy, b * sy
 
         x = label_right + pad
         if cs.outer_strip and visible:
@@ -397,7 +446,7 @@ class TreeRenderer:
             cx = cs.cut_distance * sx
             line = QPainterPath()
             line.moveTo(cx, -sy)
-            line.lineTo(cx, len(lay.leaf_order) * sy)
+            line.lineTo(cx, lay.n_slots * sy)
             item = QGraphicsPathItem(line)
             item.setPen(self._cut_pen())
             item.setData(1, TAG_CUT)
@@ -416,7 +465,7 @@ class TreeRenderer:
 
     # -------------------------------------------------------- circular
     def _render_circular(self, tree: Tree, style: RenderStyle, res: RenderResult) -> None:
-        lay = circular_layout(tree, style.use_lengths)
+        lay = circular_layout(tree, style.use_lengths, collapsed=self._collapsed)
         spacing = style.label.size * style.leaf_spacing
         pad = style.label.size * 0.5
         cs = style.clades
@@ -427,6 +476,8 @@ class TreeRenderer:
         max_label_w = 0.0
         if style.label.show:
             max_label_w = max((self._leaf_fm.horizontalAdvance(l.name) for l in lay.leaf_order), default=0.0)
+            max_label_w = max([max_label_w, *(self._fm.horizontalAdvance(self._collapsed_label(n))
+                                                for n in lay.collapsed)])
 
         geom = circular_geometry(
             lay,
@@ -441,8 +492,6 @@ class TreeRenderer:
         )
         self.geometry = geom
         sr = geom.scale
-        n = len(lay.leaf_order)
-        half_step = math.pi / n if n else 0.0
 
         def pt(r_px: float, th: float) -> QPointF:
             return QPointF(r_px * math.cos(th), r_px * math.sin(th))
@@ -451,22 +500,39 @@ class TreeRenderer:
             return geom.tip_radius(lay, node)
 
         edges = _EdgeBatch(style.branch.cap)
-        for node in tree.root.traverse_preorder():
+        for node in visible_nodes(tree, self._collapsed):
             r, th = rad(node), lay.pos[node][1]
             res.node_points[node] = pt(r, th)
             if node.parent is not None:
                 edges.seg(self._branch_color(node.parent), self._width(node), pt(rad(node.parent), th), pt(r, th))
+            if node in self._collapsed:
+                continue
             if node.children:
                 edges.arc(self._branch_color(node), self._width(node), r,
                           lay.pos[node.children[0]][1], lay.pos[node.children[-1]][1])
         edges.flush(self.scene)
 
+        # clados colapsados: triângulo do nó até a folha mais distante
+        tri_tips: list[tuple[float, float]] = []  # (raio final, ângulo) para ligações e rótulos
+        for node, far in lay.collapsed.items():
+            a, b = lay.span[node]
+            inset = (b - a) * 0.08
+            r_far = far * sr
+            tri = QPainterPath()
+            tri.moveTo(pt(rad(node), lay.pos[node][1]))
+            tri.lineTo(pt(r_far, a + inset))
+            rect = QRectF(-r_far, -r_far, 2 * r_far, 2 * r_far)
+            tri.arcTo(rect, _qt_deg(a + inset), _qt_deg(b - inset) - _qt_deg(a + inset))
+            tri.closeSubpath()
+            self._collapsed_triangle(tri, node)
+            tri_tips.append((r_far, lay.pos[node][1]))
+
         # linhas-guia: da ponta do ramo até o anel externo
         gpen = guide_pen(style.guide)
         if geom.align_tips and gpen is not None:
             guides = QPainterPath()
-            for leaf in lay.leaf_order:
-                tip, th = rad(leaf), lay.pos[leaf][1]
+            ends = [(rad(leaf), lay.pos[leaf][1]) for leaf in lay.leaf_order] + tri_tips
+            for tip, th in ends:
                 if geom.tip_ring - tip > 0.5:
                     guides.moveTo(pt(tip, th))
                     guides.lineTo(pt(geom.tip_ring, th))
@@ -486,14 +552,21 @@ class TreeRenderer:
             self._rotate_radial(item, pt(start, th), th)
             res.leaf_items.setdefault(leaf.name, []).append(item)
 
+        if style.label.show:
+            for node, far in lay.collapsed.items():
+                th = lay.pos[node][1]
+                start = geom.label_radius if geom.align_tips else far * sr + pad
+                t = self._text(self._collapsed_label(node), color=self._branch_color(node))
+                t.setData(1, TAG_COLLAPSED)
+                self._rotate_radial(t, pt(start, th), th)
+
         # raio externo ocupado pelos rótulos (ou anéis)
         label_outer = (geom.label_radius if geom.align_tips
                        else geom.tip_ring + self._marker / 2 + pad) + max_label_w
         outer = max(label_outer, geom.rings_end)
 
         def th_range(node: Node) -> tuple[float, float]:
-            ths = [lay.pos[l][1] for l in node.leaves()]
-            return min(ths) - half_step, max(ths) + half_step
+            return lay.span[node]
 
         if strip:
             for rc in visible:

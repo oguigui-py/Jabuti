@@ -33,6 +33,10 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
   símbolos: círculo cheio se ≥ limiar e vazado abaixo, com tamanho opcionalmente proporcional
   ao valor. Escolha do valor: UFBoot, SH-aLRT ou ambos.
 - **Barra de escala** — mostrar/ocultar, canto (4 posições) e comprimento automático ou fixo.
+- **Árvore e fundo** — ladderize (crescente/decrescente), desfazer rotações, expandir todos;
+  fundo em cor ou transparente (o PNG sai com transparência; na tela aparece um xadrez).
+  Clique direito num nó: *girar nó* (inverter filhos), *colapsar em triângulo* (com nome do
+  clado e nº de folhas) ou *expandir*. Rotações e colapsos também sobrevivem a reenraizamentos.
 
 A aba **Visualização** fica com layout, comprimentos/cladograma, alinhamento no anel,
 escala dos ramos, espaço entre folhas e exportação.

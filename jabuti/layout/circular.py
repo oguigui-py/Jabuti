@@ -5,39 +5,43 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from jabuti.layout.rectangular import node_depths
+from jabuti.layout.rectangular import collapsed_far, node_depths, tip_slots
 from jabuti.models.tree import Node, Tree
 
 
 @dataclass
 class CircLayout:
-    """``pos[node] = (raio_em_unidades_de_árvore, ângulo_em_radianos)``."""
+    """``pos[node] = (raio_em_unidades_de_árvore, ângulo_em_radianos)`` (só nós visíveis)."""
 
     pos: dict[Node, tuple[float, float]] = field(default_factory=dict)
-    leaf_order: list[Node] = field(default_factory=list)
+    leaf_order: list[Node] = field(default_factory=list)       # folhas visíveis
     max_r: float = 0.0
     uses_lengths: bool = True
+    span: dict[Node, tuple[float, float]] = field(default_factory=dict)  # faixa angular ocupada
+    collapsed: dict[Node, float] = field(default_factory=dict)  # nó -> raio da folha mais distante
+    n_slots: float = 0.0
 
 
-def circular_layout(tree: Tree, use_lengths: bool = True, arc_degrees: float = 360.0) -> CircLayout:
+def circular_layout(
+    tree: Tree,
+    use_lengths: bool = True,
+    arc_degrees: float = 360.0,
+    collapsed: set[Node] | frozenset[Node] = frozenset(),
+) -> CircLayout:
     depth, used = node_depths(tree, use_lengths)
     lay = CircLayout(uses_lengths=used)
-    leaves = [n for n in tree.root.traverse_postorder() if n.is_leaf]
-    n = len(leaves)
+    center, span, leaves, total = tip_slots(tree, collapsed)
     arc = math.radians(min(max(arc_degrees, 10.0), 360.0))
-    # círculo completo: passo uniforme (inclusive entre a última e a primeira folha);
-    # leque parcial: folhas nas duas extremidades do arco
+    # círculo completo: passo uniforme (inclusive entre a última e a primeira posição);
+    # leque parcial: posições nas duas extremidades do arco
     full = arc_degrees >= 359.999
-    step = arc / n if full else arc / max(n - 1, 1)
-    theta: dict[Node, float] = {}
-    for i, leaf in enumerate(leaves):
-        theta[leaf] = i * step
+    step = arc / total if full else arc / max(total - 1, 1)
     lay.leaf_order = leaves
-    for node in tree.root.traverse_postorder():
-        if not node.is_leaf:
-            theta[node] = (theta[node.children[0]] + theta[node.children[-1]]) / 2
-    for node, th in theta.items():
-        lay.pos[node] = (depth[node], th)
+    lay.n_slots = total
+    for node, c in center.items():
+        lay.pos[node] = (depth[node], c * step)
+    lay.span = {n: (a * step, b * step) for n, (a, b) in span.items()}
+    lay.collapsed = collapsed_far(depth, collapsed)
     lay.max_r = max(depth.values(), default=0.0)
     return lay
 
@@ -100,7 +104,7 @@ def circular_geometry(
     (usado quando os rótulos ficam nas pontas, sem alinhamento, para não cobrir os anéis).
     ``marker``: tamanho do símbolo desenhado na ponta (empurra anéis e rótulos para fora).
     """
-    tip_ring = outer_ring_radius(len(lay.leaf_order), font_size, leaf_spacing, base_width, branch_scale)
+    tip_ring = outer_ring_radius(math.ceil(lay.n_slots), font_size, leaf_spacing, base_width, branch_scale)
     scale = tip_ring / lay.max_r if lay.max_r > 0 else 1.0
     pad = font_size * 0.5
     after_tip = tip_ring + marker / 2

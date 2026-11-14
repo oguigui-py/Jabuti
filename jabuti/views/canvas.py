@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, Qt, Signal
-from PySide6.QtGui import QColor, QContextMenuEvent, QPainter, QWheelEvent
+from PySide6.QtGui import QBrush, QColor, QContextMenuEvent, QPainter, QPixmap, QWheelEvent
 from PySide6.QtWidgets import QGraphicsScene, QGraphicsView
 
 from jabuti.views.tree_renderer import RenderResult, make_highlight
@@ -76,6 +76,19 @@ class TreeCanvas(QGraphicsView):
         rect = self._scene.sceneRect()
         if not rect.isEmpty():
             self.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def show_transparency(self, transparent: bool) -> None:
+        """Fundo transparente: mostra xadrez na tela (a cena fica sem fundo)."""
+        if transparent:
+            pm = QPixmap(16, 16)
+            pm.fill(QColor("#ffffff"))
+            p = QPainter(pm)
+            p.fillRect(0, 0, 8, 8, QColor("#e6e6e6"))
+            p.fillRect(8, 8, 8, 8, QColor("#e6e6e6"))
+            p.end()
+            self.setBackgroundBrush(QBrush(pm))
+        else:
+            self.setBackgroundBrush(QBrush(Qt.BrushStyle.NoBrush))  # usa o fundo da cena
 
     def set_result(self, result: RenderResult) -> None:
         self.result = result

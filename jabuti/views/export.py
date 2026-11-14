@@ -91,7 +91,7 @@ def export_png(scene: QGraphicsScene, path: str | Path, dpi: int = 300) -> Path:
     img = QImage(w, h, QImage.Format.Format_ARGB32)
     if img.isNull():
         raise ExportError("Memória insuficiente para essa resolução. Reduza o DPI.")
-    img.fill(QColor("white"))
+    img.fill(QColor(0, 0, 0, 0))  # a cena pinta o fundo (ou não, se transparente)
     img.setDotsPerMeterX(int(dpi / 0.0254))
     img.setDotsPerMeterY(int(dpi / 0.0254))
     painter = QPainter(img)

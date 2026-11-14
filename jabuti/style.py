@@ -138,6 +138,7 @@ class RenderStyle:
     symbols: SymbolStyle = field(default_factory=SymbolStyle)
     scale_bar: ScaleBarStyle = field(default_factory=ScaleBarStyle)
     clades: CladeStyle = field(default_factory=CladeStyle)
+    background: str | None = "#ffffff"  # cor de fundo; None = transparente
     color_by: str | None = None    # coluna de metadados (Fase 2)
 
     @property
