@@ -22,17 +22,33 @@ class LayoutKind(str, Enum):
     CIRCULAR = "circular"
 
 
+GUIDE_KINDS: dict[str, str] = {
+    "solid": "Contínua",
+    "dash": "Tracejada",
+    "dots": "Pontilhada (pontos pequenos)",
+    "bigdots": "Pontilhada (pontos maiores)",
+    "none": "Nenhuma",
+}
+
+
 @dataclass
 class BranchStyle:
     width: float = 1.2
     color: str = "#202020"
+    cap: str = "flat"               # "flat" (reta) | "round" (arredondada)
+    width_by_support: bool = False  # espessura proporcional ao suporte
+    min_width: float = 0.6
+    max_width: float = 3.5
 
 
 @dataclass
 class GuideStyle:
     """Linha de ligação ponta da folha → anel externo."""
 
+    kind: str = "dots"              # chave de GUIDE_KINDS
     color: str = "#a0a0a0"
+    width: float = 0.6
+    opacity: float = 1.0
 
 
 @dataclass

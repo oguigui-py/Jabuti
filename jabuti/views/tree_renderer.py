@@ -19,7 +19,7 @@ from jabuti.layout.circular import CircGeometry, circular_geometry, circular_lay
 from jabuti.layout.rectangular import rectangular_layout
 from jabuti.models.clades import Clade, ResolvedClade, assign_nodes, resolve_clades
 from jabuti.models.tree import SUPPORT_ALL, Node, Tree, support_value
-from jabuti.style import LayoutKind, RenderStyle
+from jabuti.style import GuideStyle, LayoutKind, RenderStyle
 
 HIGHLIGHT = QColor("#ffe066")
 
@@ -84,11 +84,37 @@ def annular_sector(r0: float, r1: float, th0: float, th1: float) -> QPainterPath
     return path
 
 
+def guide_pen(guide: GuideStyle) -> QPen | None:
+    """Caneta da linha de ligação folha→anel; ``None`` para "nenhuma"."""
+    if guide.kind == "none":
+        return None
+    color = QColor(guide.color)
+    color.setAlphaF(max(0.0, min(guide.opacity, 1.0)))
+    width = max(guide.width, 0.1)
+    pen = QPen(color, width)
+    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+    if guide.kind == "dash":
+        pen.setDashPattern([5.0, 3.0])
+    elif guide.kind == "dots":
+        pen.setDashPattern([1.0, 2.0])
+    elif guide.kind == "bigdots":
+        # pontos redondos: traço quase nulo + cap redondo, caneta mais grossa
+        pen.setWidthF(max(width * 2.5, 1.5))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setDashPattern([0.01, 2.2])
+    return pen
+
+
+def cap_style(cap: str) -> Qt.PenCapStyle:
+    return Qt.PenCapStyle.RoundCap if cap == "round" else Qt.PenCapStyle.FlatCap
+
+
 class _EdgeBatch:
     """Agrupa segmentos por (cor, espessura) em poucos QGraphicsPathItem."""
 
-    def __init__(self) -> None:
+    def __init__(self, cap: str = "flat") -> None:
         self.paths: dict[tuple[str, float], QPainterPath] = {}
+        self.cap = cap_style(cap)
 
     def path(self, color: str, width: float) -> QPainterPath:
         return self.paths.setdefault((color, width), QPainterPath())
@@ -109,7 +135,9 @@ class _EdgeBatch:
     def flush(self, scene: QGraphicsScene) -> None:
         for (color, width), path in self.paths.items():
             pen = QPen(QColor(color), width)
-            pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+            pen.setCapStyle(self.cap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin if self.cap == Qt.PenCapStyle.RoundCap
+                             else Qt.PenJoinStyle.MiterJoin)
             item = QGraphicsPathItem(path)
             item.setPen(pen)
             item.setData(1, TAG_BRANCHES)
@@ -133,6 +161,7 @@ class TreeRenderer:
         res.clades = resolve_clades(tree, clades or [], style.palette_colors())
         self._assign = assign_nodes(tree, res.clades)
         self._has_clades = bool(self._assign)
+        self._prepare_widths(tree)
         if style.layout == LayoutKind.CIRCULAR:
             self._render_circular(tree, style, res)
         else:
@@ -159,6 +188,23 @@ class TreeRenderer:
             rc = self._clade_of(leaf)
             return rc.color if rc else cs.neutral_color
         return self.style.label.color
+
+    def _prepare_widths(self, tree: Tree) -> None:
+        b = self.style.branch
+        self._width_by_support = b.width_by_support and tree.max_support_values() > 0
+        idx = self.style.support.index
+        vals = [support_value(n.supports, idx) for n in tree.root.traverse_preorder() if n.supports]
+        self._support_max = max(vals, default=0.0) or 1.0
+
+    def _width(self, node: Node | None) -> float:
+        """Espessura do ramo que termina em ``node`` (e do conector/arco que sai dele)."""
+        b = self.style.branch
+        if not self._width_by_support:
+            return b.width
+        if node is None or not node.supports:
+            return b.min_width
+        frac = max(0.0, min(support_value(node.supports, self.style.support.index) / self._support_max, 1.0))
+        return round(b.min_width + (b.max_width - b.min_width) * frac, 2)
 
     def _visible_clades(self, res: RenderResult) -> list[ResolvedClade]:
         return [rc for rc in res.clades if rc.valid and rc.clade.visible and rc.node is not None]
@@ -226,16 +272,16 @@ class TreeRenderer:
             x, y = lay.pos[node]
             return QPointF(x * sx, y * sy)
 
-        edges = _EdgeBatch()
+        edges = _EdgeBatch(style.branch.cap)
         for node in tree.root.traverse_preorder():
             p = pt(node)
             res.node_points[node] = p
             if node.parent is not None:
                 pp = pt(node.parent)
-                edges.seg(self._branch_color(node.parent), bw, QPointF(pp.x(), p.y()), p)
+                edges.seg(self._branch_color(node.parent), self._width(node), QPointF(pp.x(), p.y()), p)
             if node.children:
                 top, bot = pt(node.children[0]), pt(node.children[-1])
-                edges.seg(self._branch_color(node), bw, QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()))
+                edges.seg(self._branch_color(node), self._width(node), QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()))
         edges.flush(self.scene)
 
         tree_right = lay.max_x * sx
@@ -309,7 +355,6 @@ class TreeRenderer:
         lay = circular_layout(tree, style.use_lengths)
         spacing = style.label.size * style.leaf_spacing
         pad = style.label.size * 0.5
-        bw = style.branch.width
         cs = style.clades
         visible = self._visible_clades(res)
         strip = cs.outer_strip and bool(visible)
@@ -340,19 +385,20 @@ class TreeRenderer:
         def rad(node: Node) -> float:
             return geom.tip_radius(lay, node)
 
-        edges = _EdgeBatch()
+        edges = _EdgeBatch(style.branch.cap)
         for node in tree.root.traverse_preorder():
             r, th = rad(node), lay.pos[node][1]
             res.node_points[node] = pt(r, th)
             if node.parent is not None:
-                edges.seg(self._branch_color(node.parent), bw, pt(rad(node.parent), th), pt(r, th))
+                edges.seg(self._branch_color(node.parent), self._width(node), pt(rad(node.parent), th), pt(r, th))
             if node.children:
-                edges.arc(self._branch_color(node), bw, r,
+                edges.arc(self._branch_color(node), self._width(node), r,
                           lay.pos[node.children[0]][1], lay.pos[node.children[-1]][1])
         edges.flush(self.scene)
 
         # linhas-guia: da ponta do ramo até o anel externo
-        if geom.align_tips:
+        gpen = guide_pen(style.guide)
+        if geom.align_tips and gpen is not None:
             guides = QPainterPath()
             for leaf in lay.leaf_order:
                 tip, th = rad(leaf), lay.pos[leaf][1]
@@ -360,10 +406,8 @@ class TreeRenderer:
                     guides.moveTo(pt(tip, th))
                     guides.lineTo(pt(geom.tip_ring, th))
             if not guides.isEmpty():
-                pen = QPen(QColor(style.guide.color), max(bw * 0.5, 0.5))
-                pen.setStyle(Qt.PenStyle.DotLine)
                 item = QGraphicsPathItem(guides)
-                item.setPen(pen)
+                item.setPen(gpen)
                 item.setData(1, TAG_GUIDES)
                 self.scene.addItem(item)
 

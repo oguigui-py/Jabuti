@@ -32,10 +32,13 @@ from jabuti.models.clades import (
     clades_by_support,
 )
 from jabuti.models.tree import SUPPORT_ALL, Tree
-from jabuti.style import PALETTES, RenderStyle
+from jabuti.style import GUIDE_KINDS, PALETTES, RenderStyle
 from jabuti.views.clade_list import CladeList
 from jabuti.views.widgets.collapsible import CollapsibleSection
-from jabuti.views.widgets.swatches import SwatchRow, SwatchStrip
+from jabuti.views.widgets.swatches import BASE_COLORS, SwatchRow, SwatchStrip
+
+GUIDE_COLORS = {"Cinza claro": "#a0a0a0", "Cinza": "#6b6b6b", "Preto": "#202020",
+                **{k: v for k, v in BASE_COLORS.items() if k in ("Azul", "Vermelho", "Verde")}}
 
 MODE_K, MODE_SUPPORT, MODE_DISTANCE, MODE_MANUAL = "k", "support", "distance", "manual"
 SLIDER_STEPS = 1000
@@ -96,7 +99,9 @@ class StylePanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
         self._add_section(lay, "clades", "Clados e paleta", self._build_clades(), True)
-        self._add_section(lay, "colors", "Cores da árvore", self._build_colors(), True)
+        self._add_section(lay, "branches", "Ramos", self._build_branches(), False)
+        self._add_section(lay, "guides", "Ligações folha → anel", self._build_guides(), False)
+        self._add_section(lay, "labels", "Rótulos", self._build_labels(), False)
         self._add_section(lay, "meta", "Metadados e legenda", self._build_meta(), True)
         lay.addStretch(1)
 
@@ -239,20 +244,88 @@ class StylePanel(QWidget):
         h.addWidget(widget, 1)
         return w
 
-    def _build_colors(self) -> QWidget:
+    def _emit(self, *_args) -> None:  # type: ignore[no-untyped-def]
+        """Adaptador: sinais Qt com argumentos -> ``changed`` sem argumentos."""
+        self.changed.emit()
+
+    def _spin(self, lo: float, hi: float, val: float, step: float = 0.1, suffix: str = "") -> QDoubleSpinBox:
+        sb = QDoubleSpinBox()
+        sb.setRange(lo, hi)
+        sb.setSingleStep(step)
+        sb.setDecimals(2 if step < 0.1 else 1)
+        sb.setValue(val)
+        if suffix:
+            sb.setSuffix(suffix)
+        sb.valueChanged.connect(self._emit)
+        return sb
+
+    def _build_branches(self) -> QWidget:
         w = QWidget()
         f = QFormLayout(w)
         f.setContentsMargins(8, 0, 0, 6)
         self.branch_row = SwatchRow()
-        self.label_row = SwatchRow()
-        f.addRow("Ramos:", self.branch_row)
-        f.addRow("Rótulos:", self.label_row)
-        hint = QLabel("Usadas quando não há clados (ou a opção de clado está desligada).")
+        self.branch_row.color_changed.connect(self._emit)
+        f.addRow("Cor padrão:", self.branch_row)
+        self.branch_width = self._spin(0.2, 10, 1.2, 0.2)
+        f.addRow("Espessura:", self.branch_width)
+        self.branch_cap = QComboBox()
+        self.branch_cap.addItem("Reta", "flat")
+        self.branch_cap.addItem("Arredondada", "round")
+        self.branch_cap.currentIndexChanged.connect(self._emit)
+        f.addRow("Ponta:", self.branch_cap)
+        self.width_by_support = QCheckBox("Espessura proporcional ao suporte")
+        self.width_by_support.toggled.connect(self._emit)
+        f.addRow(self.width_by_support)
+        mm = QHBoxLayout()
+        self.min_width = self._spin(0.1, 10, 0.6, 0.1)
+        self.max_width = self._spin(0.2, 20, 3.5, 0.5)
+        mm.addWidget(QLabel("mín"))
+        mm.addWidget(self.min_width)
+        mm.addWidget(QLabel("máx"))
+        mm.addWidget(self.max_width)
+        f.addRow(mm)
+        hint = QLabel("Usa o valor de suporte escolhido na aba Visualização; nós sem suporte ficam com a mínima. "
+                      "A cor padrão vale quando não há clados (ou a opção de clado está desligada).")
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #888;")
         f.addRow(hint)
-        self.branch_row.color_changed.connect(lambda _c: self.changed.emit())
-        self.label_row.color_changed.connect(lambda _c: self.changed.emit())
+        return w
+
+    def _build_guides(self) -> QWidget:
+        w = QWidget()
+        f = QFormLayout(w)
+        f.setContentsMargins(8, 0, 0, 6)
+        self.guide_kind = QComboBox()
+        for key, label in GUIDE_KINDS.items():
+            self.guide_kind.addItem(label, key)
+        self.guide_kind.setCurrentIndex(self.guide_kind.findData("dots"))
+        self.guide_kind.currentIndexChanged.connect(self._emit)
+        f.addRow("Estilo:", self.guide_kind)
+        self.guide_row = SwatchRow(GUIDE_COLORS, selected="#a0a0a0")
+        self.guide_row.color_changed.connect(self._emit)
+        f.addRow("Cor:", self.guide_row)
+        self.guide_width = self._spin(0.1, 6, 0.6, 0.1)
+        f.addRow("Espessura:", self.guide_width)
+        self.guide_opacity = QSpinBox()
+        self.guide_opacity.setRange(5, 100)
+        self.guide_opacity.setSingleStep(5)
+        self.guide_opacity.setValue(100)
+        self.guide_opacity.setSuffix(" %")
+        self.guide_opacity.valueChanged.connect(self._emit)
+        f.addRow("Opacidade:", self.guide_opacity)
+        hint = QLabel("Ligação da ponta do ramo ao anel externo (layout circular com pontas alinhadas).")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #888;")
+        f.addRow(hint)
+        return w
+
+    def _build_labels(self) -> QWidget:
+        w = QWidget()
+        f = QFormLayout(w)
+        f.setContentsMargins(8, 0, 0, 6)
+        self.label_row = SwatchRow()
+        self.label_row.color_changed.connect(self._emit)
+        f.addRow("Cor padrão:", self.label_row)
         return w
 
     def _build_meta(self) -> QWidget:
@@ -422,7 +495,18 @@ class StylePanel(QWidget):
         cs.neutral_color = self.neutral.color()
         show_line = self.current_mode() == MODE_DISTANCE and self.show_cut.isChecked() and self.tree is not None
         cs.cut_distance = self.cut_distance() if show_line else None
-        style.branch.color = self.branch_row.color()
+        b = style.branch
+        b.color = self.branch_row.color()
+        b.width = self.branch_width.value()
+        b.cap = self.branch_cap.currentData()
+        b.width_by_support = self.width_by_support.isChecked()
+        b.min_width = min(self.min_width.value(), self.max_width.value())
+        b.max_width = max(self.min_width.value(), self.max_width.value())
+        g = style.guide
+        g.kind = self.guide_kind.currentData()
+        g.color = self.guide_row.color()
+        g.width = self.guide_width.value()
+        g.opacity = self.guide_opacity.value() / 100
         style.label.color = self.label_row.color()
         style.color_by = self.color_by.currentData()
         return style

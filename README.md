@@ -22,6 +22,10 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
   (duplo clique), ocultar e remover; folhas fora de clados usam a cor neutra.
   Clados manuais sobrevivem a reenraizamentos (⚠ se deixarem de ser monofiléticos).
   Em árvores não enraizadas (raiz com 3 filhos) o k pode ser ultrapassado no menor corte possível.
+- **Ramos** — cor padrão, espessura, ponta reta ou arredondada e, opcionalmente, espessura
+  proporcional ao suporte (mín./máx.; usa o valor de suporte escolhido na aba Visualização).
+- **Ligações folha → anel** (circular alinhado) — contínua, tracejada, pontilhada com pontos
+  pequenos ou maiores, ou nenhuma; cor, espessura e opacidade.
 
 Exemplo para testar: `python -m jabuti examples/paraburkholderia_40.treefile` (árvore sintética).
 

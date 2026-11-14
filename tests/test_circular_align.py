@@ -115,7 +115,8 @@ def test_render_aligned_labels_and_guides(rendered):
     assert max(starts) - min(starts) < 1e-3
     assert starts[0] == pytest.approx(g.label_radius, abs=1e-3)
     (guide,) = _guides(scene)
-    assert guide.pen().style() == Qt.PenStyle.DotLine
+    assert guide.pen().style() == Qt.PenStyle.CustomDashLine  # padrão: pontos pequenos
+    assert list(guide.pen().dashPattern()) == [1.0, 2.0]
     # uma linha por folha que não toca o anel (a mais longa toca)
     assert guide.path().elementCount() == 2 * (len(res.leaf_items) - 1)
 

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from jabuti.style import BranchStyle, LabelStyle, LayoutKind, RenderStyle, SupportStyle
+from jabuti.style import LabelStyle, LayoutKind, RenderStyle, SupportStyle
 
 
 class VizTab(QWidget):
@@ -61,10 +61,6 @@ class VizTab(QWidget):
         self.spacing.setRange(1.0, 5.0)
         self.spacing.setSingleStep(0.1)
         self.spacing.setValue(1.6)
-        self.branch_width = QDoubleSpinBox()
-        self.branch_width.setRange(0.2, 10)
-        self.branch_width.setSingleStep(0.2)
-        self.branch_width.setValue(1.2)
         self.set_support_options(0)
         self._sync_layout_options()
 
@@ -79,7 +75,6 @@ class VizTab(QWidget):
         form.addRow("Tamanho da fonte:", self.font_size)
         form.addRow("Escala dos ramos:", self.branch_scale)
         form.addRow("Espaço entre folhas:", self.spacing)
-        form.addRow("Espessura dos ramos:", self.branch_width)
 
         exp = QGroupBox("Exportar")
         self.dpi = QSpinBox()
@@ -125,7 +120,6 @@ class VizTab(QWidget):
             leaf_spacing=self.spacing.value(),
             use_lengths=self.use_lengths.isChecked(),
             align_tips=self.align_tips.isChecked(),
-            branch=BranchStyle(width=self.branch_width.value()),
             label=LabelStyle(size=self.font_size.value(), show=self.show_labels.isChecked()),
             support=SupportStyle(
                 show=self.show_support.isChecked(),

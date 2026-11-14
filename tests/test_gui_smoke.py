@@ -72,7 +72,7 @@ def test_style_panel_is_fixed_dock(window):
     assert not dock.isFloating()
     assert window.style_panel.legend.entries == []
     assert not window.style_panel.color_by.isEnabled()  # sem metadados ainda
-    assert set(window.style_panel.sections) >= {"clades", "colors", "meta"}
+    assert set(window.style_panel.sections) >= {"clades", "branches", "guides", "labels", "meta"}
 
 
 def test_color_change_updates_canvas_immediately(window, data_dir):
