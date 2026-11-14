@@ -20,6 +20,7 @@ from jabuti.models.document import LADDERIZE, TreeEdits
 from jabuti.models.label_groups import SOURCES, LabelGroup, LabelGroupSet, LabelLook
 from jabuti.parsers.errors import JabutiParseError, read_text
 from jabuti.style import (
+    BAR_COLOR_MODES,
     GUIDE_KINDS,
     LEGEND_POSITIONS,
     PALETTES,
@@ -42,7 +43,10 @@ CHOICES: dict[tuple[str, str], set[str]] = {
     ("CladeStyle", "palette"): set(PALETTES),
     ("CladeStyle", "name_mode"): {"curved", "radial"},
     ("BranchStyle", "cap"): {"flat", "round"},
+    ("BarSpec", "color_mode"): set(BAR_COLOR_MODES),
 }
+# floats que podem ser negativos (os demais precisam ser >= 0)
+SIGNED: set[tuple[str, str]] = {("BarSpec", "vmin"), ("BarSpec", "vmax"), ("BarSpec", "refs")}
 INT_CHOICES: dict[tuple[str, str], set[int]] = {("SupportStyle", "index"): {-1, 0, 1, 99}}
 # campos fora do preset (estado de tela, não configuração)
 SKIP: set[tuple[str, str]] = {("CladeStyle", "cut_distance")}
@@ -62,19 +66,19 @@ class PresetError(JabutiParseError):
 
 
 # ------------------------------------------------------------------ estilo
+def _plain(val: Any) -> Any:
+    if is_dataclass(val):
+        return style_to_dict(val)
+    if isinstance(val, Enum):
+        return val.value
+    if isinstance(val, list):
+        return [_plain(v) for v in val]
+    return val
+
+
 def style_to_dict(style: Any) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for f in fields(style):
-        if (type(style).__name__, f.name) in SKIP:
-            continue
-        val = getattr(style, f.name)
-        if is_dataclass(val):
-            out[f.name] = style_to_dict(val)
-        elif isinstance(val, Enum):
-            out[f.name] = val.value
-        else:
-            out[f.name] = val
-    return out
+    return {f.name: _plain(getattr(style, f.name)) for f in fields(style)
+            if (type(style).__name__, f.name) not in SKIP}
 
 
 def _is_color_field(name: str) -> bool:
@@ -89,7 +93,18 @@ def _coerce(cls_name: str, name: str, hint: Any, value: Any) -> tuple[bool, Any]
     if value is None:
         return optional, None
     if typing.get_origin(hint) is list:
-        ok = isinstance(value, list) and all(isinstance(v, str) for v in value)
+        (item,) = typing.get_args(hint) or (str,)
+        if not isinstance(value, list):
+            return False, None
+        if item is float:
+            ok = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value)
+            if ok and (cls_name, name) not in SIGNED:
+                ok = all(v >= 0 for v in value)
+            return ok, [float(v) for v in value] if ok else None
+        ok = all(isinstance(v, str) for v in value)
+        if ok and _is_color_field(name.rstrip("s")):
+            ok = all(_HEX.match(v) for v in value)
+            return ok, [v.lower() for v in value] if ok else None
         return ok, list(value) if ok else None
     if isinstance(base, type) and issubclass(base, Enum):
         try:
@@ -106,7 +121,7 @@ def _coerce(cls_name: str, name: str, hint: Any, value: Any) -> tuple[bool, Any]
     if base is float:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return False, None
-        return value >= 0, float(value)
+        return (value >= 0 or (cls_name, name) in SIGNED), float(value)
     if base is str:
         if not isinstance(value, str):
             return False, None
@@ -131,6 +146,13 @@ def _from_dict(cls: type, data: Any, path: str, warnings: list[str]) -> Any:
         key = f"{path}.{f.name}" if path else f.name
         if is_dataclass(hint):
             setattr(obj, f.name, _from_dict(hint, value, key, warnings))
+            continue
+        item = typing.get_args(hint)[0] if typing.get_origin(hint) is list else None
+        if item is not None and is_dataclass(item):
+            if isinstance(value, list):
+                setattr(obj, f.name, [_from_dict(item, v, f"{key}[{i}]", warnings) for i, v in enumerate(value)])
+            else:
+                warnings.append(f"“{key}” deveria ser uma lista; usando o padrão.")
             continue
         ok, conv = _coerce(cls.__name__, f.name, hint, value)
         if ok:

@@ -52,6 +52,29 @@ Exemplos sintéticos: `examples/gff/*.gff3` (22 genomas) para `examples/paraburk
 
 Exemplo sintético: `examples/metadata.tsv` (chave = linhagem).
 
+## Painel **Figura** (à esquerda)
+
+Painel fixo na borda esquerda, com seções recolhíveis; o botão «/» recolhe o painel numa
+faixa estreita e devolve o espaço ao desenho. **Tudo vem desligado**: sem nada ativado ali, o
+desenho é exatamente o de antes. As opções vão para os presets (os dados carregados, não).
+
+### Colunas de dados
+
+- **Tabelas de dados** — *Carregar tabela…* lê TSV/CSV em segundo plano (a janela continua
+  respondendo). A 1ª coluna é o nome do genoma/folha; `NA`, vazio, `-`… = sem dado. O
+  casamento com as folhas é automático e editável na mesma tabela da aba GFF (✓ / ✎ / ⚠); o
+  relatório lista as folhas sem dados. A tabela da aba **Metadados** também pode ser usada.
+- **Barras** — *+ Barras* cria uma coluna de barras a partir de uma coluna numérica: cor única,
+  por clado ou por metadado (a coluna de *Colorir por* do painel Estilo), valor ao lado da barra,
+  linhas de referência tracejadas (ex.: `4; 8` — vírgula sem espaço é decimal), mínimo/máximo
+  (automático = de 0, ou do menor valor negativo, até o maior) e largura. No retangular a coluna
+  tem eixo com mínimo, referências e máximo; no circular as barras são radiais e as referências
+  viram arcos tracejados. Folha sem dado mostra um traço curto; clado colapsado usa a média.
+  As colunas entram depois das faixas de metadados e do heatmap de genes.
+
+Exemplo sintético: `examples/traits.tsv` (tamanho do genoma, nº de contigs com `NA` e
+contagens de CAZy por classe).
+
 ## Personalização (painel **Estilo**, à direita)
 
 Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PNG.

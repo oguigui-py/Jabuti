@@ -21,6 +21,7 @@ from jabuti.models.clades import Clade, ResolvedClade, assign_nodes, resolve_cla
 from jabuti.models.annotations import ContextGene, LeafColumn, LegendGroup, context_extent
 from jabuti.models.document import TreeEdits, collapsed_nodes
 from jabuti.models.label_groups import LabelGroup, LabelGroupSet
+from jabuti.models.tracks import CLADE_STRIP, BarTrack, fmt_value
 from jabuti.models.tree import SUPPORT_ALL, Node, Tree, support_value
 from jabuti.style import GuideStyle, LayoutKind, RenderStyle
 
@@ -43,6 +44,11 @@ TAG_COLUMN_HEADER = "column-header"
 TAG_CONTEXT = "gene-context"
 TAG_LABEL_BG = "label-background"
 TAG_LEGEND = "legend"
+TAG_BAR = "bar"
+TAG_BAR_MISSING = "bar-missing"
+TAG_BAR_REF = "bar-reference"
+TAG_BAR_AXIS = "bar-axis"
+TAG_BAR_VALUE = "bar-value"
 
 
 @dataclass
@@ -196,7 +202,13 @@ class TreeRenderer:
     ) -> RenderResult:
         self.scene.clear()
         self._context = context or {}
-        self._columns = list(columns or [])
+        tracks = list(columns or [])
+        if CLADE_STRIP not in tracks and style.clades.outer_strip:
+            tracks.insert(0, CLADE_STRIP)       # padrão: faixa de clados logo após os rótulos
+        if not style.clades.outer_strip:
+            tracks = [t for t in tracks if t != CLADE_STRIP]
+        self._tracks = tracks
+        self._columns = [t for t in tracks if isinstance(t, LeafColumn)]
         self._meta_node = self._propagate_meta(tree, meta_colors or {})
         self.style = style
         bg = style.background
@@ -471,6 +483,241 @@ class TreeRenderer:
                     self.scene.addItem(t)
         return x0 + cst.width
 
+    # ------------------------------------------------------------ trilhas
+    def _value_text_width(self, track: BarTrack) -> float:
+        if not track.show_values or not track.values:
+            return 0.0
+        fm = QFontMetricsF(self._small_font())
+        return max(fm.horizontalAdvance(fmt_value(v)) for v in track.values.values()) + 4
+
+    def _small_font(self) -> QFont:
+        f = QFont(self._font)
+        f.setPointSizeF(max(self.style.label.size * 0.7, 4))
+        return f
+
+    def _track_extent(self, track, cell_w: float) -> float:  # type: ignore[no-untyped-def]
+        """Largura (px) ocupada pela trilha: coluna no retangular, anel no circular."""
+        if track == CLADE_STRIP:
+            return self.style.clades.strip_width
+        if isinstance(track, BarTrack):
+            return track.width + self._value_text_width(track)
+        return track.width or cell_w
+
+    def _bar_color(self, track: BarTrack, node: Node, names: list[str]) -> str:
+        if track.color_mode == "clade":
+            rc = self._clade_of(node)
+            return rc.color if rc is not None else self.style.clades.neutral_color
+        if track.color_mode == "metadata":
+            if len(names) == 1:
+                return track.colors.get(names[0], track.color)
+            return self._meta_node.get(node, track.color)
+        return track.color
+
+    def _flush_bars(self, by_color: dict[str, QPainterPath], track: BarTrack) -> None:
+        for color, path in by_color.items():
+            item = QGraphicsPathItem(path)
+            item.setBrush(QBrush(QColor(color)))
+            item.setPen(QPen(Qt.PenStyle.NoPen))
+            item.setData(1, TAG_BAR)
+            item.setData(2, track.key)
+            self.scene.addItem(item)
+
+    def _bar_pen(self, kind: str) -> QPen:
+        if kind == "ref":
+            pen = QPen(QColor("#7a7a7a"), 0.7)
+            pen.setDashPattern([4.0, 3.0])
+        elif kind == "missing":
+            pen = QPen(QColor("#9a9a9a"), 1.2)
+        else:
+            pen = QPen(QColor("#505050"), 0.6)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        return pen
+
+    def _tagged(self, item: QGraphicsItem, tag: str, key: str) -> QGraphicsItem:
+        item.setData(1, tag)
+        item.setData(2, key)
+        if item.scene() is None:
+            self.scene.addItem(item)
+        return item
+
+    def _column_header(self, text: str, x: float, cw: float, top: float, horizontal_ok: bool = False) -> None:
+        """Nome da coluna acima dela: horizontal se couber, senão vertical (de baixo para cima)."""
+        size = max(self.style.label.size * 0.85, 4)
+        h = self._text(text, size)
+        h.setData(1, TAG_COLUMN_HEADER)
+        if horizontal_ok and h.boundingRect().width() <= cw:
+            br = h.boundingRect()
+            h.setPos(x + cw / 2 - br.width() / 2, top - 3 - br.height())
+            return
+        hh = h.boundingRect().height()
+        while hh > cw and size > 4:  # coluna estreita: fonte menor até caber
+            size = max(size * min(cw / hh, 0.92), 4)
+            f = h.font()
+            f.setPointSizeF(size)
+            h.setFont(f)
+            hh = h.boundingRect().height()
+        # vertical (lido de baixo para cima), centrado na coluna: não se sobrepõe
+        # mesmo com colunas estreitas
+        h.setTransformOriginPoint(0, hh)
+        h.setRotation(-90)
+        h.setPos(x + cw / 2 + hh / 2, top - 3 - hh)
+
+    def _draw_tracks_rect(self, tree: Tree, lay, x: float, sy: float, pad: float,  # type: ignore[no-untyped-def]
+                          visible: list[ResolvedClade], y_range) -> float:
+        """Trilhas em colunas à direita dos rótulos, na ordem pedida. Devolve o x final.
+
+        Colunas de células seguidas ficam encostadas; cada bloco é seguido de um espaço."""
+        hm = self.style.heatmap
+        cs = self.style.clades
+        top = lay.span[tree.root][0] * sy
+        bottom = lay.span[tree.root][1] * sy
+        in_cells = False
+        for track in self._tracks:
+            is_cell = isinstance(track, LeafColumn)
+            if in_cells and not is_cell:
+                x += pad
+            in_cells = is_cell
+            if track == CLADE_STRIP:
+                if not visible:
+                    continue
+                for rc in visible:
+                    y0, y1 = y_range(rc.node)
+                    path = QPainterPath()
+                    path.addRect(QRectF(x, y0, cs.strip_width, y1 - y0))
+                    self._fill(path, rc.color, 1.0, TAG_CLADE_STRIP, 0)
+                x += cs.strip_width + pad
+            elif isinstance(track, BarTrack):
+                self._bars_rect(track, lay, x, sy, top, bottom)
+                x += self._track_extent(track, 0) + pad
+            else:
+                cw = track.width if track.width else sy * hm.cell_width
+                by_color: dict[str, QPainterPath] = {}
+                for node, names in self._tips(lay):
+                    a, b = lay.span[node]
+                    color = self._cell_color(track, names)
+                    rect = QRectF(x, a * sy, cw, (b - a) * sy)
+                    by_color.setdefault(color, QPainterPath()).addRect(rect)
+                    if len(names) == 1 and names[0] in track.texts:
+                        self._cell_text(track.texts[names[0]], rect.center(), color)
+                self._flush_cells(by_color, track)
+                if hm.show_headers:
+                    self._column_header(track.header, x, cw, top)
+                x += cw
+        if in_cells:
+            x += pad
+        return x
+
+    def _bars_rect(self, track: BarTrack, lay, x0: float, sy: float, top: float, bottom: float) -> None:  # type: ignore[no-untyped-def]
+        w = track.width
+        base = x0 + track.base * w
+        by_color: dict[str, QPainterPath] = {}
+        missing = QPainterPath()
+        small = self._small_font()
+        for node, names in self._tips(lay):
+            a, b = lay.span[node]
+            yc = lay.pos[node][1] * sy
+            h = (b - a) * sy * 0.7
+            v = track.value_for(names)
+            if v is None:
+                missing.moveTo(x0, yc)
+                missing.lineTo(x0 + min(6.0, w * 0.1), yc)
+                continue
+            end = x0 + track.frac(v) * w
+            rect = QRectF(min(base, end), yc - h / 2, abs(end - base), h)
+            by_color.setdefault(self._bar_color(track, node, names), QPainterPath()).addRect(rect)
+            if track.show_values:
+                t = QGraphicsSimpleTextItem(fmt_value(v))
+                t.setFont(small)
+                t.setBrush(QBrush(QColor("#404040")))
+                br = t.boundingRect()
+                t.setPos(max(base, end) + 2, yc - br.height() / 2)
+                self._tagged(t, TAG_BAR_VALUE, track.key)
+        self._flush_bars(by_color, track)
+        if not missing.isEmpty():
+            self._tagged(self._path_item(missing, self._bar_pen("missing")), TAG_BAR_MISSING, track.key)
+        refs = QPainterPath()
+        for r in track.visible_refs():
+            rx = x0 + track.frac(r) * w
+            refs.moveTo(rx, top)
+            refs.lineTo(rx, bottom)
+        if not refs.isEmpty():
+            item = self._path_item(refs, self._bar_pen("ref"))
+            item.setZValue(-0.5)      # atrás das barras e dos valores, à frente do fundo dos clados
+            self._tagged(item, TAG_BAR_REF, track.key)
+        # eixo: mínimo, referências e máximo embaixo da coluna
+        ay = bottom + 2
+        axis = QPainterPath()
+        axis.moveTo(x0, ay)
+        axis.lineTo(x0 + w, ay)
+        ticks = [track.vmin, *track.visible_refs(), track.vmax]
+        for v in ticks:
+            tx = x0 + track.frac(v) * w
+            axis.moveTo(tx, ay)
+            axis.lineTo(tx, ay + 3)
+        self._tagged(self._path_item(axis, self._bar_pen("axis")), TAG_BAR_AXIS, track.key)
+        last_right = -math.inf
+        for v in ticks:
+            t = QGraphicsSimpleTextItem(fmt_value(v))
+            t.setFont(small)
+            t.setBrush(QBrush(QColor("#505050")))
+            br = t.boundingRect()
+            tx = x0 + track.frac(v) * w - br.width() / 2
+            if tx < last_right + 2:          # rótulos do eixo nunca se sobrepõem
+                continue
+            t.setPos(tx, ay + 3)
+            last_right = tx + br.width()
+            self._tagged(t, TAG_BAR_AXIS, track.key)
+        if self.style.heatmap.show_headers:
+            self._column_header(track.header, x0, w, top, horizontal_ok=True)
+
+    def _bars_circ(self, track: BarTrack, lay, r0: float, root_span: tuple[float, float], pt) -> None:  # type: ignore[no-untyped-def]
+        w = track.width
+        rb = r0 + track.base * w
+        by_color: dict[str, QPainterPath] = {}
+        missing = QPainterPath()
+        small = self._small_font()
+        for node, names in self._tips(lay):
+            a, b = lay.span[node]
+            mid = (a + b) / 2
+            half = (b - a) / 2 * 0.7
+            v = track.value_for(names)
+            if v is None:
+                missing.moveTo(pt(r0, mid))
+                missing.lineTo(pt(r0 + min(6.0, w * 0.1), mid))
+                continue
+            re_ = r0 + track.frac(v) * w
+            lo, hi = sorted((rb, re_))
+            if hi - lo > 0:
+                by_color.setdefault(self._bar_color(track, node, names), QPainterPath()).addPath(
+                    annular_sector(lo, hi, mid - half, mid + half))
+            if track.show_values:
+                t = QGraphicsSimpleTextItem(fmt_value(v))
+                t.setFont(small)
+                t.setBrush(QBrush(QColor("#404040")))
+                self.scene.addItem(t)
+                self._rotate_radial(t, pt(hi + 2, mid), mid)
+                self._tagged(t, TAG_BAR_VALUE, track.key)
+        self._flush_bars(by_color, track)
+        if not missing.isEmpty():
+            self._tagged(self._path_item(missing, self._bar_pen("missing")), TAG_BAR_MISSING, track.key)
+        refs = QPainterPath()
+        th0, th1 = root_span
+        for r in track.visible_refs():
+            rr = r0 + track.frac(r) * w
+            rect = QRectF(-rr, -rr, 2 * rr, 2 * rr)
+            refs.arcMoveTo(rect, _qt_deg(th0))
+            refs.arcTo(rect, _qt_deg(th0), _qt_deg(th1) - _qt_deg(th0))
+        if not refs.isEmpty():
+            item = self._path_item(refs, self._bar_pen("ref"))
+            item.setZValue(-0.5)      # atrás das barras e dos valores, à frente do fundo dos clados
+            self._tagged(item, TAG_BAR_REF, track.key)
+
+    def _path_item(self, path: QPainterPath, pen: QPen) -> QGraphicsPathItem:
+        item = QGraphicsPathItem(path)
+        item.setPen(pen)
+        self.scene.addItem(item)
+        return item
+
     def _collapsed_label(self, node: Node) -> str:
         n = len(node.leaves())
         name = self._collapsed_names.get(id(node))
@@ -656,45 +903,7 @@ class TreeRenderer:
             return a * sy, b * sy
 
         x = label_right + pad
-        if cs.outer_strip and visible:
-            for rc in visible:
-                y0, y1 = y_range(rc.node)
-                path = QPainterPath()
-                path.addRect(QRectF(x, y0, cs.strip_width, y1 - y0))
-                self._fill(path, rc.color, 1.0, TAG_CLADE_STRIP, 0)
-            x += cs.strip_width + pad
-        if self._columns:
-            hm = style.heatmap
-            top = lay.span[tree.root][0] * sy
-            for col in self._columns:
-                cw = col.width if col.width else sy * hm.cell_width
-                by_color: dict[str, QPainterPath] = {}
-                for node, names in self._tips(lay):
-                    a, b = lay.span[node]
-                    color = self._cell_color(col, names)
-                    rect = QRectF(x, a * sy, cw, (b - a) * sy)
-                    by_color.setdefault(color, QPainterPath()).addRect(rect)
-                    if len(names) == 1 and names[0] in col.texts:
-                        self._cell_text(col.texts[names[0]], rect.center(), color)
-                self._flush_cells(by_color, col)
-                if hm.show_headers:
-                    size = max(style.label.size * 0.85, 4)
-                    h = self._text(col.header, size)
-                    h.setData(1, TAG_COLUMN_HEADER)
-                    hh = h.boundingRect().height()
-                    while hh > cw and size > 4:  # coluna estreita: fonte menor até caber
-                        size = max(size * min(cw / hh, 0.92), 4)
-                        f = h.font()
-                        f.setPointSizeF(size)
-                        h.setFont(f)
-                        hh = h.boundingRect().height()
-                    # vertical (lido de baixo para cima), centrado na coluna: não se sobrepõe
-                    # mesmo com colunas estreitas
-                    h.setTransformOriginPoint(0, hh)
-                    h.setRotation(-90)
-                    h.setPos(x + cw / 2 + hh / 2, top - 3 - hh)
-                x += cw
-            x += pad
+        x = self._draw_tracks_rect(tree, lay, x, sy, pad, visible, y_range)
         if self._context:
             x = self._draw_context(lay, x, sy, pad) + pad
         if cs.background and visible:
@@ -743,9 +952,9 @@ class TreeRenderer:
         pad = style.label.size * 0.5
         cs = style.clades
         visible = self._visible_clades(res)
-        strip = cs.outer_strip and bool(visible)
         col_w = spacing * style.heatmap.cell_width
-        ring_widths = ([cs.strip_width] if strip else []) + [c.width or col_w for c in self._columns]
+        self._ring_tracks = [t for t in self._tracks if t != CLADE_STRIP or visible]
+        ring_widths = [self._track_extent(t, col_w) for t in self._ring_tracks]
 
         # largura máxima dos rótulos (para reservar espaço quando não alinhados)
         max_label_w = 0.0
@@ -851,23 +1060,25 @@ class TreeRenderer:
         def th_range(node: Node) -> tuple[float, float]:
             return lay.span[node]
 
-        if strip:
-            r0, r1 = geom.ring_bounds(0)
-            for rc in visible:
-                th0, th1 = th_range(rc.node)
-                self._fill(annular_sector(r0, r1, th0, th1), rc.color, 1.0, TAG_CLADE_STRIP, 0)
-        first_col_ring = 1 if strip else 0
-        for i, col in enumerate(self._columns):
-            r0, r1 = geom.ring_bounds(first_col_ring + i)
-            by_color: dict[str, QPainterPath] = {}
-            for node, names in self._tips(lay):
-                a, b = lay.span[node]
-                color = self._cell_color(col, names)
-                by_color.setdefault(color, QPainterPath()).addPath(annular_sector(r0, r1, a, b))
-                if len(names) == 1 and names[0] in col.texts:
-                    mid = (a + b) / 2
-                    self._cell_text(col.texts[names[0]], pt((r0 + r1) / 2, mid), color)
-            self._flush_cells(by_color, col)
+        root_span = lay.span[tree.root]
+        for i, track in enumerate(self._ring_tracks):
+            r0, r1 = geom.ring_bounds(i)
+            if track == CLADE_STRIP:
+                for rc in visible:
+                    th0, th1 = th_range(rc.node)
+                    self._fill(annular_sector(r0, r1, th0, th1), rc.color, 1.0, TAG_CLADE_STRIP, 0)
+            elif isinstance(track, BarTrack):
+                self._bars_circ(track, lay, r0, root_span, pt)
+            else:
+                by_color: dict[str, QPainterPath] = {}
+                for node, names in self._tips(lay):
+                    a, b = lay.span[node]
+                    color = self._cell_color(track, names)
+                    by_color.setdefault(color, QPainterPath()).addPath(annular_sector(r0, r1, a, b))
+                    if len(names) == 1 and names[0] in track.texts:
+                        mid = (a + b) / 2
+                        self._cell_text(track.texts[names[0]], pt((r0 + r1) / 2, mid), color)
+                self._flush_cells(by_color, track)
         if cs.background and visible:
             for rc in visible:
                 th0, th1 = th_range(rc.node)

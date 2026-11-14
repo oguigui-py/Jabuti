@@ -130,3 +130,32 @@ def color_menu(parent: QWidget, palette: list[str], on_pick, allow_auto: bool = 
 
     menu.addAction("Outra cor…", other)
     return menu
+
+
+class ColorButton(QToolButton):
+    """Amostra que abre o menu de cores (paleta + cores base + "Outra cor…")."""
+
+    color_changed = Signal(str)
+
+    def __init__(self, color: str = "#4e79a7", palette: list[str] | None = None,
+                 parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.palette_colors = list(palette or [])
+        self.setFixedSize(QSize(22, 22))
+        self._color = ""
+        self.set_color(color)
+        self.clicked.connect(self._open)
+
+    def color(self) -> str:
+        return self._color
+
+    def set_color(self, color: str, emit: bool = False) -> None:
+        self._color = color.lower()
+        self.setStyleSheet(swatch_css(self._color, False))
+        self.setToolTip(self._color)
+        if emit:
+            self.color_changed.emit(self._color)
+
+    def _open(self) -> None:
+        menu = color_menu(self, self.palette_colors, lambda c: c and self.set_color(c, emit=True), allow_auto=False)
+        menu.exec(self.mapToGlobal(self.rect().bottomLeft()))

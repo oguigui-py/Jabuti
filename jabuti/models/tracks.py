@@ -1,0 +1,102 @@
+"""Trilhas de dados desenhadas ao lado da árvore (colunas no retangular, anéis no circular).
+
+Modelo puro, sem Qt. Além das ``LeafColumn`` (células coloridas: faixas de metadados,
+heatmap de GFF, matriz), há barras simples e barras empilhadas. O renderer recebe uma
+lista ordenada (da árvore para fora) que pode conter também ``CLADE_STRIP``, o marcador
+da faixa de cor dos clados.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+CLADE_STRIP = "clade-strip"     # chave/marcador da faixa externa de clados
+GENE_BLOCK = "gene:*"           # chave do bloco de colunas do heatmap de GFF
+
+
+def fmt_value(v: float) -> str:
+    if v == int(v) and abs(v) < 1e15:
+        return str(int(v))
+    return f"{v:.3g}" if abs(v) < 1000 else f"{v:.0f}"
+
+
+def auto_range(values: list[float], vmin: float | None = None, vmax: float | None = None) -> tuple[float, float]:
+    """Eixo das barras: começa em 0 (ou no mínimo, se houver negativos) e vai até o máximo."""
+    lo = vmin if vmin is not None else min([0.0, *values])
+    hi = vmax if vmax is not None else max([lo, *values])
+    if hi <= lo:
+        hi = lo + 1.0
+    return lo, hi
+
+
+def mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+@dataclass
+class BarTrack:
+    key: str
+    header: str
+    values: dict[str, float]                     # folha -> valor (ausente = sem dado)
+    vmin: float = 0.0
+    vmax: float = 1.0
+    color: str = "#4e79a7"
+    color_mode: str = "single"                   # "single" | "clade" | "metadata"
+    colors: dict[str, str] = field(default_factory=dict)   # folha -> cor ("metadata")
+    refs: list[float] = field(default_factory=list)
+    show_values: bool = False
+    width: float = 80.0
+    missing_color: str = "#d9d9d9"
+
+    def value_for(self, names: list[str]) -> float | None:
+        """Valor da folha, ou a média de um clado colapsado (ignora folhas sem dado)."""
+        return mean([self.values[n] for n in names if n in self.values])
+
+    def frac(self, v: float) -> float:
+        return max(0.0, min((v - self.vmin) / (self.vmax - self.vmin), 1.0))
+
+    @property
+    def base(self) -> float:
+        """Fração onde a barra começa (o zero, se estiver dentro do eixo)."""
+        return self.frac(min(max(0.0, self.vmin), self.vmax))
+
+    def visible_refs(self) -> list[float]:
+        return [r for r in self.refs if self.vmin <= r <= self.vmax]
+
+
+def bar_track(key: str, header: str, values: dict[str, float], *, vmin: float | None = None,
+              vmax: float | None = None, **kw) -> BarTrack:  # type: ignore[no-untyped-def]
+    lo, hi = auto_range(list(values.values()), vmin, vmax)
+    return BarTrack(key, header, values, lo, hi, **kw)
+
+
+def parse_refs(text: str) -> list[float]:
+    """"4; 8", "4 8" ou "4, 8" -> [4.0, 8.0]. Vírgula sem espaço depois é decimal ("2,5").
+
+    Levanta ``ValueError`` com mensagem clara."""
+    out: list[float] = []
+    for part in re.split(r"[;\s]+|,(?=\s)", text):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(float(part.replace(",", ".")))
+        except ValueError:
+            raise ValueError(f"Valor de referência inválido: “{part}” (use números separados por vírgula).") from None
+    return out
+
+
+def order_keys(available: list[str], order: list[str], hidden: list[str] | None = None) -> list[str]:
+    """Chaves na ordem pedida; as que não estão em ``order`` (novas) vão para o fim.
+
+    ``hidden`` são omitidas."""
+    hide = set(hidden or [])
+    keys = [k for k in order if k in available] + [k for k in available if k not in order]
+    seen: set[str] = set()
+    out = []
+    for k in keys:
+        if k not in seen and k not in hide:
+            seen.add(k)
+            out.append(k)
+    return out

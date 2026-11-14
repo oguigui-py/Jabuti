@@ -1,0 +1,615 @@
+"""Painel fixo "Figura" (à esquerda): colunas de dados e demais opções da figura.
+
+Tudo aqui vem desligado: sem tabelas nem colunas, o desenho não muda. As tabelas são
+lidas numa thread (``FileLoader``) e mapeadas para as folhas com a mesma tabela editável
+da aba GFF.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6.QtCore import QEventLoop, QSize, Qt, Signal, Slot
+from PySide6.QtGui import QPainter
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from jabuti.models.datatables import METADATA_SOURCE, DataSource, numeric_column
+from jabuti.models.tracks import parse_refs
+from jabuti.parsers.metadata import load_metadata
+from jabuti.style import BAR_COLOR_MODES, BarSpec, LayoutKind, PALETTES, RenderStyle
+from jabuti.views.errors import show_error
+from jabuti.views.widgets.collapsible import CollapsibleSection
+from jabuti.views.widgets.leaf_mapping import LeafMappingTable, MappingRow
+from jabuti.views.widgets.swatches import ColorButton
+from jabuti.workers import FileLoader
+
+TABLE_FILTER = "Tabelas (*.tsv *.tab *.csv *.txt);;Todos (*)"
+NOT_FOR_UNROOTED = "Não se aplica à árvore não enraizada (não há um lado “de fora” para as colunas)."
+
+
+def _hint(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setWordWrap(True)
+    lbl.setStyleSheet("color: #888;")
+    return lbl
+
+
+def _parse_table(path: Path, _stop) -> object:  # type: ignore[no-untyped-def]
+    return load_metadata(path)
+
+
+class VerticalLabel(QWidget):
+    """Texto girado 90° (faixa do painel recolhido)."""
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.text = text
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        fm = self.fontMetrics()
+        return QSize(fm.height() + 6, fm.horizontalAdvance(self.text) + 12)
+
+    def paintEvent(self, _event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
+        p = QPainter(self)
+        p.setPen(self.palette().windowText().color())
+        f = p.font()
+        f.setBold(True)
+        p.setFont(f)
+        p.translate(self.width() / 2 + self.fontMetrics().ascent() / 2 - 1, 8)
+        p.rotate(90)
+        p.drawText(0, 0, self.text)
+
+
+class FigurePanel(QWidget):
+    changed = Signal()
+    status_message = Signal(str)
+    tables_changed = Signal()
+    table_loaded = Signal(bool)     # terminou de ler (ok?)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.leaves: list[str] = []
+        self.sources: dict[str, DataSource] = {}
+        self.bars: list[BarSpec] = []
+        self.metadata_by_leaf = lambda: {}          # fornecido pela janela (aba Metadados)
+        self.metadata_columns = lambda: []
+        self.palette = PALETTES["Tableau 10"]
+        self.layout_kind = LayoutKind.RECTANGULAR
+        self._loader: FileLoader | None = None
+        self._loaders: list[FileLoader] = []
+        self._loading = False
+        self._filling = False
+
+        self.sections: dict[str, CollapsibleSection] = {}
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(4, 4, 4, 4)
+        self._add_section(lay, "columns", "Colunas de dados", self._build_columns(), True)
+        lay.addStretch(1)
+        for cb in self.findChildren(QComboBox):
+            cb.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(8)
+
+    def _add_section(self, lay: QVBoxLayout, key: str, title: str, w: QWidget, expanded: bool) -> None:
+        sec = CollapsibleSection(title, w, expanded)
+        self.sections[key] = sec
+        lay.addWidget(sec)
+
+    def _emit(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        if not self._filling:
+            self.changed.emit()
+
+    # ------------------------------------------------------------ montagem
+    def _build_columns(self) -> QWidget:
+        w = QWidget()
+        v = QVBoxLayout(w)
+        v.setContentsMargins(8, 0, 0, 6)
+        self.columns_box = w
+
+        v.addWidget(QLabel("<b>Tabelas de dados</b>"))
+        v.addWidget(_hint("TSV/CSV com uma linha por genoma; a 1ª coluna é o nome. NA ou vazio = sem dado. "
+                          "A tabela da aba Metadados também pode ser usada."))
+        row = QHBoxLayout()
+        self.load_btn = QPushButton("Carregar tabela…")
+        self.load_btn.clicked.connect(self._choose_table)
+        self.remove_table_btn = QPushButton("Remover")
+        self.remove_table_btn.clicked.connect(self.remove_current_table)
+        row.addWidget(self.load_btn, 1)
+        row.addWidget(self.remove_table_btn)
+        v.addLayout(row)
+        self.table_combo = QComboBox()
+        self.table_combo.currentIndexChanged.connect(self._show_table)
+        v.addWidget(self.table_combo)
+        self.table_report = QLabel("")
+        self.table_report.setWordWrap(True)
+        v.addWidget(self.table_report)
+        self.mapping_table = LeafMappingTable(["Nome", "Folha", ""], with_info=False)
+        self.mapping_table.setMinimumHeight(120)
+        self.mapping_table.setMaximumHeight(180)
+        self.mapping_table.mapping_edited.connect(self._mapping_edited)
+        v.addWidget(self.mapping_table)
+        auto = QPushButton("Mapear automaticamente")
+        auto.clicked.connect(self._auto_map_current)
+        self.auto_btn = auto
+        v.addWidget(auto)
+
+        v.addWidget(QLabel("<b>Barras</b>"))
+        brow = QHBoxLayout()
+        self.add_bar_btn = QPushButton("+ Barras")
+        self.add_bar_btn.setToolTip("Coluna de barras com uma coluna numérica")
+        self.add_bar_btn.clicked.connect(self.add_bar)
+        self.rm_bar_btn = QPushButton("Remover")
+        self.rm_bar_btn.clicked.connect(self.remove_bar)
+        brow.addWidget(self.add_bar_btn, 1)
+        brow.addWidget(self.rm_bar_btn)
+        v.addLayout(brow)
+        self.bar_list = QListWidget()
+        self.bar_list.setMaximumHeight(80)
+        self.bar_list.currentRowChanged.connect(self._bar_selected)
+        v.addWidget(self.bar_list)
+
+        ed = QWidget()
+        f = QFormLayout(ed)
+        f.setContentsMargins(0, 0, 0, 0)
+        self.bar_source = QComboBox()
+        self.bar_source.currentIndexChanged.connect(self._bar_source_changed)
+        self.bar_column = QComboBox()
+        self.bar_column.currentIndexChanged.connect(self._bar_edited)
+        self.bar_color_mode = QComboBox()
+        for key, text in BAR_COLOR_MODES.items():
+            self.bar_color_mode.addItem(text, key)
+        self.bar_color_mode.setToolTip("Por metadado: usa a coluna escolhida em Estilo → Metadados → Colorir por")
+        self.bar_color_mode.currentIndexChanged.connect(self._bar_edited)
+        self.bar_color = ColorButton("#4e79a7", self.palette)
+        self.bar_color.color_changed.connect(self._bar_edited)
+        crow = QHBoxLayout()
+        crow.addWidget(self.bar_color_mode, 1)
+        crow.addWidget(self.bar_color)
+        self.bar_values = QCheckBox("Mostrar o valor ao lado")
+        self.bar_values.toggled.connect(self._bar_edited)
+        self.bar_refs = QLineEdit()
+        self.bar_refs.setPlaceholderText("ex.: 4; 8")
+        self.bar_refs.setToolTip("Linhas tracejadas nesses valores (separe por ; ou espaço)")
+        self.bar_refs.editingFinished.connect(self._bar_edited)
+        self.bar_auto_min = QCheckBox("auto")
+        self.bar_auto_max = QCheckBox("auto")
+        self.bar_min = self._spin(-1e9, 1e9, 0.0)
+        self.bar_max = self._spin(-1e9, 1e9, 1.0)
+        for cb, sp in ((self.bar_auto_min, self.bar_min), (self.bar_auto_max, self.bar_max)):
+            cb.setChecked(True)
+            sp.setEnabled(False)
+            cb.toggled.connect(lambda on, s=sp: s.setEnabled(not on))
+            cb.toggled.connect(self._bar_edited)
+            sp.valueChanged.connect(self._bar_edited)
+        mrow = QHBoxLayout()
+        mrow.addWidget(self.bar_min, 1)
+        mrow.addWidget(self.bar_auto_min)
+        xrow = QHBoxLayout()
+        xrow.addWidget(self.bar_max, 1)
+        xrow.addWidget(self.bar_auto_max)
+        self.bar_width = self._spin(10, 600, 80, 5, " px")
+        self.bar_width.valueChanged.connect(self._bar_edited)
+        f.addRow("Tabela:", self.bar_source)
+        f.addRow("Coluna:", self.bar_column)
+        f.addRow("Cor:", crow)
+        f.addRow(self.bar_values)
+        f.addRow("Referências:", self.bar_refs)
+        f.addRow("Mínimo:", mrow)
+        f.addRow("Máximo:", xrow)
+        f.addRow("Largura:", self.bar_width)
+        self.bar_editor = ed
+        v.addWidget(ed)
+        self.bar_hint = _hint("")
+        v.addWidget(self.bar_hint)
+        self.layout_hint = _hint("")
+        self.layout_hint.setVisible(False)
+        v.addWidget(self.layout_hint)
+        self.refresh_tables()
+        self.refresh_bars()
+        return w
+
+    def _spin(self, lo: float, hi: float, val: float, step: float = 1.0, suffix: str = "") -> QDoubleSpinBox:
+        sb = QDoubleSpinBox()
+        sb.setRange(lo, hi)
+        sb.setDecimals(2 if step < 1 else 1)
+        sb.setSingleStep(step)
+        sb.setValue(val)
+        sb.setSuffix(suffix)
+        sb.setMinimumWidth(60)
+        sb.setMaximumWidth(120)
+        return sb
+
+    # ------------------------------------------------------------- árvore
+    def set_leaves(self, leaves: list[str]) -> None:
+        self.leaves = list(leaves)
+        for src in self.sources.values():
+            src.mapping.set_leaves(self.leaves)
+        self._show_table()
+
+    def set_palette(self, colors: list[str]) -> None:
+        self.palette = list(colors)
+        self.bar_color.palette_colors = self.palette
+
+    def set_layout(self, kind: LayoutKind) -> None:
+        """Desativa (com dica) o que não se aplica ao layout."""
+        self.layout_kind = LayoutKind(kind)
+        ok = self.layout_kind.value != "unrooted"
+        for wdg in (self.add_bar_btn, self.bar_editor, self.bar_list):
+            wdg.setEnabled(ok)
+            wdg.setToolTip("" if ok else NOT_FOR_UNROOTED)
+        self.layout_hint.setText("" if ok else NOT_FOR_UNROOTED)
+        self.layout_hint.setVisible(not ok)
+
+    # ------------------------------------------------------------ tabelas
+    def _choose_table(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Carregar tabela de dados", "", TABLE_FILTER)
+        if path:
+            self.load_table(path, wait=False)
+
+    def is_loading(self) -> bool:
+        return self._loading
+
+    def load_table(self, path: str | Path, wait: bool = True) -> bool:
+        """Lê a tabela numa thread; com ``wait=True`` espera (processando eventos)."""
+        if self._loading:
+            self.status_message.emit("Aguarde a leitura em andamento.")
+            return False
+        p = Path(path)
+        loader = FileLoader([p], _parse_table)
+        q = Qt.ConnectionType.QueuedConnection
+        loader.items.connect(self._on_table_items, q)
+        loader.finished.connect(self._on_table_finished, q)
+        self._loader = loader
+        self._loaders = [w for w in self._loaders if w.is_running()] + [loader]
+        self._loading = True
+        self._last_ok = False
+        self.load_btn.setEnabled(False)
+        self.table_report.setText(f"Lendo {p.name}…")
+        self.status_message.emit(f"Lendo {p.name}…")
+        loader.start()
+        if wait:
+            loop = QEventLoop()
+            self.table_loaded.connect(loop.quit)
+            if self._loading:
+                loop.exec()
+            self.table_loaded.disconnect(loop.quit)
+        return self._last_ok
+
+    @Slot(list)
+    def _on_table_items(self, items: list) -> None:
+        for ok, path, result in items:
+            if not ok:
+                show_error(self, Exception(result), "Erro ao ler tabela")
+                continue
+            p = Path(path)
+            src = DataSource(p.name, result, p)
+            src.mapping.leaves = list(self.leaves)
+            src.mapping.auto_map()
+            self.sources[src.name] = src
+            self._last_ok = True
+            warn = (" ⚠ " + " ".join(result.warnings[:3])) if result.warnings else ""
+            self.status_message.emit(f"Tabela {p.name}: {len(result.rows)} linhas, "
+                                     f"{len(src.mapping.mapped())}/{len(self.leaves)} folhas com dados.{warn}")
+
+    @Slot(bool)
+    def _on_table_finished(self, _cancelled: bool) -> None:
+        self._loading = False
+        self._loader = None
+        self.load_btn.setEnabled(True)
+        if self._last_ok:
+            self.refresh_tables(select=list(self.sources)[-1])
+            self.tables_changed.emit()
+            self._emit()
+        else:
+            self._show_table()
+        self.table_loaded.emit(self._last_ok)
+
+    def shutdown(self, timeout_ms: int = 5000) -> None:
+        for loader in self._loaders:
+            loader.cancel()
+            loader.join(timeout_ms / 1000)
+        self._loaders = [w for w in self._loaders if w.is_running()]
+
+    def remove_current_table(self) -> None:
+        name = self.table_combo.currentData()
+        if name and name != METADATA_SOURCE and name in self.sources:
+            del self.sources[name]
+            self.refresh_tables()
+            self.tables_changed.emit()
+            self._emit()
+
+    def source_names(self) -> list[str]:
+        return [METADATA_SOURCE, *self.sources]
+
+    def source_label(self, name: str) -> str:
+        return "Metadados (aba)" if name == METADATA_SOURCE else name
+
+    def by_leaf(self, source: str) -> dict[str, dict[str, str]]:
+        if source == METADATA_SOURCE:
+            return self.metadata_by_leaf()
+        src = self.sources.get(source)
+        return src.by_leaf() if src else {}
+
+    def columns_of(self, source: str, numeric: bool = True) -> list[str]:
+        if source == METADATA_SOURCE:
+            cols = list(self.metadata_columns())
+            if not numeric:
+                return cols
+            rows = self.metadata_by_leaf()
+            return [c for c in cols if numeric_column(rows, c)]
+        src = self.sources.get(source)
+        if src is None:
+            return []
+        return src.numeric_columns() if numeric else src.value_columns
+
+    def refresh_tables(self, select: str | None = None) -> None:
+        current = select or self.table_combo.currentData()
+        self.table_combo.blockSignals(True)
+        self.table_combo.clear()
+        for name in self.source_names():
+            self.table_combo.addItem(self.source_label(name), name)
+        idx = self.table_combo.findData(current)
+        self.table_combo.setCurrentIndex(max(idx, 0))
+        self.table_combo.blockSignals(False)
+        self._show_table()
+        self._refresh_bar_sources()
+
+    def _show_table(self) -> None:
+        name = self.table_combo.currentData()
+        src = self.sources.get(name) if name else None
+        meta = name == METADATA_SOURCE or src is None
+        self.mapping_table.setVisible(not meta)
+        self.auto_btn.setVisible(not meta)
+        self.remove_table_btn.setEnabled(not meta)
+        if meta:
+            n = len(self.metadata_by_leaf())
+            self.table_report.setText(
+                f"Metadados da aba Metadados: {n}/{len(self.leaves)} folhas com linha "
+                "(o mapeamento fica naquela aba)." if n else "Sem metadados carregados (aba Metadados).")
+            return
+        m = src.mapping
+        rows = [MappingRow(k, m.mapping.get(k), k in m.manual) for k in m.keys]
+        self.mapping_table.fill(rows, self.leaves)
+        parts = [f"<b>{src.name}</b>: {len(src.table.rows)} linhas, {len(src.value_columns)} colunas · "
+                 f"{len(m.mapped())}/{len(self.leaves)} folhas com dados."]
+        missing = m.leaves_without()
+        if missing and self.leaves:
+            more = "…" if len(missing) > 6 else ""
+            parts.append(f"⚠ Sem dados ({len(missing)}): {', '.join(missing[:6])}{more}")
+        if m.unused_keys():
+            parts.append(f"Linhas sem folha: {len(m.unused_keys())}")
+        self.table_report.setText("<br>".join(parts))
+        self.table_report.setToolTip("\n".join(missing))
+
+    def _mapping_edited(self, key: str, leaf) -> None:  # type: ignore[no-untyped-def]
+        src = self.sources.get(self.table_combo.currentData())
+        if src is None:
+            return
+        src.mapping.set(key, leaf)
+        self._show_table()
+        self._emit()
+
+    def _auto_map_current(self) -> None:
+        src = self.sources.get(self.table_combo.currentData())
+        if src is not None:
+            src.mapping.auto_map(reset=True)
+            self._show_table()
+            self._emit()
+
+    def metadata_changed(self) -> None:
+        """A aba Metadados mudou (arquivo, chave ou colunas)."""
+        self._show_table()
+        self._refresh_bar_sources()
+
+    # -------------------------------------------------------------- barras
+    def _next_id(self, prefix: str, used: list[str]) -> str:
+        n = 1
+        while f"{prefix}{n}" in used:
+            n += 1
+        return f"{prefix}{n}"
+
+    def add_bar(self) -> BarSpec | None:
+        source = next((s for s in reversed(self.source_names()) if self.columns_of(s)), None)
+        if source is None:
+            self.bar_hint.setText("Carregue uma tabela com colunas numéricas (aqui ou na aba Metadados).")
+            return None
+        spec = BarSpec(id=self._next_id("bar", [b.id for b in self.bars]), source=source,
+                       column=self.columns_of(source)[0],
+                       color=self.palette[len(self.bars) % len(self.palette)])
+        self.bars.append(spec)
+        self.refresh_bars(select=len(self.bars) - 1)
+        self._emit()
+        return spec
+
+    def remove_bar(self) -> None:
+        row = self.bar_list.currentRow()
+        if 0 <= row < len(self.bars):
+            del self.bars[row]
+            self.refresh_bars(select=min(row, len(self.bars) - 1))
+            self._emit()
+
+    def current_bar(self) -> BarSpec | None:
+        row = self.bar_list.currentRow()
+        return self.bars[row] if 0 <= row < len(self.bars) else None
+
+    def refresh_bars(self, select: int | None = None) -> None:
+        row = self.bar_list.currentRow() if select is None else select
+        self.bar_list.blockSignals(True)
+        self.bar_list.clear()
+        for b in self.bars:
+            item = QListWidgetItem(f"{b.column}  ({self.source_label(b.source)})")
+            if b.source != METADATA_SOURCE and b.source not in self.sources or \
+                    b.column not in self.columns_of(b.source):
+                item.setText(f"⚠ {b.column}  ({self.source_label(b.source)}: sem dados)")
+            self.bar_list.addItem(item)
+        self.bar_list.blockSignals(False)
+        if self.bars:
+            self.bar_list.setCurrentRow(max(0, min(row, len(self.bars) - 1)))
+        self._bar_selected(self.bar_list.currentRow())
+
+    def _refresh_bar_sources(self) -> None:
+        if hasattr(self, "bar_list"):
+            self.refresh_bars()
+
+    def _bar_selected(self, row: int) -> None:
+        spec = self.bars[row] if 0 <= row < len(self.bars) else None
+        self.bar_editor.setVisible(spec is not None)
+        self.rm_bar_btn.setEnabled(spec is not None)
+        if spec is None:
+            return
+        self._filling = True
+        try:
+            self.bar_source.clear()
+            for name in self.source_names():
+                self.bar_source.addItem(self.source_label(name), name)
+            if self.bar_source.findData(spec.source) < 0:
+                self.bar_source.addItem(f"⚠ {spec.source}", spec.source)
+            self.bar_source.setCurrentIndex(self.bar_source.findData(spec.source))
+            self._fill_bar_columns(spec)
+            self.bar_color_mode.setCurrentIndex(max(self.bar_color_mode.findData(spec.color_mode), 0))
+            self.bar_color.set_color(spec.color)
+            self.bar_values.setChecked(spec.show_values)
+            self.bar_refs.setText("; ".join(f"{r:g}" for r in spec.refs))
+            self.bar_auto_min.setChecked(spec.vmin is None)
+            self.bar_auto_max.setChecked(spec.vmax is None)
+            if spec.vmin is not None:
+                self.bar_min.setValue(spec.vmin)
+            if spec.vmax is not None:
+                self.bar_max.setValue(spec.vmax)
+            self.bar_width.setValue(spec.width)
+        finally:
+            self._filling = False
+
+    def _fill_bar_columns(self, spec: BarSpec) -> None:
+        self.bar_column.clear()
+        cols = self.columns_of(spec.source)
+        for c in cols:
+            self.bar_column.addItem(c, c)
+        if spec.column and spec.column not in cols:
+            self.bar_column.addItem(f"⚠ {spec.column} (ausente)", spec.column)
+        self.bar_column.setCurrentIndex(max(self.bar_column.findData(spec.column), 0))
+
+    def _bar_source_changed(self) -> None:
+        spec = self.current_bar()
+        if spec is None or self._filling:
+            return
+        spec.source = self.bar_source.currentData()
+        cols = self.columns_of(spec.source)
+        if spec.column not in cols:
+            spec.column = cols[0] if cols else spec.column
+        self._filling = True
+        try:
+            self._fill_bar_columns(spec)
+        finally:
+            self._filling = False
+        self._bar_edited()
+
+    def _bar_edited(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        spec = self.current_bar()
+        if spec is None or self._filling:
+            return
+        spec.column = self.bar_column.currentData() or spec.column
+        spec.color_mode = self.bar_color_mode.currentData()
+        spec.color = self.bar_color.color()
+        spec.show_values = self.bar_values.isChecked()
+        try:
+            spec.refs = parse_refs(self.bar_refs.text())
+            self.bar_hint.setText("")
+        except ValueError as exc:
+            self.bar_hint.setText(f"⚠ {exc}")
+        spec.vmin = None if self.bar_auto_min.isChecked() else self.bar_min.value()
+        spec.vmax = None if self.bar_auto_max.isChecked() else self.bar_max.value()
+        spec.width = self.bar_width.value()
+        row = self.bar_list.currentRow()
+        item = self.bar_list.item(row)
+        if item is not None:
+            item.setText(f"{spec.column}  ({self.source_label(spec.source)})")
+        self._emit()
+
+    # ------------------------------------------------------------- estilo
+    def apply_to(self, style: RenderStyle) -> RenderStyle:
+        fig = style.figure
+        fig.bars = [BarSpec(**vars(b)) for b in self.bars]
+        for b in fig.bars:
+            b.refs = list(b.refs)
+        return style
+
+    def load_style(self, style: RenderStyle) -> list[str]:
+        warnings: list[str] = []
+        fig = style.figure
+        self.bars = [BarSpec(**vars(b)) for b in fig.bars]
+        used: list[str] = []
+        for b in self.bars:
+            if not b.id or b.id in used:
+                b.id = self._next_id("bar", used)
+            used.append(b.id)
+            if b.source != METADATA_SOURCE and b.source not in self.sources:
+                warnings.append(f"Barras “{b.column}”: a tabela {b.source} não está carregada "
+                                "(carregue-a no painel Figura).")
+        self.refresh_bars(select=0)
+        return warnings
+
+
+class FigureDock(QWidget):
+    """Painel + faixa para recolher/expandir (fica fixo na borda esquerda)."""
+
+    collapsed_changed = Signal(bool)
+
+    EXPANDED_WIDTH = 330
+
+    def __init__(self, panel: FigurePanel, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.panel = panel
+        self.scroll = QScrollArea()
+        self.scroll.setWidget(panel)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.toggle = QToolButton()
+        self.toggle.setAutoRaise(True)
+        self.toggle.clicked.connect(lambda: self.set_collapsed(not self.collapsed))
+        self.title = QLabel("<b>Figura</b>")
+        self.vlabel = VerticalLabel("Figura")
+        head = QHBoxLayout()
+        head.setContentsMargins(6, 2, 2, 0)
+        head.addWidget(self.title, 1)
+        head.addWidget(self.toggle)
+        side = QVBoxLayout()
+        side.setContentsMargins(0, 0, 0, 0)
+        side.addLayout(head)
+        side.addWidget(self.vlabel, 0, Qt.AlignmentFlag.AlignHCenter)
+        side.addWidget(self.scroll, 1)
+        self.setLayout(side)
+        self.collapsed = False
+        self.set_collapsed(False)
+
+    def set_collapsed(self, on: bool) -> None:
+        self.collapsed = on
+        self.scroll.setVisible(not on)
+        self.title.setVisible(not on)
+        self.vlabel.setVisible(on)
+        self.toggle.setText("»" if on else "«")
+        self.toggle.setToolTip("Expandir o painel Figura" if on else "Recolher o painel Figura")
+        if on:
+            self.setFixedWidth(30)
+        else:
+            self.setMinimumWidth(self.EXPANDED_WIDTH)
+            self.setMaximumWidth(16777215)
+        self.collapsed_changed.emit(on)

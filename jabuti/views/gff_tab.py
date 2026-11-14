@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
-    QCompleter,
     QFileDialog,
     QFormLayout,
     QGridLayout,
@@ -34,12 +33,11 @@ from jabuti.models.annotations import presence_matrix
 from jabuti.parsers.gff import GeneQuery, Genome, file_signature, find_genes, genome_name_from_path, parse_gff3
 from jabuti.parsers.names import match_names
 from jabuti.views.errors import show_error
+from jabuti.views.widgets.leaf_mapping import LeafMappingTable, MappingRow
 from jabuti.workers import FileLoader
 
 GFF_FILTER = "GFF3 (*.gff *.gff3 *.gff.gz *.gff3.gz);;Todos (*)"
-NO_LEAF = "— sem folha —"
 PREVIEW_LIMIT = 300
-COL_FILE, COL_GENES, COL_LEAF, COL_STATUS = range(4)
 
 
 class GffTab(QWidget):
@@ -98,16 +96,9 @@ class GffTab(QWidget):
         self.summary = QLabel("Nenhum GFF carregado. O nome do arquivo é usado para achar a folha.")
         self.summary.setWordWrap(True)
 
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Arquivo", "Genes", "Folha", ""])
-        h = self.table.horizontalHeader()
-        h.setSectionResizeMode(COL_FILE, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(COL_LEAF, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(COL_GENES, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(COL_STATUS, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table = LeafMappingTable(["Arquivo", "Genes", "Folha", ""])
+        self.table.no_leaf_tip = "Sem folha: este GFF não entra no heatmap"
+        self.table.mapping_edited.connect(self.set_mapping)
         self.table.setMinimumHeight(140)
 
         # --- busca
@@ -444,40 +435,11 @@ class GffTab(QWidget):
 
     def refresh(self) -> None:
         self._filling = True
-        self.table.setRowCount(len(self.genomes))
-        for row, g in enumerate(self.genomes):
-            item = QTableWidgetItem(g.name)
-            item.setToolTip(str(g.path))
-            self.table.setItem(row, COL_FILE, item)
-            n = QTableWidgetItem(str(g.n_genes))
-            n.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table.setItem(row, COL_GENES, n)
-            combo = QComboBox()
-            combo.setEditable(True)
-            combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-            combo.addItem(NO_LEAF, None)
-            for leaf in self.leaves:
-                combo.addItem(leaf, leaf)
-            comp = QCompleter(self.leaves, combo)
-            comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-            comp.setFilterMode(Qt.MatchFlag.MatchContains)
-            combo.setCompleter(comp)
-            leaf = self.mapping.get(g.name)
-            combo.setCurrentIndex(max(combo.findData(leaf), 0) if leaf else 0)
-            combo.activated.connect(lambda _i, name=g.name, cb=combo: self.set_mapping(name, cb.currentData()))
-            self.table.setCellWidget(row, COL_LEAF, combo)
-            if not leaf:
-                status, tip = "⚠", "Sem folha: este GFF não entra no heatmap"
-            elif g.name in self.manual:
-                status, tip = "✎", "Mapeado à mão"
-            else:
-                status, tip = "✓", "Mapeado automaticamente"
-            if g.warnings:
-                status += " !"
-                tip += "\n\nAvisos de leitura:\n" + "\n".join(g.warnings)
-            s = QTableWidgetItem(status)
-            s.setToolTip(tip)
-            self.table.setItem(row, COL_STATUS, s)
+        self.table.fill([
+            MappingRow(g.name, self.mapping.get(g.name), g.name in self.manual, str(g.n_genes), str(g.path),
+                       ("Avisos de leitura:\n" + "\n".join(g.warnings)) if g.warnings else "")
+            for g in self.genomes
+        ], self.leaves)
         mapped = sum(1 for g in self.genomes if self.mapping.get(g.name))
         if self.genomes:
             no_gff = len(self.leaves) - mapped if self.leaves else 0

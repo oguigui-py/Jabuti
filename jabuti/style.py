@@ -175,6 +175,34 @@ class MetadataStyle:
     missing_color: str = "#d9d9d9"    # folha sem valor na tabela
 
 
+BAR_COLOR_MODES: dict[str, str] = {"single": "Cor única", "clade": "Por clado", "metadata": "Por metadado"}
+
+
+@dataclass
+class BarSpec:
+    """Coluna de barras (aba Figura → Colunas de dados)."""
+
+    id: str = ""                    # chave estável da trilha ("bar1", ...)
+    source: str = "metadata"        # fonte de dados: "metadata" ou nome do arquivo carregado
+    column: str = ""
+    color_mode: str = "single"      # chave de BAR_COLOR_MODES
+    color: str = "#4e79a7"
+    show_values: bool = False
+    refs: list[float] = field(default_factory=list)   # linhas de referência tracejadas
+    vmin: float | None = None       # None = automático (0, ou o mínimo se houver negativos)
+    vmax: float | None = None       # None = automático (o máximo)
+    width: float = 80.0             # px da coluna (ou do anel)
+
+
+@dataclass
+class FigureConfig:
+    """Opções do painel "Figura" (todas desligadas por padrão)."""
+
+    bars: list[BarSpec] = field(default_factory=list)
+    track_order: list[str] = field(default_factory=list)    # chaves das trilhas, da árvore para fora
+    hidden_tracks: list[str] = field(default_factory=list)
+
+
 @dataclass
 class RenderStyle:
     layout: LayoutKind = LayoutKind.RECTANGULAR
@@ -194,6 +222,7 @@ class RenderStyle:
     context: ContextStyle = field(default_factory=ContextStyle)
     clades: CladeStyle = field(default_factory=CladeStyle)
     legend: LegendStyle = field(default_factory=LegendStyle)
+    figure: FigureConfig = field(default_factory=FigureConfig)
     background: str | None = "#ffffff"  # cor de fundo; None = transparente
 
     @property

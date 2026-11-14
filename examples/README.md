@@ -10,3 +10,7 @@ folha, ex.: `A00.gff3` ↔ `Paraburkholderia_xenovorans_A00`) com presença alea
 
 `metadata.tsv` — metadados **sintéticos** (espécie, habitat, simbionte, %GC) com a linhagem
 como chave.
+
+`traits.tsv` — características **sintéticas** por linhagem (tamanho do genoma em Mb, nº de
+contigs com dois `NA`, contagens de CAZy por classe GH/GT/CE/AA/CBM/PL), para testar as colunas
+de barras do painel Figura.

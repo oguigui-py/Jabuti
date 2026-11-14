@@ -35,7 +35,9 @@ from jabuti.models.annotations import (
     presence_columns,
     presence_legend,
 )
+from jabuti.models.datatables import numeric_column
 from jabuti.models.document import apply_edits
+from jabuti.models.tracks import CLADE_STRIP, GENE_BLOCK, BarTrack, bar_track, order_keys
 from jabuti.resources import BRAND_GREEN
 from jabuti.presets import (
     LoadedPreset,
@@ -52,6 +54,7 @@ from jabuti.views.errors import show_error
 from jabuti.views.gff_tab import GffTab
 from jabuti.views.metadata_tab import MetadataTab
 from jabuti.views.export import export_pdf, export_png, export_svg
+from jabuti.views.figure_panel import FigureDock, FigurePanel
 from jabuti.views.tree_renderer import TreeRenderer
 from jabuti.views.tree_tab import TreeTab
 from jabuti.views.viz_tab import VizTab
@@ -137,6 +140,23 @@ class MainWindow(QMainWindow):
         self.style_dock.setMinimumWidth(340)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.style_dock)
 
+        # painel "Figura" fixo e recolhível na borda esquerda
+        self.figure_panel = FigurePanel()
+        self.figure_panel.metadata_by_leaf = self.metadata_tab.by_leaf
+        self.figure_panel.metadata_columns = self.metadata_tab.value_columns
+        self.figure_holder = FigureDock(self.figure_panel)
+        self.figure_dock = QDockWidget("Figura", self)
+        self.figure_dock.setObjectName("figure_dock")
+        self.figure_dock.setTitleBarWidget(QWidget())
+        self.figure_dock.setWidget(self.figure_holder)
+        self.figure_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.figure_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.figure_dock)
+        self.figure_holder.collapsed_changed.connect(self._figure_collapsed)
+        screen = self.screen().availableGeometry() if self.screen() else None
+        if screen is not None:
+            self.resize(min(1640, screen.width()), min(900, screen.height()))
+
         # redesenho ao vivo com debounce
         self._live_timer = QTimer(self)
         self._live_timer.setSingleShot(True)
@@ -149,6 +169,11 @@ class MainWindow(QMainWindow):
         self.style_panel.label_panel.select_leaves.connect(self._select_from_panel)
         self.style_panel.preset_action.connect(self.on_preset_action)
         self.gff_tab.changed.connect(self._live_timer.start)
+        self.figure_panel.changed.connect(self._live_timer.start)
+        self.figure_panel.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
+        self.metadata_tab.columns_changed.connect(lambda _c: self.figure_panel.metadata_changed())
+        self.viz_tab.layout_cb.currentIndexChanged.connect(
+            lambda _i: self.figure_panel.set_layout(self.viz_tab.layout_cb.currentData()))
         self.metadata_tab.changed.connect(self._live_timer.start)
         self.metadata_tab.columns_changed.connect(self._metadata_columns_changed)
         self.metadata_tab.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
@@ -208,6 +233,7 @@ class MainWindow(QMainWindow):
         self.gff_tab.set_tree_leaves(tree.leaf_names())
         self.metadata_tab.set_tree_leaves(tree.leaf_names())
         self.style_panel.label_panel.set_leaf_names(tree.leaf_names())
+        self.figure_panel.set_leaves(tree.leaf_names())
         # clados automáticos acompanham a nova raiz; manuais são resolvidos por MRCA
         if self.style_panel.clade_set.auto_mode:
             self.style_panel.detect()
@@ -215,45 +241,77 @@ class MainWindow(QMainWindow):
         self.canvas.fit()
 
     def current_style(self):  # type: ignore[no-untyped-def]
-        return self.style_panel.apply_to(self.viz_tab.render_style())
+        style = self.style_panel.apply_to(self.viz_tab.render_style())
+        self.figure_panel.set_palette(style.palette_colors())
+        return self.figure_panel.apply_to(style)
+
+    def _figure_collapsed(self, on: bool) -> None:
+        width = 30 if on else FigureDock.EXPANDED_WIDTH
+        self.resizeDocks([self.figure_dock], [width], Qt.Orientation.Horizontal)
 
     def _metadata_columns_changed(self, columns: list) -> None:
         kinds = {c: self.metadata_tab.column_kind(c) for c in columns}
         self.style_panel.set_metadata_columns(columns, kinds)
 
     def annotation_columns(self, style: RenderStyle):  # type: ignore[no-untyped-def]
-        """Faixas de metadados + heatmap de genes, grupos de legenda e cores por metadado.
+        """Trilhas de dados (na ordem do painel Figura), grupos de legenda e cores por metadado.
 
-        Ordem (da árvore para fora): faixa de clados, faixas de metadados, colunas de genes.
+        Ordem padrão (da árvore para fora): faixa de clados, faixas de metadados, heatmap de
+        genes e, por fim, as colunas do painel Figura (novas trilhas entram no fim).
         """
-        columns, groups = [], []
+        groups = []
         meta_colors: dict[str, str] = {}
         palette = style.palette_colors()
         md = style.metadata
+        fig = style.figure
         by_leaf = self.metadata_tab.by_leaf()
         available = set(self.metadata_tab.value_columns())
         if by_leaf and md.color_by in available and (md.color_labels or md.color_branches):
             meta_colors, legend = metadata_colors(by_leaf, md.color_by, palette)
             legend.title = f"Cor: {md.color_by}"
             groups.append(legend)
+        blocks: dict[str, list] = {}
+        if style.clades.outer_strip:
+            blocks[CLADE_STRIP] = [CLADE_STRIP]
         for col_name in md.strips:
             if by_leaf and col_name in available:
                 col, legend = metadata_column(by_leaf, col_name, palette, md.missing_color, md.strip_width)
-                columns.append(col)
+                blocks[col.key] = [col]
                 if col_name != md.color_by or not meta_colors:
                     legend.title = f"Faixa: {col_name}"
                     groups.append(legend)
         hm = style.heatmap
         if self.gff_tab.queries and self.gff_tab.genomes:
-            gene_cols = presence_columns(self.gff_tab.matrix(), hm.present_color, hm.absent_color,
-                                         hm.missing_color, hm.show_counts)
-            columns += gene_cols
+            blocks[GENE_BLOCK] = presence_columns(self.gff_tab.matrix(), hm.present_color, hm.absent_color,
+                                                  hm.missing_color, hm.show_counts)
             groups.append(presence_legend(hm.present_color, hm.absent_color, hm.missing_color))
-        if style.layout == LayoutKind.CIRCULAR and columns:
+        fp = self.figure_panel
+        for b in fig.bars:
+            rows = fp.by_leaf(b.source)
+            values = numeric_column(rows, b.column)
+            if not values:
+                self._render_notes.append(f"barras “{b.column}” sem dados ({fp.source_label(b.source)})")
+                continue
+            if b.color_mode == "metadata" and not meta_colors:
+                self._render_notes.append(f"barras “{b.column}”: escolha “Colorir por” em Estilo → Metadados")
+            blocks[f"bar:{b.id}"] = [bar_track(
+                f"bar:{b.id}", b.column, values, vmin=b.vmin, vmax=b.vmax, color=b.color,
+                color_mode=b.color_mode, colors=meta_colors, refs=list(b.refs), show_values=b.show_values,
+                width=b.width, missing_color=md.missing_color)]
+        keys = order_keys(list(blocks), fig.track_order, fig.hidden_tracks)
+        columns = [t for k in keys for t in blocks[k]]
+        rings = [t for t in columns if t != CLADE_STRIP]
+        if style.layout == LayoutKind.CIRCULAR and rings:
             groups.append(LegendGroup("Anéis (de dentro para fora)",
-                                      [(f"{i + 1}. {c.header}", hm.present_color if c.kind == "genes" else "#888888")
-                                       for i, c in enumerate(columns)]))
+                                      [(f"{i + 1}. {c.header}", self._ring_color(c, hm.present_color))
+                                       for i, c in enumerate(rings)]))
         return columns, groups, meta_colors
+
+    @staticmethod
+    def _ring_color(track, present: str) -> str:  # type: ignore[no-untyped-def]
+        if isinstance(track, BarTrack):
+            return track.color
+        return present if track.kind == "genes" else "#888888"
 
     def context_tracks(self, style: RenderStyle):  # type: ignore[no-untyped-def]
         """Trilhas de contexto gênico (só retangular) e a legenda de cores."""
@@ -410,7 +468,7 @@ class MainWindow(QMainWindow):
     def apply_preset(self, loaded: LoadedPreset) -> list[str]:
         sp = self.style_panel
         self.viz_tab.load_style(loaded.style)
-        warnings = list(loaded.warnings) + sp.load_style(loaded.style)
+        warnings = list(loaded.warnings) + sp.load_style(loaded.style) + self.figure_panel.load_style(loaded.style)
         sp.load_detection(loaded.detection)
         sp.load_tree_state(loaded.clade_set, loaded.edits)
         if loaded.label_groups is not None:
@@ -517,6 +575,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
         self.gff_tab.shutdown()  # não deixa thread de leitura viva ao fechar
+        self.figure_panel.shutdown()
         super().closeEvent(event)
 
     # ---------------------------------------------------- drag & drop

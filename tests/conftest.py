@@ -32,8 +32,9 @@ def stop_gff_threads(request):
     app = QApplication.instance()
     if app is None:
         return
+    from jabuti.views.figure_panel import FigurePanel
     from jabuti.views.gff_tab import GffTab
 
     for w in app.allWidgets():
-        if isinstance(w, GffTab):
+        if isinstance(w, (GffTab, FigurePanel)):
             w.shutdown()
