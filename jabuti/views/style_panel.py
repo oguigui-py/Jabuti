@@ -38,6 +38,7 @@ from jabuti.models.document import LADDERIZE, TreeEdits
 from jabuti.models.tree import SUPPORT_ALL, Tree
 from jabuti.style import (
     GUIDE_KINDS,
+    LEGEND_POSITIONS,
     PALETTES,
     SCALE_POSITIONS,
     SUPPORT_MODES,
@@ -776,6 +777,8 @@ class StylePanel(QWidget):
                 warnings.append("Colunas do preset ausentes nos metadados abertos: " + ", ".join(missing_cols))
             self._pending_meta = md if missing_cols or not available else None
 
+            self.legend_in_figure.setChecked(style.legend.in_figure)
+            self.legend_pos.setCurrentIndex(max(self.legend_pos.findData(style.legend.position), 0))
             self.bg_transparent.setChecked(style.background is None)
             if style.background:
                 self.bg_row.set_color(style.background)
@@ -833,6 +836,16 @@ class StylePanel(QWidget):
         v.addLayout(f)
         self.set_metadata_columns([])
         v.addWidget(QLabel("<b>Legenda</b>"))
+        self.legend_in_figure = QCheckBox("Incluir legenda na figura exportada")
+        self.legend_in_figure.setToolTip("Desenha esta legenda ao lado da árvore (aparece também na tela,\n"
+                                         "igual no SVG, PDF e PNG), sem cobrir árvore, heatmap ou escala")
+        self.legend_in_figure.toggled.connect(self._emit)
+        v.addWidget(self.legend_in_figure)
+        self.legend_pos = QComboBox()
+        for key, text in LEGEND_POSITIONS.items():
+            self.legend_pos.addItem(text, key)
+        self.legend_pos.currentIndexChanged.connect(self._emit)
+        v.addWidget(self._row("Posição:", self.legend_pos))
         self.legend = LegendWidget()
         v.addWidget(self.legend)
         return w
@@ -1069,6 +1082,8 @@ class StylePanel(QWidget):
         sb.position = self.scale_pos.currentData()
         sb.length = None if self.scale_auto.isChecked() else self.scale_len.value()
         style.background = None if self.bg_transparent.isChecked() else self.bg_row.color()
+        style.legend.in_figure = self.legend_in_figure.isChecked()
+        style.legend.position = self.legend_pos.currentData()
         hm = style.heatmap
         hm.present_color = self.hm_present.color()
         hm.absent_color = self.hm_absent.color()

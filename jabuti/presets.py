@@ -21,6 +21,7 @@ from jabuti.models.label_groups import SOURCES, LabelGroup, LabelGroupSet, Label
 from jabuti.parsers.errors import JabutiParseError, read_text
 from jabuti.style import (
     GUIDE_KINDS,
+    LEGEND_POSITIONS,
     PALETTES,
     SCALE_POSITIONS,
     SUPPORT_MODES,
@@ -37,6 +38,7 @@ CHOICES: dict[tuple[str, str], set[str]] = {
     ("SymbolStyle", "shape"): set(TIP_SHAPES),
     ("SupportStyle", "mode"): set(SUPPORT_MODES),
     ("ScaleBarStyle", "position"): set(SCALE_POSITIONS),
+    ("LegendStyle", "position"): set(LEGEND_POSITIONS),
     ("CladeStyle", "palette"): set(PALETTES),
     ("CladeStyle", "name_mode"): {"curved", "radial"},
     ("BranchStyle", "cap"): {"flat", "round"},

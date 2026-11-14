@@ -383,7 +383,8 @@ class MainWindow(QMainWindow):
             label_groups = self.style_panel.label_groups
             groups.extend(self._label_legend(label_groups))
             result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
-                                          edits.collapsed, columns, meta_colors, context, label_groups)
+                                          edits.collapsed, columns, meta_colors, context, label_groups,
+                                          legend=groups)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return

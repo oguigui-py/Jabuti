@@ -44,7 +44,11 @@ Exemplos sintéticos: `examples/gff/*.gff3` (22 genomas) para `examples/paraburk
   prioridade sobre a dos clados; um ramo interno só é colorido se todas as folhas abaixo dele
   concordam. **Faixas de cor**: marque colunas para desenhá-las ao lado da árvore (anéis no
   circular), antes do heatmap de genes. Valores ausentes (`NA`, vazio, `-`…) usam a cor “sem valor”.
-- A legenda agrupa clados, cor por metadado, faixas, heatmap e (no circular) a ordem dos anéis.
+- A legenda agrupa clados, grupos de rótulos, cor por metadado, faixas, heatmap e (no circular)
+  a ordem dos anéis. **Incluir legenda na figura exportada** (desligado por padrão) desenha essa
+  mesma legenda na figura, ao lado do desenho (direita ou esquerda, alinhada em cima ou embaixo),
+  sem cobrir árvore, heatmap nem barra de escala; aparece também na tela e sai igual no
+  SVG/PDF/PNG. A escolha vai para os presets.
 
 Exemplo sintético: `examples/metadata.tsv` (chave = linhagem).
 

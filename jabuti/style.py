@@ -101,6 +101,22 @@ SCALE_POSITIONS: dict[str, str] = {
 }
 
 
+LEGEND_POSITIONS: dict[str, str] = {
+    "top-right": "À direita, em cima",
+    "bottom-right": "À direita, embaixo",
+    "top-left": "À esquerda, em cima",
+    "bottom-left": "À esquerda, embaixo",
+}
+
+
+@dataclass
+class LegendStyle:
+    """Legenda desenhada na própria figura (fora da árvore)."""
+
+    in_figure: bool = False
+    position: str = "top-right"    # chave de LEGEND_POSITIONS
+
+
 @dataclass
 class ScaleBarStyle:
     show: bool = True
@@ -177,6 +193,7 @@ class RenderStyle:
     metadata: MetadataStyle = field(default_factory=MetadataStyle)
     context: ContextStyle = field(default_factory=ContextStyle)
     clades: CladeStyle = field(default_factory=CladeStyle)
+    legend: LegendStyle = field(default_factory=LegendStyle)
     background: str | None = "#ffffff"  # cor de fundo; None = transparente
 
     @property

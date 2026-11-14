@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from jabuti.layout.circular import CircGeometry, circular_geometry, circular_layout
 from jabuti.layout.rectangular import rectangular_layout, visible_nodes
 from jabuti.models.clades import Clade, ResolvedClade, assign_nodes, resolve_clades
-from jabuti.models.annotations import ContextGene, LeafColumn, context_extent
+from jabuti.models.annotations import ContextGene, LeafColumn, LegendGroup, context_extent
 from jabuti.models.document import TreeEdits, collapsed_nodes
 from jabuti.models.label_groups import LabelGroup, LabelGroupSet
 from jabuti.models.tree import SUPPORT_ALL, Node, Tree, support_value
@@ -42,6 +42,7 @@ TAG_META_STRIP = "metadata-strip"
 TAG_COLUMN_HEADER = "column-header"
 TAG_CONTEXT = "gene-context"
 TAG_LABEL_BG = "label-background"
+TAG_LEGEND = "legend"
 
 
 @dataclass
@@ -191,6 +192,7 @@ class TreeRenderer:
         meta_colors: dict[str, str] | None = None,
         context: dict[str, list[ContextGene]] | None = None,
         label_groups: LabelGroupSet | None = None,
+        legend: list[LegendGroup] | None = None,
     ) -> RenderResult:
         self.scene.clear()
         self._context = context or {}
@@ -228,6 +230,11 @@ class TreeRenderer:
             self._render_circular(tree, style, res)
         else:
             self._render_rectangular(tree, style, res)
+        if style.legend.in_figure:
+            clade_entries = [(rc.clade.name, rc.color) for rc in res.clades if rc.valid and rc.clade.visible]
+            sections = ([("Clados", clade_entries)] if clade_entries else [])
+            sections += [(g.title, g.entries) for g in (legend or []) if g.entries]
+            self._draw_legend(sections)
         margin = 30
         self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-margin, -margin, margin, margin))
         return res
@@ -941,6 +948,44 @@ class TreeRenderer:
         return items
 
     # ------------------------------------------------------- escala
+    def _draw_legend(self, sections: list[tuple[str, list[tuple[str, str]]]]) -> None:
+        """Legenda (mesmo conteúdo do painel) como itens da cena, ao lado do desenho:
+        fica fora da caixa de árvore, heatmap e barra de escala, então nunca os cobre."""
+        if not sections:
+            return
+        box = self.scene.itemsBoundingRect()
+        size = max(self.style.label.size * 0.9, 4)
+        sw = size * 1.15
+        items: list[QGraphicsItem] = []
+        y = 0.0
+        for k, (title, entries) in enumerate(sections):
+            if k:
+                y += size * 0.6
+            t = self._text(title, size, "#404040")
+            f = t.font()
+            f.setItalic(True)
+            t.setFont(f)
+            t.setPos(0, y)
+            items.append(t)
+            y += t.boundingRect().height() + 1
+            for text, color in entries:
+                label = self._text(text, size, "#202020")
+                lh = label.boundingRect().height()
+                square = QGraphicsRectItem(0, y + (lh - sw) / 2, sw, sw)
+                square.setBrush(QBrush(QColor(color)))
+                square.setPen(QPen(QColor("#777777"), 0.5))
+                self.scene.addItem(square)
+                label.setPos(sw + size * 0.5, y)
+                items += [square, label]
+                y += lh + 1
+        local = QRectF()
+        for it in items:
+            local = local.united(it.sceneBoundingRect())
+        origin = _legend_anchor(self.style.legend.position, box, local.width(), local.height(), size * 3)
+        for it in items:
+            it.moveBy(origin.x() - local.left(), origin.y() - local.top())
+            it.setData(1, TAG_LEGEND)
+
     def _scale_bar(self, max_len: float, px_per_unit: float, gap: float) -> None:
         """Barra de escala num canto do desenho (posição/comprimento do estilo)."""
         sb = self.style.scale_bar
@@ -967,6 +1012,13 @@ class TreeRenderer:
             path.lineTo(x, y + tick)
         self._add_path(path, self.style.branch.color, self.style.branch.width, TAG_SCALE)
         label.setPos(x0 + w / 2 - label.boundingRect().width() / 2, y + tick + 1)
+
+
+def _legend_anchor(position: str, box: QRectF, w: float, h: float, gap: float) -> QPointF:
+    """Canto de cima/baixo, sempre ao lado (fora) do desenho."""
+    x = box.left() - gap - w if position.endswith("left") else box.right() + gap
+    y = box.bottom() - h if position.startswith("bottom") else box.top()
+    return QPointF(x, y)
 
 
 def make_highlight(scene: QGraphicsScene, item: QGraphicsSimpleTextItem) -> QGraphicsRectItem:
