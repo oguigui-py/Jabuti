@@ -1,6 +1,11 @@
 from pathlib import Path
 
+import os
+
 import pytest
+
+# a abertura animada só atrasaria os testes
+os.environ.setdefault("JABUTI_NO_SPLASH", "1")
 
 DATA = Path(__file__).parent / "data"
 

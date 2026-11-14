@@ -101,3 +101,13 @@ conda activate jabuti
 python -m jabuti                    # ou: python -m jabuti minha_arvore.treefile
 QT_QPA_PLATFORM=offscreen pytest    # testes
 ```
+
+Ao abrir, uma tela de abertura (logo do LGEM sobre um fundo animado discreto)
+aparece por ~3 s enquanto a janela principal é montada; clique ou qualquer tecla
+pula. Um arquivo de árvore passado na linha de comando é carregado logo depois.
+Para desativar a abertura: `JABUTI_NO_SPLASH=1 python -m jabuti` (os testes e o
+modo `offscreen` já a desativam).
+
+Assets (imagens) ficam em `jabuti/assets/` e são localizados por
+`jabuti.resources.asset_path`, que funciona rodando do código ou empacotado com
+PyInstaller (incluir `datas=[("jabuti/assets", "jabuti/assets")]` no spec).

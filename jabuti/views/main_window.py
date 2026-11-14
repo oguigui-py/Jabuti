@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QFileDialog,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMainWindow,
     QMenu,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSplitter,
     QTabWidget,
+    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -34,6 +36,7 @@ from jabuti.models.annotations import (
     presence_legend,
 )
 from jabuti.models.document import apply_edits
+from jabuti.resources import BRAND_GREEN
 from jabuti.presets import (
     LoadedPreset,
     load_preset,
@@ -74,7 +77,7 @@ def _scroll(w: QWidget) -> QScrollArea:
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle(f"Jabuti {__version__}")
+        self.setWindowTitle("Jabuti")
         self.resize(1300, 850)
         self.setAcceptDrops(True)
         self.tree: Tree | None = None
@@ -122,6 +125,7 @@ class MainWindow(QMainWindow):
         split.setStretchFactor(1, 1)
         split.setSizes([390, 910])
         self.setCentralWidget(split)
+        self._build_brand_bar()
 
         # painel de estilo fixo (não flutua, não fecha, não se move)
         self.style_panel = StylePanel()
@@ -154,6 +158,31 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self.statusBar().showMessage("Abra uma árvore (aba Árvore) ou arraste um arquivo para a janela.")
         self._load_user_default()
+
+    def _build_brand_bar(self) -> None:
+        """Nome "Jabuti" fixo no canto superior esquerdo da janela.
+
+        No macOS o título do sistema é centralizado e não pode ser movido; esta
+        barra fixa (unificada com a barra de título no macOS) mostra o nome à
+        esquerda em qualquer sistema."""
+        bar = QToolBar("Jabuti", self)
+        bar.setObjectName("brand_bar")
+        bar.setMovable(False)
+        bar.setFloatable(False)
+        bar.toggleViewAction().setVisible(False)
+        self.brand_label = QLabel("Jabuti")
+        self.brand_label.setObjectName("brand_label")
+        self.brand_label.setToolTip(f"Jabuti {__version__}")
+        bf = self.brand_label.font()
+        bf.setBold(True)
+        bf.setPointSizeF(bf.pointSizeF() + 3)
+        self.brand_label.setFont(bf)
+        dark = self.palette().window().color().lightness() < 110
+        # no tema escuro o verde da logo some no fundo; usa um tom mais claro do mesmo verde
+        self.brand_label.setStyleSheet(f"color: {'#6fbf8f' if dark else BRAND_GREEN}; padding: 2px 8px;")
+        bar.addWidget(self.brand_label)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
+        self.setUnifiedTitleAndToolBarOnMac(True)
 
     def _build_menu(self) -> None:
         m = self.menuBar().addMenu("Arquivo")

@@ -21,6 +21,10 @@ jabuti = "jabuti.app:main"
 [tool.setuptools.packages.find]
 include = ["jabuti*"]
 
+[tool.setuptools.package-data]
+# PyInstaller: incluir também datas=[("jabuti/assets", "jabuti/assets")]
+jabuti = ["assets/*.png"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 qt_api = "pyside6"
