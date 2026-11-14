@@ -1,0 +1,7 @@
+genome	species	origin	gc
+Paraburkholderia_xenovorans_LB400	P. xenovorans	soil	62.6
+Paraburkholderia_phymatum_STM815	P. phymatum	nodule	62.3
+Paraburkholderia tropica Ppe8	P. tropica	rhizosphere	64.1
+Paraburkholderia_unamae_MTl-641	P. unamae	rhizosphere	63.9
+Burkholderia_cepacia_ATCC25416	B. cepacia	clinical	66.7
+EXTRA_GENOME	X	soil	60.0

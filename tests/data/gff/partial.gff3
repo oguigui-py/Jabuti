@@ -1,0 +1,4 @@
+##gff-version 3
+chr1	X	CDS	1	90	.	+	0	ID=a;product=ok
+linha ruim
+chr1	X	CDS	um	90	.	+	0	ID=b

@@ -1,0 +1,15 @@
+##gff-version 3
+##sequence-region chr1 1 20000
+chr1	Prokka	region	1	20000	.	+	.	ID=chr1
+chr1	Prokka	gene	100	1000	.	+	.	ID=gene-A1;locus_tag=BXE_0001;gene=nifH
+chr1	Prokka	CDS	100	1000	.	+	0	ID=cds-A1;Parent=gene-A1;product=nitrogenase iron protein NifH
+chr1	Prokka	gene	1200	2400	.	+	.	ID=gene-A2;locus_tag=BXE_0002;gene=nifD
+chr1	Prokka	CDS	1200	2400	.	+	0	ID=cds-A2;Parent=gene-A2;product=nitrogenase molybdenum-iron protein alpha chain
+chr1	Prokka	gene	2500	3900	.	+	.	ID=gene-A3;locus_tag=BXE_0003;gene=nifK
+chr1	Prokka	CDS	2500	3900	.	+	0	ID=cds-A3;Parent=gene-A3;product=nitrogenase molybdenum-iron protein beta chain
+chr1	Prokka	CDS	4200	4500	.	-	0	ID=cds-A4;locus_tag=BXE_0004;product=hypothetical protein
+chr1	Prokka	tRNA	5000	5076	.	+	.	ID=trna-1;locus_tag=BXE_t01;product=tRNA-Ala
+chr1	Prokka	CDS	6000	7500	.	-	0	ID=cds-A5;locus_tag=BXE_0005;gene=nodA;product=nodulation protein A%2C acyltransferase
+##FASTA
+>chr1
+ACGTACGTACGT
