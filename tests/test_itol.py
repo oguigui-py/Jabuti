@@ -12,7 +12,8 @@ from jabuti.parsers.itol import ItolError, parse_color, parse_itol, sniff_itol, 
 from jabuti.parsers.newick import load_tree
 
 TREE = "examples/paraburkholderia_40.treefile"
-EXAMPLES = sorted(glob.glob("examples/itol/*.txt"))
+EXAMPLES = [f"examples/itol/{n}.txt" for n in ("colorstrip", "labels", "styles", "tree_colors")]  # etapa 1
+ALL_EXAMPLES = sorted(glob.glob("examples/itol/*.txt"))
 A00, A09 = "Paraburkholderia_xenovorans_A00", "Paraburkholderia_hospita_A09"
 A02 = "Paraburkholderia_tropica_A02"
 ROB = "Robbsia_andropogonis_LMG2129"
@@ -52,10 +53,10 @@ def test_split_each_separator(sep, line, expected):
 
 
 def test_examples_parse_without_warnings():
-    assert len(EXAMPLES) >= 4
-    kinds = {parse_itol(p).kind for p in EXAMPLES}
-    assert kinds == {"TREE_COLORS", "LABELS", "DATASET_COLORSTRIP", "DATASET_STYLE"}
-    for p in EXAMPLES:
+    kinds = {parse_itol(p).kind for p in ALL_EXAMPLES}
+    assert kinds == {"TREE_COLORS", "LABELS", "DATASET_COLORSTRIP", "DATASET_STYLE", "DATASET_SIMPLEBAR",
+                     "DATASET_MULTIBAR", "DATASET_HEATMAP", "DATASET_BINARY"}
+    for p in ALL_EXAMPLES:
         assert parse_itol(p).warnings == [], p
         assert sniff_itol(p)
 
@@ -350,3 +351,159 @@ def test_space_separator_joins_extra_fields_into_label(tmp_path, tree):
     assert fx.columns[0].legend.entries == [("solo de mata", "#ff0000")]
     fx = run(tree, parse_itol(write(tmp_path, f"LABELS\nSEPARATOR SPACE\nDATA\n{A00} Nome com espaço\n", "l.txt")))
     assert fx.names[A00] == "Nome com espaço"
+
+
+# --------------------------------------------------------------------- etapa 2: colunas de dados
+def test_examples_stage2_parse_clean():
+    for name in ("simplebar", "multibar", "heatmap", "binary"):
+        ds = parse_itol(f"examples/itol/{name}.txt")
+        assert ds.supported and ds.warnings == [], name
+
+
+def test_simplebar(tree):
+    from jabuti.models.tracks import BarTrack
+
+    fx = run(tree, parse_itol("examples/itol/simplebar.txt"))
+    (ic,) = fx.columns
+    bar = ic.column
+    assert isinstance(bar, BarTrack) and bar.header == "Genoma (Mb)"
+    assert bar.width == 120 and bar.margin == 4 and bar.refs == [6.0, 8.0] and bar.color == "#4e79a7"
+    assert "Paraburkholderia_phymatum_A01" not in bar.values           # "X" = linha ignorada
+    st = fx.stats["itol:0"]
+    assert st.ignored == 2 and [l for l, _ in st.problems] == [14, 52]
+
+
+def test_simplebar_width_clamped_and_log_warned(tmp_path, tree):
+    text = f"DATASET_SIMPLEBAR\nSEPARATOR COMMA\nWIDTH,1000\nLOG_SCALE,1\nDATA\n{A00},3\n"
+    fx = run(tree, parse_itol(write(tmp_path, text)))
+    assert fx.columns[0].column.width == 600
+    msgs = [m for _, m in fx.stats["itol:0"].problems]
+    assert any("LOG_SCALE" in m for m in msgs) and any("WIDTH" in m for m in msgs)
+
+
+def test_multibar(tree):
+    from jabuti.models.tracks import StackedTrack
+
+    fx = run(tree, parse_itol("examples/itol/multibar.txt"))
+    (ic,) = fx.columns
+    st = ic.column
+    assert isinstance(st, StackedTrack) and st.series == ["GH", "GT", "CE"]
+    assert st.colors == ["#e15759", "#f28e2b", "#76b7b2"]
+    assert len(st.values) == 40 and ic.legend.title == "Classes CAZy"
+
+
+def test_multibar_missing_values_and_extra_fields(tmp_path, tree):
+    text = (f"DATASET_MULTIBAR\nSEPARATOR COMMA\nFIELD_COLORS,#ff0000,#00ff00\nFIELD_LABELS,a,b\nDATA\n"
+            f"{A00},1,X\n{A09},1,2,3\n{A02},abc,1\n")
+    fx = run(tree, parse_itol(write(tmp_path, text)))
+    st = fx.columns[0].column
+    assert st.values[A00] == [1.0, None] and st.values[A09] == [1.0, 2.0]
+    stats = fx.stats["itol:0"]
+    assert stats.applied == 2 and stats.ignored == 1
+    assert [l for l, _ in stats.problems] == [7, 8]
+
+
+def test_heatmap(tree):
+    fx = run(tree, parse_itol("examples/itol/heatmap.txt"))
+    (ic,) = fx.columns
+    assert [c.header for c in ic.tracks] == ["nifH", "nodA", "hupL", "acdS", "pqqC"]
+    assert all(c.kind == "matrix" for c in ic.tracks)
+    assert ic.legend.kind == "colorbar" and ic.legend.entries == [("sem dado", "#eeeeee")]
+    assert ic.legend.stops[0] == "#f7fbff" and ic.legend.stops[-1] == "#08306b"
+
+
+def test_heatmap_three_colors_user_values_and_nan(tmp_path, tree):
+    text = ("DATASET_HEATMAP\nSEPARATOR TAB\nFIELD_LABELS\tf1\tf2\nCOLOR_MIN\t#000000\nCOLOR_MAX\t#ffffff\n"
+            "USE_MID_COLOR\t1\nCOLOR_MID\t#ff0000\nUSER_MIN_VALUE\t0\nUSER_MID_VALUE\t5\nUSER_MAX_VALUE\t10\n"
+            f"COLOR_NAN\t#123456\nDATA\n{A00}\t0\t5\n{A09}\t10\tX\n{A02}\t20\t2.5\n")
+    fx = run(tree, parse_itol(write(tmp_path, text)))
+    f1, f2 = fx.columns[0].tracks
+    assert f1.colors[A00] == "#000000" and f1.colors[A09] == "#ffffff" and f1.colors[A02] == "#ffffff"
+    assert f2.colors[A00] == "#ff0000" and f2.color_for(A09) == "#123456"
+    assert f2.colors[A02] in ("#7f0000", "#800000")               # meio do caminho preto → vermelho
+    assert [t for _f, t in fx.columns[0].legend.ticks] == ["0", "5", "10"]
+
+
+def test_binary(tree):
+    fx = run(tree, parse_itol("examples/itol/binary.txt"))
+    (ic,) = fx.columns
+    assert [c.header for c in ic.tracks] == ["nif", "nod", "hup", "acdS"]
+    assert [c.shape_color for c in ic.tracks] == ["#2e7d32", "#c62828", "#1565c0", "#6a1b9a"]
+    nif = ic.tracks[0]
+    assert all(s == 1 for s, _f in nif.shapes.values())
+    # a última linha (A|B) marca 1 em todas as folhas do clado
+    assert all(nif.shapes[n] == (1, True) for n in ["Paraburkholderia_phytofirmans_A05",
+                                                    "Paraburkholderia_hospita_A09"])
+
+
+def test_binary_values(tmp_path, tree):
+    text = (f"DATASET_BINARY\nSEPARATOR COMMA\nFIELD_SHAPES,2,9\nFIELD_LABELS,a,b\nDATA\n"
+            f"{A00},1,0\n{A09},-1,1\n{A02},2,0\n")
+    fx = run(tree, parse_itol(write(tmp_path, text)))
+    a, b = fx.columns[0].tracks
+    assert a.shapes == {A00: (2, True)} and b.shapes[A00] == (1, False)    # forma 9 → quadrado
+    assert b.shapes[A09] == (1, True) and A09 not in a.shapes               # -1 = sem dado
+    assert b.shape_for_group([A00, A09]) == (1, True)
+    msgs = [m for _, m in fx.stats["itol:0"].problems]
+    assert any("forma 9" in m for m in msgs) and any("valor 2" in m for m in msgs)
+
+
+def test_binary_and_heatmap_color_edits(tree):
+    ds = parse_itol("examples/itol/binary.txt")
+    assert ("#2e7d32", "nif") in dataset_entries(ds)
+    e = ItolEntry("itol:b", ds, colors={"#2e7d32": "#000000"}, labels={"#2e7d32": "fixação"})
+    ic = apply_itol([e], tree).columns[0]
+    assert ic.tracks[0].shape_color == "#000000" and ic.tracks[0].header == "fixação"
+    hm = parse_itol("examples/itol/heatmap.txt")
+    assert [l for _c, l in dataset_entries(hm)] == ["mínimo", "meio", "máximo", "sem dado"]
+
+
+STAGE2 = [f"examples/itol/{n}.txt" for n in ("simplebar", "multibar", "heatmap", "binary")]
+
+
+def test_gui_stage2_columns_all_layouts_and_export(window, tmp_path):
+    from jabuti.style import LayoutKind
+    from jabuti.views.export import export_pdf, export_svg
+
+    fp = window.figure_panel
+    fp.itol.import_files(STAGE2, wait=True)
+    window.generate()
+    assert fp.track_keys() == ["itol:Genoma (Mb)", "itol:CAZy", "itol:Identidade", "itol:Simbiose"]
+    tags = {i.data(1) for i in window.renderer.scene.items()}
+    assert {"bar", "stacked-bar", "matrix", "binary"} <= tags
+    orig = window.current_style
+    for kind in LayoutKind:
+        def cs(kind=kind):  # type: ignore[no-untyped-def]
+            s = orig()
+            s.layout = kind
+            return s
+        window.current_style = cs
+        window.generate()
+        assert not window.shown, kind
+        if kind.is_radial:
+            assert "binary" in {i.data(1) for i in window.renderer.scene.items()}
+    export_svg(window.renderer.scene, tmp_path / "f.svg")
+    export_pdf(window.renderer.scene, tmp_path / "f.pdf")
+    window.current_style = orig
+    # reordenar: binário perto da árvore; ocultar a matriz
+    fp.track_order = ["itol:Simbiose", "itol:Genoma (Mb)"]
+    fp.hidden_tracks = ["itol:Identidade"]
+    window.generate()
+    items = window.renderer.scene.items()
+    assert "matrix" not in {i.data(1) for i in items}
+    xb = min(i.sceneBoundingRect().x() for i in items if i.data(1) == "binary")
+    xbar = min(i.sceneBoundingRect().x() for i in items if i.data(1) == "bar")
+    assert xb < xbar
+
+
+def test_gui_binary_margin_moves_column(window, tmp_path):
+    def first_x(margin):  # type: ignore[no-untyped-def]
+        p = write(tmp_path, f"DATASET_BINARY\nSEPARATOR COMMA\nMARGIN,{margin}\nFIELD_SHAPES,1\nDATA\n{A00},1\n",
+                  f"m{margin}.txt")
+        itol = window.figure_panel.itol
+        itol.entries.clear()
+        itol.import_files([p], wait=True)
+        window.generate()
+        return min(i.sceneBoundingRect().x() for i in window.renderer.scene.items() if i.data(1) == "binary")
+
+    assert first_x(30) - first_x(0) == pytest.approx(30, abs=0.5)

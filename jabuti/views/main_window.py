@@ -370,7 +370,7 @@ class MainWindow(QMainWindow):
                                       list(cs.stops), [(f, fmt_value(round(v, 1 if abs(v) < 10 else 0))) for f, v in cs.ticks(3)])]
         fx = self.itol_effects(style)
         for ic in fx.columns:
-            blocks[ic.key] = [ic.column]
+            blocks[ic.key] = list(ic.tracks)
             labels[ic.key] = ic.label
             if ic.legend is not None:
                 legends[ic.key] = [ic.legend]
@@ -400,6 +400,8 @@ class MainWindow(QMainWindow):
             return track.color
         if isinstance(track, StackedTrack):
             return track.colors[0]
+        if track.kind == "binary":
+            return track.shape_color
         if track.kind == "matrix":
             return None               # a cor depende do valor: só o nome (a escala está na barra de cor)
         return present if track.kind == "genes" else "#888888"

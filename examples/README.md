@@ -20,6 +20,8 @@ para testar a matriz (heatmap externo) do painel Figura.
 
 `itol/*.txt` — anotações **sintéticas** no formato do iTOL, com as folhas de
 `paraburkholderia_40.treefile`: `tree_colors.txt` (TAB: faixas, ramos, rótulos), `labels.txt`
-(COMMA, com aspas), `colorstrip.txt` (SPACE, com legenda) e `styles.txt` (DATASET_STYLE). Todos têm
-comentários; `tree_colors.txt` e `colorstrip.txt` têm um ID de folha inexistente, que aparece em
+(COMMA, com aspas), `colorstrip.txt` (SPACE, com legenda), `styles.txt` (DATASET_STYLE),
+`simplebar.txt` (TAB, com uma linha `X` e uma folha inexistente), `multibar.txt` (COMMA),
+`heatmap.txt` (SPACE, 3 cores e `X` = sem dado) e `binary.txt` (COMMA, formas 1–4 e um `A|B`). Todos têm
+comentários; `tree_colors.txt`, `colorstrip.txt` e `simplebar.txt` têm um ID de folha inexistente, que aparece em
 “Problemas na leitura”.

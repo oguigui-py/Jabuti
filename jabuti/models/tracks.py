@@ -48,6 +48,7 @@ class BarTrack:
     show_values: bool = False
     width: float = 80.0
     missing_color: str = "#d9d9d9"
+    margin: float = 0.0                          # espaço antes da coluna (px)
 
     def value_for(self, names: list[str]) -> float | None:
         """Valor da folha, ou a média de um clado colapsado (ignora folhas sem dado)."""
@@ -75,6 +76,7 @@ class StackedTrack:
     vmax: float = 1.0
     width: float = 100.0
     missing_color: str = "#d9d9d9"
+    margin: float = 0.0
 
     def stack_for(self, names: list[str]) -> list[float] | None:
         """Valores por série (média num clado colapsado); série sem dado conta como 0.

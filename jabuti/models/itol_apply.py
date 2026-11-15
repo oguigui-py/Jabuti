@@ -21,6 +21,9 @@ from jabuti.parsers.itol import ItolDataset, parse_color
 from jabuti.parsers.names import match_names
 
 _SPLIT = re.compile(r"\||---")
+BAR_COLOR = "#4e79a7"
+HEATMAP_DEFAULTS = {"COLOR_MIN": "#ff0000", "COLOR_MID": "#ffffff", "COLOR_MAX": "#0000ff", "COLOR_NAN": "#d9d9d9"}
+MAX_WIDTH = 600.0                  # largura máxima de uma coluna de barras (px)
 CONTAINS = "CONTAINS=="
 
 
@@ -53,8 +56,12 @@ class ItolStats:
 class ItolColumn:
     key: str
     label: str                     # nome na lista "Ordem das colunas"
-    column: LeafColumn
+    tracks: list                   # LeafColumn, BarTrack ou StackedTrack (uma ou mais colunas)
     legend: LegendGroup | None
+
+    @property
+    def column(self):  # type: ignore[no-untyped-def]
+        return self.tracks[0]
 
 
 @dataclass
@@ -217,6 +224,19 @@ def dataset_entries(ds: ItolDataset) -> list[tuple[str, str]]:
             if len(r.fields) >= 3:
                 kind = r.fields[1].strip().lower()
                 add(r.fields[2], r.fields[3] if kind == "range" and len(r.fields) > 3 else "")
+    elif ds.kind == "DATASET_SIMPLEBAR":
+        add(ds.option("COLOR") or BAR_COLOR)
+    elif ds.kind in ("DATASET_MULTIBAR", "DATASET_BINARY"):
+        labels = ds.options.get("FIELD_LABELS", [])
+        colors = ds.options.get("FIELD_COLORS") or [ds.option("COLOR") or "#000000"] * max(len(labels), 1)
+        for i, c in enumerate(colors):
+            add(c, labels[i] if i < len(labels) else "")
+    elif ds.kind == "DATASET_HEATMAP":
+        for opt, name in (("COLOR_MIN", "mínimo"), ("COLOR_MID", "meio"), ("COLOR_MAX", "máximo"),
+                          ("COLOR_NAN", "sem dado")):
+            if opt == "COLOR_MID" and not ds.flag("USE_MID_COLOR"):
+                continue
+            add(ds.option(opt) or HEATMAP_DEFAULTS[opt], name)
     elif ds.kind == "DATASET_STYLE":
         for r in ds.rows:
             if len(r.fields) >= 4:
@@ -273,7 +293,9 @@ class _Builder:
             return
         resolver = Resolver(self.tree, (r.fields[0] for r in ds.rows if r.fields), self.hidden)
         handler = {"TREE_COLORS": self._tree_colors, "LABELS": self._labels,
-                   "DATASET_COLORSTRIP": self._colorstrip, "DATASET_STYLE": self._style}[ds.kind]
+                   "DATASET_COLORSTRIP": self._colorstrip, "DATASET_STYLE": self._style,
+                   "DATASET_SIMPLEBAR": self._simplebar, "DATASET_MULTIBAR": self._multibar,
+                   "DATASET_HEATMAP": self._heatmap, "DATASET_BINARY": self._binary}[ds.kind]
         handler(entry, resolver, st)
 
     def _targets(self, row, resolver: Resolver, st: ItolStats, min_fields: int, what: str) -> list[Node]:  # type: ignore[no-untyped-def]
@@ -391,7 +413,7 @@ class _Builder:
             legend = LegendGroup(title, entries) if entries else None
         elif any(seen.values()):
             legend = LegendGroup(title, [(l, c) for c, l in seen.items() if l])
-        self.fx.columns.append(ItolColumn(entry.key, f"iTOL: {header}", col, legend))
+        self.fx.columns.append(ItolColumn(entry.key, f"iTOL: {header}", [col], legend))
         if ds.flag("COLOR_BRANCHES"):
             self._color_branches(colors)
 
@@ -447,6 +469,263 @@ class _Builder:
                 st.applied += 1
             else:
                 st.ignored += 1
+
+    # -- colunas de dados (etapa 2)
+    def _width(self, ds: ItolDataset, name: str, default: float, st: ItolStats) -> float:
+        w = ds.number(name)
+        if w is None or w <= 0:
+            return default
+        if w > MAX_WIDTH:
+            st.problems.append((0, f"{name} {w:g} reduzido para {MAX_WIDTH:g} px"))
+            return MAX_WIDTH
+        return w
+
+    def _unsupported_opts(self, ds: ItolDataset, st: ItolStats, names: tuple[str, ...]) -> None:
+        for n in names:
+            if ds.flag(n):
+                st.problems.append((0, f"{n} não é suportado: ignorado"))
+
+    def _numeric_rows(self, entry: ItolEntry, resolver: Resolver, st: ItolStats, n_fields: int | None,
+                      allow_missing: bool):  # type: ignore[no-untyped-def]
+        """(folhas, valores) por linha; valores None = sem dado (X) quando permitido."""
+        out = []
+        for row in entry.dataset.rows:
+            nodes = self._targets(row, resolver, st, 2, "ID e valor(es)")
+            if not nodes:
+                continue
+            raw = row.fields[1:]
+            if n_fields is not None and len(raw) > n_fields:
+                st.problems.append((row.line, f"{len(raw)} valores para {n_fields} campos: os de sobra "
+                                              "foram ignorados"))
+                raw = raw[:n_fields]
+            try:
+                vals = [_number(v) for v in raw]
+            except ValueError as exc:
+                st.ignored += 1
+                st.problems.append((row.line, f"valor não numérico “{exc}”"))
+                continue
+            if not allow_missing and any(v is None for v in vals):
+                st.ignored += 1
+                st.problems.append((row.line, "valor ausente"))
+                continue
+            if n_fields is not None and len(vals) < n_fields:
+                vals += [None] * (n_fields - len(vals))
+            names = [n for node in nodes for n in _leaf_names(node)]
+            out.append((names, vals))
+            st.applied += 1
+        return out
+
+    def _simplebar(self, entry: ItolEntry, resolver: Resolver, st: ItolStats) -> None:
+        from jabuti.models.tracks import bar_track
+
+        ds = entry.dataset
+        self._unsupported_opts(ds, st, ("LOG_SCALE",))
+        values: dict[str, float] = {}
+        for names, vals in self._numeric_rows(entry, resolver, st, None, False):
+            for n in names:
+                values[n] = vals[0]
+        if not values:
+            return
+        zero = ds.number("BAR_ZERO", 0.0) or 0.0
+        if zero != 0.0:
+            st.problems.append((0, f"BAR_ZERO {zero:g}: as barras partem do 0 no Jabuti"))
+        color = entry.color((parse_color(ds.option("COLOR") or BAR_COLOR) or (BAR_COLOR, 1.0))[0])
+        header = entry.title or ds.label
+        track = bar_track(entry.key, header, values, color=color, refs=_scale_values(ds.options.get("DATASET_SCALE", [])),
+                          show_values=ds.flag("SHOW_VALUE"), width=self._width(ds, "WIDTH", 80.0, st),
+                          missing_color=self.missing_color, margin=max(ds.number("MARGIN", 0.0) or 0.0, 0.0))
+        self.fx.columns.append(ItolColumn(entry.key, f"iTOL barras: {header}", [track], None))
+
+    def _field_colors(self, entry: ItolEntry, n: int, st: ItolStats) -> list[str]:
+        ds = entry.dataset
+        raw = ds.options.get("FIELD_COLORS") or []
+        default = ds.option("COLOR") or "#000000"
+        out = []
+        for i in range(n):
+            text = raw[i] if i < len(raw) else default
+            c = parse_color(text)
+            if c is None:
+                st.problems.append((0, f"cor inválida em FIELD_COLORS “{text}”"))
+                c = ("#000000", 1.0)
+            out.append(entry.color(c[0]))
+        return out
+
+    def _field_labels(self, entry: ItolEntry, n: int, colors_orig: list[str]) -> list[str]:
+        raw = entry.dataset.options.get("FIELD_LABELS") or []
+        out = []
+        for i in range(n):
+            label = raw[i] if i < len(raw) and raw[i] else f"campo {i + 1}"
+            out.append(entry.labels.get(colors_orig[i], label) or label if i < len(colors_orig) else label)
+        return out
+
+    def _orig_field_colors(self, ds: ItolDataset, n: int) -> list[str]:
+        raw = ds.options.get("FIELD_COLORS") or []
+        default = ds.option("COLOR") or "#000000"
+        return [(parse_color(raw[i] if i < len(raw) else default) or ("#000000", 1.0))[0] for i in range(n)]
+
+    def _n_fields(self, ds: ItolDataset, st: ItolStats, need: tuple[str, ...]) -> int:
+        counts = [len(ds.options.get(o, [])) for o in need if ds.options.get(o)]
+        if not counts:
+            n = max((len(r.fields) - 1 for r in ds.rows), default=0)
+            st.problems.append((0, f"{' e '.join(need)} ausente(s): {n} campo(s) pelos dados"))
+            return n
+        return max(counts)
+
+    def _multibar(self, entry: ItolEntry, resolver: Resolver, st: ItolStats) -> None:
+        from jabuti.models.tracks import stacked_track
+
+        ds = entry.dataset
+        self._unsupported_opts(ds, st, ("LOG_SCALE", "SIDE_STACKED", "ALIGN_FIELDS"))
+        n = self._n_fields(ds, st, ("FIELD_LABELS", "FIELD_COLORS"))
+        if n <= 0:
+            return
+        orig = self._orig_field_colors(ds, n)
+        colors = self._field_colors(entry, n, st)
+        labels = self._field_labels(entry, n, orig)
+        series = list(labels)
+        for i, l in enumerate(series):       # séries com o mesmo nome continuam separadas
+            if series.count(l) > 1:
+                series[i] = f"{l} ({i + 1})"
+        columns: dict[str, dict[str, float]] = {s: {} for s in series}
+        for names, vals in self._numeric_rows(entry, resolver, st, n, True):
+            for i, v in enumerate(vals):
+                if v is not None:
+                    for name in names:
+                        columns[series[i]][name] = v
+        if not any(columns.values()):
+            return
+        header = entry.title or ds.label
+        track = stacked_track(entry.key, header, series, colors, columns, None,
+                              width=self._width(ds, "WIDTH", 100.0, st), missing_color=self.missing_color,
+                              margin=max(ds.number("MARGIN", 0.0) or 0.0, 0.0))
+        self.fx.columns.append(ItolColumn(entry.key, f"iTOL empilhadas: {header}", [track],
+                                          LegendGroup(entry.title or ds.option("LEGEND_TITLE") or header,
+                                                      list(zip(series, colors)))))
+
+    def _heatmap(self, entry: ItolEntry, resolver: Resolver, st: ItolStats) -> None:
+        from jabuti.models.annotations import gradient_color
+        from jabuti.models.tracks import fmt_value
+
+        ds = entry.dataset
+        n = self._n_fields(ds, st, ("FIELD_LABELS",))
+        if n <= 0:
+            return
+        labels = (ds.options.get("FIELD_LABELS") or []) + [f"campo {i + 1}" for i in range(n)]
+        rows = self._numeric_rows(entry, resolver, st, n, True)
+        values = [v for _names, vals in rows for v in vals if v is not None]
+        if not values:
+            return
+
+        def col(opt: str) -> str:
+            c = parse_color(ds.option(opt) or HEATMAP_DEFAULTS[opt])
+            if c is None:
+                st.problems.append((0, f"cor inválida em {opt}"))
+                c = (HEATMAP_DEFAULTS[opt], 1.0)
+            return entry.color(c[0])
+
+        cmin, cmax, nan = col("COLOR_MIN"), col("COLOR_MAX"), col("COLOR_NAN")
+        use_mid = ds.flag("USE_MID_COLOR")
+        cmid = col("COLOR_MID") if use_mid else None
+        lo = ds.number("USER_MIN_VALUE", min(values))
+        hi = ds.number("USER_MAX_VALUE", max(values))
+        if hi <= lo:
+            hi = lo + 1.0
+        mid = ds.number("USER_MID_VALUE", (lo + hi) / 2)
+        mid = min(max(mid, lo), hi)
+
+        def color(v: float) -> str:
+            v = min(max(v, lo), hi)
+            if cmid is None:
+                return gradient_color((v - lo) / (hi - lo), [cmin, cmax])
+            if v <= mid:
+                return gradient_color((v - lo) / (mid - lo) if mid > lo else 1.0, [cmin, cmid])
+            return gradient_color((v - mid) / (hi - mid) if hi > mid else 0.0, [cmid, cmax])
+
+        cell = ds.number("STRIP_WIDTH")
+        cell = cell if cell and cell > 0 else None
+        tracks = []
+        for i in range(n):
+            colors = {}
+            texts = {}
+            for names, vals in rows:
+                if vals[i] is not None:
+                    for name in names:
+                        colors[name] = color(vals[i])
+                        texts[name] = fmt_value(vals[i])
+            tracks.append(LeafColumn(f"{entry.key}:{i}", labels[i], colors, nan,
+                                     texts if ds.flag("SHOW_VALUES") else {}, "matrix", cell,
+                                     margin=max(ds.number("MARGIN", 0.0) or 0.0, 0.0) if i == 0 else 0.0))
+        k = 21                                           # paradas amostradas (meio fora do centro)
+        stops = [color(lo + (hi - lo) * j / (k - 1)) for j in range(k)]
+        ticks = [(0.0, fmt_value(round(lo, 3))), (1.0, fmt_value(round(hi, 3)))]
+        fmid = (mid - lo) / (hi - lo)
+        if cmid is not None and 0.25 <= fmid <= 0.75:      # perto das pontas o rótulo encostaria
+            ticks.insert(1, (fmid, fmt_value(round(mid, 3))))
+        title = entry.title or ds.option("LEGEND_TITLE") or ds.label
+        legend = LegendGroup(title, [("sem dado", nan)], "colorbar", stops, ticks)
+        self.fx.columns.append(ItolColumn(entry.key, f"iTOL heatmap: {entry.title or ds.label} ({n} colunas)",
+                                          tracks, legend))
+
+    def _binary(self, entry: ItolEntry, resolver: Resolver, st: ItolStats) -> None:
+        ds = entry.dataset
+        n = self._n_fields(ds, st, ("FIELD_SHAPES", "FIELD_LABELS"))
+        if n <= 0:
+            return
+        shapes_raw = ds.options.get("FIELD_SHAPES") or []
+        shapes = []
+        for i in range(n):
+            try:
+                sh = int(shapes_raw[i]) if i < len(shapes_raw) else 1
+            except ValueError:
+                st.problems.append((0, f"forma inválida em FIELD_SHAPES “{shapes_raw[i]}” (usando quadrado)"))
+                sh = 1
+            if not 1 <= sh <= 6:
+                st.problems.append((0, f"forma {sh} desconhecida (use 1–6): usando quadrado"))
+                sh = 1
+            shapes.append(sh)
+        orig = self._orig_field_colors(ds, n)
+        colors = self._field_colors(entry, n, st)
+        labels = self._field_labels(entry, n, orig)
+        cells: list[dict[str, tuple[int, bool]]] = [{} for _ in range(n)]
+        for names, vals in self._numeric_rows(entry, resolver, st, n, True):
+            for i, v in enumerate(vals):
+                if v is None or v == -1:
+                    continue                            # -1 / ausente = sem dado (nada desenhado)
+                if v not in (0, 1):
+                    st.problems.append((0, f"valor {v:g} em DATASET_BINARY (use 1, 0 ou -1): ignorado"))
+                    continue
+                for name in names:
+                    cells[i][name] = (shapes[i], v == 1)
+        if not any(cells):
+            return
+        margin = max(ds.number("MARGIN", 0.0) or 0.0, 0.0)
+        tracks = [LeafColumn(f"{entry.key}:{i}", labels[i], {}, self.missing_color, {}, "binary", None,
+                             margin=margin if i == 0 else 0.0, shapes=cells[i], shape_color=colors[i])
+                  for i in range(n)]
+        title = entry.title or ds.option("LEGEND_TITLE") or ds.label
+        legend = LegendGroup(title, list(zip(labels, colors)))
+        self.fx.columns.append(ItolColumn(entry.key, f"iTOL presença: {entry.title or ds.label} ({n} colunas)",
+                                          tracks, legend))
+
+
+def _scale_values(items: list[str]) -> list[float]:
+    """DATASET_SCALE: "10" ou "10-rótulo-cor-largura-tracejado-fator" → valores."""
+    out = []
+    for it in items:
+        m = re.match(r"^\s*(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)", it)
+        if m:
+            out.append(float(m.group(1)))
+    return out
+
+
+def _number(text: str) -> float | None:
+    t = (text or "").strip()
+    if t.upper() in ("X", "NA", "NAN", ""):
+        return None
+    try:
+        return float(t.replace(",", ".")) if t.count(",") == 1 and "." not in t else float(t)
+    except ValueError:
+        raise ValueError(t) from None
 
 
 def apply_itol(entries: list[ItolEntry], tree: Tree, hidden: Iterable[str] = (),

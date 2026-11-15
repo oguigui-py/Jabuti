@@ -1,0 +1,53 @@
+DATASET_HEATMAP
+# Identidade (%) com genes de referência, sintética. Separador: SPACE; X = sem dado.
+SEPARATOR SPACE
+DATASET_LABEL Identidade
+COLOR #ff0000
+FIELD_LABELS nifH nodA hupL acdS pqqC
+COLOR_MIN #f7fbff
+COLOR_MAX #08306b
+USE_MID_COLOR 1
+COLOR_MID #6baed6
+USER_MID_VALUE 70
+COLOR_NAN #eeeeee
+DATA
+Robbsia_andropogonis_LMG2129 63.4 6.2 6.7 20.9 16.2
+Caballeronia_glathei_DSM50014 5.3 X 15.1 10.1 36.4
+Paraburkholderia_xenovorans_A00 61.4 14.9 25.2 34.7 36.4
+Paraburkholderia_phymatum_A01 84.9 99.3 46.6 48.4 8.6
+Paraburkholderia_tropica_A02 34.3 26.5 82.9 16.1 2.3
+Paraburkholderia_unamae_A03 52.8 14.7 54.3 2.7 52.8
+Paraburkholderia_caribensis_A04 86.3 69.6 26.1 36.7 16.7
+Paraburkholderia_phytofirmans_A05 53.3 77.9 33.0 22.3 81.2
+Paraburkholderia_graminis_A06 85.3 80.6 81.8 74.0 22.7
+Paraburkholderia_kururiensis_A07 35.6 2.9 2.8 27.9 25.9
+Paraburkholderia_terrae_A08 95.7 44.7 93.7 98.8 95.5
+Paraburkholderia_hospita_A09 22.0 22.7 19.7 20.4 62.4
+Paraburkholderia_fungorum_A10 84.0 47.9 65.3 80.0 8.5
+Paraburkholderia_sabiae_A11 91.0 78.2 75.0 47.8 17.9
+Paraburkholderia_nodosa_A12 33.3 80.1 97.2 39.6 40.1
+Paraburkholderia_mimosarum_A13 72.5 17.0 12.7 15.1 90.5
+Paraburkholderia_diazotrophica_A14 14.6 82.7 98.0 65.7 35.0
+Paraburkholderia_sprentiae_A15 13.1 1.4 97.1 65.0 52.7
+Paraburkholderia_tuberum_A16 43.4 87.2 82.6 21.1 25.2
+Paraburkholderia_atlantica_A17 24.1 58.6 25.9 41.9 13.1
+Paraburkholderia_ferrariae_A18 35.4 45.8 58.3 90.4 42.1
+Paraburkholderia_silvatlantica_A19 50.2 53.2 52.4 1.9 44.0
+Paraburkholderia_xenovorans_B20 0.4 79.9 17.2 47.3 72.5
+Paraburkholderia_phymatum_B21 32.6 51.8 55.5 78.4 10.6
+Paraburkholderia_tropica_B22 24.8 27.7 77.2 50.8 56.2
+Paraburkholderia_unamae_B23 91.2 44.3 61.3 50.6 51.2
+Paraburkholderia_caribensis_B24 45.2 53.3 47.8 94.2 69.9
+Paraburkholderia_phytofirmans_B25 94.2 26.0 56.0 94.3 84.0
+Paraburkholderia_graminis_B26 12.2 44.2 7.3 24.1 7.3
+Paraburkholderia_kururiensis_B27 78.4 89.7 15.4 71.6 66.0
+Paraburkholderia_terrae_B28 88.3 96.8 22.0 95.3 39.8
+Paraburkholderia_hospita_B29 99.0 83.2 16.1 43.2 51.6
+Paraburkholderia_fungorum_B30 19.6 31.9 72.2 1.9 55.4
+Paraburkholderia_sabiae_B31 1.8 33.1 62.4 51.2 6.4
+Paraburkholderia_nodosa_B32 78.8 97.2 10.5 26.6 4.0
+Paraburkholderia_mimosarum_B33 27.0 13.0 42.2 91.1 81.9
+Paraburkholderia_diazotrophica_B34 14.9 X 57.1 70.0 8.9
+Paraburkholderia_sprentiae_B35 42.5 X 93.8 63.4 80.2
+Burkholderia_cepacia_ATCC25416 6.7 86.3 45.4 33.9 55.3
+Burkholderia_cenocepacia_J2315 26.8 12.9 52.7 23.8 10.9

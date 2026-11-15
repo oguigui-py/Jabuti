@@ -23,6 +23,23 @@ class LeafColumn:
     kind: str = "genes"                          # "genes" | "metadata" | "matrix"
     width: float | None = None                   # None = largura padrão da célula
     header_rotation: int = 90                    # nome da coluna: 0°, 45° ou 90° (retangular)
+    margin: float = 0.0                          # espaço antes da coluna (px)
+    # kind "binary": folha -> (forma, preenchida); formas do iTOL: 1 quadrado, 2 círculo,
+    # 3 estrela, 4 triângulo p/ direita, 5 triângulo p/ esquerda, 6 "check"
+    shapes: dict[str, tuple[int, bool]] = field(default_factory=dict)
+    shape_color: str = "#000000"
+
+    @property
+    def always_header(self) -> bool:
+        """Matrizes e presença/ausência mostram sempre o nome de cada coluna."""
+        return self.kind in ("matrix", "binary")
+
+    def shape_for_group(self, leaves: list[str]) -> tuple[int, bool] | None:
+        """Clado colapsado: forma cheia se alguma folha tem 1; vazada se só há 0."""
+        got = [self.shapes[l] for l in leaves if l in self.shapes]
+        if not got:
+            return None
+        return got[0][0], any(f for _s, f in got)
 
     def color_for(self, leaf: str) -> str:
         return self.colors.get(leaf, self.missing_color)

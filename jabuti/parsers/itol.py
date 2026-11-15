@@ -19,7 +19,8 @@ from pathlib import Path
 from jabuti.parsers.errors import JabutiParseError, read_text
 
 # tipos com leitura própria no Jabuti (os demais aparecem na lista como "ignorados")
-SUPPORTED = {"TREE_COLORS", "LABELS", "DATASET_COLORSTRIP", "DATASET_STYLE"}
+SUPPORTED = {"TREE_COLORS", "LABELS", "DATASET_COLORSTRIP", "DATASET_STYLE",
+             "DATASET_SIMPLEBAR", "DATASET_MULTIBAR", "DATASET_HEATMAP", "DATASET_BINARY"}
 # tipos do iTOL conhecidos, mas não suportados (ainda)
 KNOWN = SUPPORTED | {
     "DATASET_SIMPLEBAR", "DATASET_MULTIBAR", "DATASET_HEATMAP", "DATASET_BINARY", "DATASET_SYMBOL",
@@ -51,6 +52,23 @@ OPTIONS = {
                                              "STRIP_LABEL_SHIFT", "STRIP_LABEL_COLOR_STROKE",
                                              "STRIP_LABEL_WIDTH_STROKE", "STRIP_LABEL_ALIGN"},
     "DATASET_STYLE": _COMMON_OPTIONS,
+    "DATASET_SIMPLEBAR": _COMMON_OPTIONS | {"WIDTH", "BAR_ZERO", "BAR_SHIFT", "SHOW_VALUE", "LOG_SCALE",
+                                            "DASHED_LINES", "BAR_SHAPE", "BAR_ROUND_CORNERS",
+                                            "VALUE_LABEL_COLOR", "VALUE_LABEL_SIZE_FACTOR",
+                                            "LABEL_POSITION", "LABEL_AUTO_COLOR", "VALUE_DECIMALS"},
+    "DATASET_MULTIBAR": _COMMON_OPTIONS | {"FIELD_COLORS", "FIELD_LABELS", "WIDTH", "ALIGN_FIELDS",
+                                           "SIDE_STACKED", "BAR_ZERO", "BAR_SHIFT", "SHOW_VALUE",
+                                           "LOG_SCALE", "DASHED_LINES", "BAR_SHAPE", "BAR_ROUND_CORNERS",
+                                           "VALUE_LABEL_COLOR", "VALUE_LABEL_SIZE_FACTOR", "VALUE_DECIMALS"},
+    "DATASET_HEATMAP": _COMMON_OPTIONS | {"FIELD_LABELS", "FIELD_TREE", "STRIP_WIDTH", "COLOR_MIN",
+                                          "COLOR_MAX", "USE_MID_COLOR", "COLOR_MID", "COLOR_NAN",
+                                          "USER_MIN_VALUE", "USER_MID_VALUE", "USER_MAX_VALUE",
+                                          "AUTO_LEGEND", "DISPLAY_TREE", "TREE_WIDTH", "SHOW_VALUES",
+                                          "LABEL_SHIFT", "LABEL_COLOR", "LABEL_SIZE_FACTOR",
+                                          "VERTICAL_GRID", "HORIZONTAL_GRID", "GRID_COLOR", "GRID_WIDTH"},
+    "DATASET_BINARY": _COMMON_OPTIONS | {"FIELD_SHAPES", "FIELD_LABELS", "FIELD_COLORS", "SYMBOL_SPACING",
+                                         "HORIZONTAL_GRID", "VERTICAL_GRID", "GRID_COLOR", "GRID_WIDTH",
+                                         "SHOW_LABELS", "LABEL_COLOR"},
     "TREE_COLORS": {"SEPARATOR", "DATA"},
     "LABELS": {"SEPARATOR", "DATA"},
 }

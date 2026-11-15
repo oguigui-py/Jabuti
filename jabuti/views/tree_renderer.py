@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass, field
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetricsF, QLinearGradient, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsPathItem,
@@ -53,6 +53,7 @@ TAG_BAR_AXIS = "bar-axis"
 TAG_BAR_VALUE = "bar-value"
 TAG_STACKED = "stacked-bar"
 TAG_MATRIX = "matrix"
+TAG_BINARY = "binary"            # formas de presença/ausência (iTOL DATASET_BINARY)
 TAG_BREAK = "branch-break"
 TAG_ROW_HIGHLIGHT = "row-highlight"
 TAG_SUPPORT_LEVEL = "support-level"
@@ -156,6 +157,35 @@ def guide_pen(guide: GuideStyle) -> QPen | None:
 
 def cap_style(cap: str) -> Qt.PenCapStyle:
     return Qt.PenCapStyle.RoundCap if cap == "round" else Qt.PenCapStyle.FlatCap
+
+
+def shape_path(shape: int, c: QPointF, size: float) -> QPainterPath:
+    """Formas do iTOL: 1 quadrado, 2 círculo, 3 estrela, 4 triângulo p/ direita,
+    5 triângulo p/ esquerda, 6 "check" (traço); outras = quadrado."""
+    h = size / 2
+    x, y = c.x(), c.y()
+    path = QPainterPath()
+    if shape == 2:
+        path.addEllipse(c, h, h)
+    elif shape == 3:
+        pts = []
+        for k in range(10):
+            r = h if k % 2 == 0 else h * 0.45
+            a = -math.pi / 2 + k * math.pi / 5
+            pts.append(QPointF(x + r * math.cos(a), y + r * math.sin(a)))
+        path.addPolygon(QPolygonF(pts))
+        path.closeSubpath()
+    elif shape in (4, 5):
+        s = 1 if shape == 4 else -1
+        path.addPolygon(QPolygonF([QPointF(x - s * h, y - h), QPointF(x + s * h, y), QPointF(x - s * h, y + h)]))
+        path.closeSubpath()
+    elif shape == 6:
+        path.moveTo(x - h, y)
+        path.lineTo(x - h * 0.25, y + h * 0.75)
+        path.lineTo(x + h, y - h * 0.8)
+    else:
+        path.addRect(QRectF(x - h, y - h, size, size))
+    return path
 
 
 class _EdgeBatch:
@@ -463,6 +493,22 @@ class TreeRenderer:
             item.setData(1, {"genes": TAG_HEATMAP, "matrix": TAG_MATRIX}.get(col.kind, TAG_META_STRIP))
             item.setData(2, col.key)
             self.scene.addItem(item)
+
+    def _binary_cell(self, col: LeafColumn, names: list[str], center: QPointF, size: float) -> None:
+        """Forma do iTOL (DATASET_BINARY) no centro da célula: cheia (1) ou vazada (0)."""
+        got = col.shapes.get(names[0]) if len(names) == 1 else col.shape_for_group(names)
+        if got is None or size <= 0:
+            return
+        shape, filled = got
+        item = QGraphicsPathItem(shape_path(shape, center, size))
+        color = QColor(col.shape_color)
+        pen = QPen(color, max(min(size * 0.12, 1.2), 0.5))
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        item.setPen(pen)
+        item.setBrush(QBrush(color) if filled and shape != 6 else QBrush(Qt.BrushStyle.NoBrush))
+        item.setData(1, TAG_BINARY)
+        item.setData(2, col.key)
+        self.scene.addItem(item)
 
     def _cell_text(self, text: str, center: QPointF, bg: str) -> None:
         c = QColor(bg)
@@ -783,15 +829,16 @@ class TreeRenderer:
         f.setPointSizeF(max(self.style.label.size * 0.7, 4))
         return f
 
-    def _track_extent(self, track, cell_w: float) -> float:  # type: ignore[no-untyped-def]
+    def _track_extent(self, track, cell_w: float, margin: bool = True) -> float:  # type: ignore[no-untyped-def]
         """Largura (px) ocupada pela trilha: coluna no retangular, anel no circular."""
         if track == CLADE_STRIP:
             return self.style.clades.strip_width
+        m = getattr(track, "margin", 0.0) if margin else 0.0
         if isinstance(track, BarTrack):
-            return track.width + self._value_text_width(track)
+            return m + track.width + self._value_text_width(track)
         if isinstance(track, StackedTrack):
-            return track.width
-        return track.width or cell_w
+            return m + track.width
+        return m + (track.width or cell_w)
 
     def _bar_color(self, track: BarTrack, node: Node, names: list[str]) -> str:
         if track.color_mode == "clade":
@@ -902,6 +949,7 @@ class TreeRenderer:
             if in_cells and not is_cell:
                 x += pad
             in_cells = is_cell
+            x += getattr(track, "margin", 0.0) if track != CLADE_STRIP else 0.0
             if track == CLADE_STRIP:
                 if not visible:
                     continue
@@ -913,10 +961,18 @@ class TreeRenderer:
                 x += cs.strip_width + pad
             elif isinstance(track, BarTrack):
                 self._bars_rect(track, lay, x, sy, top, bottom)
-                x += self._track_extent(track, 0) + pad
+                x += self._track_extent(track, 0, margin=False) + pad
             elif isinstance(track, StackedTrack):
                 self._stacked_rect(track, lay, x, sy, top, bottom)
                 x += track.width + pad
+            elif track.kind == "binary":
+                cw = track.width if track.width else sy * hm.cell_width
+                for node, names in self._tips(lay):
+                    a, b = lay.span[node]
+                    size = min(cw, (b - a) * sy) * 0.7
+                    self._binary_cell(track, names, QPointF(x + cw / 2, lay.pos[node][1] * sy), size)
+                self._column_header(track.header, x, cw, top, rotation=track.header_rotation)
+                x += cw
             else:
                 cw = track.width if track.width else sy * hm.cell_width
                 by_color: dict[str, QPainterPath] = {}
@@ -928,7 +984,7 @@ class TreeRenderer:
                     if len(names) == 1 and names[0] in track.texts:
                         self._cell_text(track.texts[names[0]], rect.center(), color)
                 self._flush_cells(by_color, track)
-                if hm.show_headers or track.kind == "matrix":
+                if hm.show_headers or track.always_header:
                     self._column_header(track.header, x, cw, top, rotation=track.header_rotation)
                 x += cw
         if in_cells:
@@ -1572,6 +1628,8 @@ class TreeRenderer:
         root_span = lay.span[tree.root]
         for i, track in enumerate(self._ring_tracks):
             r0, r1 = geom.ring_bounds(i)
+            if track != CLADE_STRIP:
+                r0 += getattr(track, "margin", 0.0)
             if track == CLADE_STRIP:
                 for rc in visible:
                     th0, th1 = th_range(rc.node)
@@ -1580,6 +1638,12 @@ class TreeRenderer:
                 self._bars_circ(track, lay, r0, root_span, pt)
             elif isinstance(track, StackedTrack):
                 self._stacked_circ(track, lay, r0, pt)
+            elif track.kind == "binary":
+                for node, names in self._tips(lay):
+                    a, b = lay.span[node]
+                    rm = (r0 + r1) / 2
+                    size = min(r1 - r0, 2 * rm * math.sin(max(b - a, 1e-6) / 2)) * 0.7
+                    self._binary_cell(track, names, pt(rm, (a + b) / 2), size)
             else:
                 by_color: dict[str, QPainterPath] = {}
                 for node, names in self._tips(lay):
@@ -1754,7 +1818,7 @@ class TreeRenderer:
     def _fan_headers(self, lay, geom: CircGeometry, pt) -> None:  # type: ignore[no-untyped-def]
         """Leque: nomes das colunas/anéis no vão, logo antes do início do arco, um por anel."""
         if 2 * math.pi - lay.arc < math.radians(15) or not (self.style.heatmap.show_headers or any(
-                isinstance(t, LeafColumn) and t.kind == "matrix" for t in self._ring_tracks)):
+                isinstance(t, LeafColumn) and t.always_header for t in self._ring_tracks)):
             return
         th = lay.start
         u = th - math.pi / 2                    # tangente apontando para dentro do vão
@@ -1762,6 +1826,7 @@ class TreeRenderer:
             if track == CLADE_STRIP:
                 continue
             r0, r1 = geom.ring_bounds(i)
+            r0 += getattr(track, "margin", 0.0)
             ring_w = r1 - r0
             size = max(self.style.label.size * 0.85, 4)
             t = self._text(track.header, size)

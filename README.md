@@ -181,10 +181,18 @@ anotação; os outros continuam abrindo como árvore. A leitura roda em segundo 
 | `LABELS` | nomes de exibição das folhas |
 | `DATASET_COLORSTRIP` | faixa de cor (coluna ou anel), com `STRIP_WIDTH`, `SHOW_STRIP_LABELS`, legenda de `LEGEND_TITLE/COLORS/LABELS` (ou dos rótulos dos dados) e `COLOR_BRANCHES` |
 | `DATASET_STYLE` | `branch` / `label`, para `node` ou `clade`: cor, fator de espessura ou de tamanho, `dashed` ou estilo do texto e cor de fundo do rótulo |
+| `DATASET_SIMPLEBAR` | coluna de barras (`COLOR`, `WIDTH`, `MARGIN`, `SHOW_VALUE`; os valores de `DATASET_SCALE` viram linhas de referência no eixo) |
+| `DATASET_MULTIBAR` | barras empilhadas (`FIELD_COLORS`, `FIELD_LABELS`, `WIDTH`, `MARGIN`), com legenda das séries; `X` = sem dado na série |
+| `DATASET_HEATMAP` | matriz externa, uma coluna por campo (`FIELD_LABELS`): gradiente `COLOR_MIN` → `COLOR_MAX` ou com `USE_MID_COLOR`/`COLOR_MID`, limites `USER_MIN/MID/MAX_VALUE`, `X` = sem dado (`COLOR_NAN`), `STRIP_WIDTH` = largura da célula, `SHOW_VALUES`; legenda em barra de cor |
+| `DATASET_BINARY` | colunas de presença/ausência: `1` = forma cheia, `0` = vazada, `-1` = nada; `FIELD_SHAPES` 1 quadrado, 2 círculo, 3 estrela, 4 triângulo p/ direita, 5 triângulo p/ esquerda, 6 "check"; `FIELD_COLORS` (padrão `COLOR`) e `FIELD_LABELS` |
 
-Ainda **ignorados** (aparecem na lista com aviso): `DATASET_SIMPLEBAR`, `DATASET_MULTIBAR`,
-`DATASET_HEATMAP`, `DATASET_BINARY`, `DATASET_SYMBOL`, `DATASET_TEXT`, `COLLAPSE` (próximas
-etapas) e `POPUP_INFO`, `DATASET_RANGE`, `DATASET_PIECHART`, `DATASET_ALIGNMENT`,
+As colunas importadas funcionam em todos os layouts com colunas (retangular, diagonal, circular,
+leque), entram em *Ordem das colunas* (arrastar, ocultar), na legenda e na exportação
+SVG/PDF/PNG/TIFF. Ao selecionar o dataset, as cores de cada campo (e as do gradiente do heatmap)
+e os nomes dos campos podem ser editados.
+
+Ainda **ignorados** (aparecem na lista com aviso): `DATASET_SYMBOL`, `DATASET_TEXT`, `COLLAPSE`
+(próxima etapa) e `POPUP_INFO`, `DATASET_RANGE`, `DATASET_PIECHART`, `DATASET_ALIGNMENT`,
 `DATASET_CONNECTION`, entre outros.
 
 **Aproximações** em relação ao iTOL:
@@ -200,6 +208,20 @@ etapas) e `POPUP_INFO`, `DATASET_RANGE`, `DATASET_PIECHART`, `DATASET_ALIGNMENT`
   - não aparecem na árvore não enraizada.
 - **Opções do iTOL sem efeito:** de posição e borda (ex.: `LEGEND_POSITION_X`, `BORDER_WIDTH`, `MARGIN`) são lidas e ignoradas.
 - **`STRIP_WIDTH`:** é usado como largura da coluna, em pontos.
+- **Barras (`SIMPLEBAR`, `MULTIBAR`):**
+  - `WIDTH` vale em pontos, até 600 (o padrão do iTOL, 1000, é reduzido com aviso);
+  - as barras partem sempre do 0, então um `BAR_ZERO` diferente de 0 só gera aviso;
+  - `LOG_SCALE`, `SIDE_STACKED` e `ALIGN_FIELDS` são ignorados com aviso;
+  - no `SIMPLEBAR`, uma linha com valor não numérico (inclusive `X`) é ignorada;
+  - dos itens de `DATASET_SCALE` (`valor-rótulo-cor-…`), só o valor é usado.
+- **Heatmap:**
+  - a escala é linear de cada lado do `USER_MID_VALUE`;
+  - sem `USER_*`, os limites são o menor e o maior valor;
+  - a legenda omite o rótulo do meio quando ele fica perto das pontas.
+- **Presença/ausência:**
+  - a legenda mostra quadrados de cor, sem as formas;
+  - num clado colapsado, a forma sai cheia se alguma folha tem 1.
+- **IDs de nó interno nas colunas:** um ID `A|B` em barras, heatmap ou presença/ausência vale para todas as folhas do clado.
 
 ## Personalização (painel **Estilo**, à direita)
 
