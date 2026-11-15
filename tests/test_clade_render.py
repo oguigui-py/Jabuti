@@ -22,7 +22,8 @@ def render(qtbot):
 
     def _render(clades, layout=LayoutKind.RECTANGULAR, **clade_opts):
         scene = QGraphicsScene()
-        style = RenderStyle(layout=layout, clades=CladeStyle(**clade_opts))
+        # estes testes cobrem o modo "texto" (cor nas letras); o marca-texto tem testes próprios
+        style = RenderStyle(layout=layout, clades=CladeStyle(**{"label_mode": "text", **clade_opts}))
         res = TreeRenderer(scene).render(parse_newick_string(BIN), style, clades)
         return scene, res
 
@@ -63,7 +64,7 @@ def test_individual_color_overrides_palette(render):
 
 
 def test_coloring_options_off(render):
-    scene, res = render([Clade("abc", frozenset("ABC"))], color_branches=False, color_labels=False)
+    scene, res = render([Clade("abc", frozenset("ABC"))], color_branches=False, label_mode="none")
     assert branch_colors(scene) == {"#202020"}
     assert res.leaf_items["A"][0].brush().color().name() == "#202020"
 

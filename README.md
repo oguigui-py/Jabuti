@@ -287,10 +287,16 @@ Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PN
 - **Clados e paleta** — detecção automática por *número de clados (k)*, *suporte mínimo*
   (UFBoot, SH-aLRT ou ambos), *distância da raiz* (slider com linha de corte) ou *manual*
   (clique direito num nó → “Definir como clado”). Cada clado recebe uma cor da paleta; trocar
-  a paleta recolore, e clicar na amostra do clado escolhe uma cor própria. A cor pode ir para
-  ramos, rótulos (texto), rótulos (fundo, estilo marca-texto, com opacidade própria), faixa de
-  fundo translúcida e faixa externa (anel no circular, coluna no retangular) — opções
-  independentes e combináveis —, com nome do clado opcional (curvo ou radial no circular).
+  a paleta recolore, e clicar na amostra do clado escolhe uma cor própria. Nos nomes das
+  folhas, *Aplicar cor em* escolhe **Fundo do nome (marca-texto)** — o padrão: as folhas de
+  cada clado formam um bloco de fundo contínuo, com opacidade própria; clados vizinhos da
+  mesma cor se unem sem emenda e, de cores diferentes, se encostam sem vão branco; o texto
+  fica escuro, ou branco quando o fundo é escuro — ou **Texto** (as letras na cor do clado,
+  como nas versões anteriores). Projetos e presets antigos mantêm a aparência com que foram
+  salvos. Com o marca-texto, a amostra do clado na legenda da figura mostra a cor do fundo.
+  A cor também pode ir para os ramos, uma faixa de fundo translúcida e a faixa externa (anel
+  no circular, coluna no retangular), com nome do clado opcional (curvo ou radial no circular).
+  Na exportação para o iTOL, o marca-texto vira `label_background` no TREE_COLORS.
   O botão **Aa** na lista cria um grupo de rótulos com as folhas do clado. Lista com renomear
   (duplo clique), ocultar e remover; folhas fora de clados usam a cor neutra.
   Clados manuais sobrevivem a reenraizamentos (⚠ se deixarem de ser monofiléticos).

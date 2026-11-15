@@ -140,12 +140,16 @@ class ScaleBarStyle:
     length: float | None = None    # None = automático ("redondo")
 
 
+CLADE_LABEL_MODES = {"background": "Fundo do nome (marca-texto)", "text": "Texto", "none": "Nenhum"}
+
+
 @dataclass
 class CladeStyle:
     palette: str = "Tableau 10"
     color_branches: bool = True
-    color_labels: bool = True       # "Aplicar a rótulos (texto)"
-    label_background: bool = False  # "Aplicar a rótulos (fundo)": marca-texto na cor do clado
+    # rótulos das folhas: "background" = marca-texto na cor do clado (padrão), "text" = cor das
+    # letras, "none" = sem cor de clado (só aparece em arquivos antigos com as duas opções desligadas)
+    label_mode: str = "background"
     label_background_alpha: float = 0.35
     background: bool = False       # cunha/retângulo translúcido atrás do clado
     background_alpha: float = 0.18

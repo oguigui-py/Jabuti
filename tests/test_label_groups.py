@@ -126,13 +126,13 @@ def test_empty_fields_inherit_clade_color(render):
     gs = LabelGroupSet()
     gs.add("A", "selection", look=LabelLook(background="#ffe066"))   # sem cor de texto
     clades = [Clade("ab", frozenset("AB"), color="#123456")]
-    _, res = render(gs, clades=clades)
+    _, res = render(gs, clades=clades, label_mode="text")
     assert res.leaf_items["A"][0].brush().color().name() == "#123456"
 
 
 def test_clade_label_background_option(render):
     clades = [Clade("ab", frozenset("AB"), color="#123456")]
-    scene, res = render(None, clades=clades, label_background=True, color_labels=False,
+    scene, res = render(None, clades=clades, label_mode="background",
                         color_branches=False)
     assert set(res.label_backgrounds) == {"A", "B"}
     c = res.label_backgrounds["A"].brush().color()

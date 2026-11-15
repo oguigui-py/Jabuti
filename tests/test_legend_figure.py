@@ -24,9 +24,10 @@ def render(qtbot):
 
     from jabuti.views.tree_renderer import TreeRenderer
 
-    def _render(layout=LayoutKind.RECTANGULAR, position="top-right", in_figure=True, columns=None):
+    def _render(layout=LayoutKind.RECTANGULAR, position="top-right", in_figure=True, columns=None, mode="background"):
         scene = QGraphicsScene()
         style = RenderStyle(layout=layout, legend=LegendStyle(in_figure, position))
+        style.clades.label_mode = mode
         res = TreeRenderer(scene).render(parse_newick_string(BIN), style, CLADES, None, columns, legend=GROUPS)
         return scene, res
 
@@ -62,7 +63,13 @@ def test_content_matches_panel_legend(render):
     assert {"Clados", "abc", "fgh", "Grupos de rótulos", "Destaque", "Habitat", "solo", "rizosfera"} <= t
     squares = [i for i in legend_items(scene) if not hasattr(i, "text")]
     colors = {s.brush().color().name() for s in squares}
-    assert {"#4e79a7", "#e15759", "#b7e4a3", "#59a14f", "#edc948"} == colors
+    # marca-texto (padrão): a amostra do clado é a cor vista atrás dos nomes (35% sobre o branco)
+    from jabuti.models.color_rules import blend
+
+    assert {blend("#4e79a7", 0.35), blend("#e15759", 0.35), "#b7e4a3", "#59a14f", "#edc948"} == colors
+    scene, _ = render(mode="text")                       # cor nas letras: a cor cheia, como antes
+    squares = [i for i in legend_items(scene) if not hasattr(i, "text")]
+    assert {"#4e79a7", "#e15759"} <= {s.brush().color().name() for s in squares}
 
 
 @pytest.mark.parametrize("layout", [LayoutKind.RECTANGULAR, LayoutKind.CIRCULAR])

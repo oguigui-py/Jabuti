@@ -253,18 +253,30 @@ class StylePanel(QWidget):
 
         # aplicação
         v.addWidget(QLabel("Aplicar cor em:"))
+        # nomes das folhas: marca-texto (padrão) ou cor das letras — o mesmo fundo mesclado
+        # dos grupos de rótulos (sem vão entre vizinhos)
+        mrow = QHBoxLayout()
+        self.label_mode_bg = QRadioButton("Fundo do nome (marca-texto)")
+        self.label_mode_bg.setToolTip("Fundo na cor do clado atrás dos nomes; folhas vizinhas do mesmo clado formam "
+                                      "um bloco contínuo. O texto fica escuro (ou branco, se o fundo for escuro).")
+        self.label_mode_text = QRadioButton("Texto")
+        self.label_mode_text.setToolTip("Pinta as letras dos nomes com a cor do clado")
+        self.label_mode_group = QButtonGroup(self)
+        self.label_mode_group.addButton(self.label_mode_bg)
+        self.label_mode_group.addButton(self.label_mode_text)
+        self.label_mode_bg.setChecked(True)
+        mrow.addWidget(self.label_mode_bg)
+        mrow.addWidget(self.label_mode_text)
+        mrow.addStretch(1)
+        v.addLayout(mrow)
+        self.label_mode_group.buttonToggled.connect(lambda _b, on: on and self.changed.emit())
         grid = QGridLayout()
         self.opt_branches = QCheckBox("Ramos")
-        self.opt_labels = QCheckBox("Rótulos (texto)")
-        self.opt_label_bg = QCheckBox("Rótulos (fundo)")
-        self.opt_label_bg.setToolTip("Marca-texto atrás dos nomes, na cor do clado (não muda os ramos)")
         self.opt_background = QCheckBox("Faixa de fundo")
         self.opt_strip = QCheckBox("Faixa externa")
         self.opt_strip.setToolTip("Faixa de cor no anel externo (circular) ou coluna ao lado dos rótulos (retangular)")
         self.opt_branches.setChecked(True)
-        self.opt_labels.setChecked(True)
-        for i, cb in enumerate((self.opt_branches, self.opt_labels, self.opt_label_bg, self.opt_background,
-                                self.opt_strip)):
+        for i, cb in enumerate((self.opt_branches, self.opt_background, self.opt_strip)):
             grid.addWidget(cb, i // 2, i % 2)
             cb.toggled.connect(lambda _on: self.changed.emit())
         v.addLayout(grid)
@@ -718,8 +730,7 @@ class StylePanel(QWidget):
             cs = style.clades
             self.palette_buttons.get(cs.palette, next(iter(self.palette_buttons.values()))).setChecked(True)
             self.opt_branches.setChecked(cs.color_branches)
-            self.opt_labels.setChecked(cs.color_labels)
-            self.opt_label_bg.setChecked(cs.label_background)
+            self.set_label_mode(cs.label_mode)
             self.label_bg_alpha.setValue(round(cs.label_background_alpha * 100))
             self.opt_background.setChecked(cs.background)
             self.opt_strip.setChecked(cs.outer_strip)
@@ -1071,12 +1082,25 @@ class StylePanel(QWidget):
     def palette_colors(self) -> list[str]:
         return PALETTES[self.palette_name()]
 
+    def label_mode(self) -> str:
+        if self.label_mode_bg.isChecked():
+            return "background"
+        if self.label_mode_text.isChecked():
+            return "text"
+        return "none"
+
+    def set_label_mode(self, mode: str) -> None:
+        """"none" (arquivos antigos com as duas caixas desligadas): nenhum botão marcado."""
+        self.label_mode_group.setExclusive(False)
+        self.label_mode_bg.setChecked(mode == "background")
+        self.label_mode_text.setChecked(mode == "text")
+        self.label_mode_group.setExclusive(True)
+
     def apply_to(self, style: RenderStyle) -> RenderStyle:
         cs = style.clades
         cs.palette = self.palette_name()
         cs.color_branches = self.opt_branches.isChecked()
-        cs.color_labels = self.opt_labels.isChecked()
-        cs.label_background = self.opt_label_bg.isChecked()
+        cs.label_mode = self.label_mode()
         cs.label_background_alpha = self.label_bg_alpha.value() / 100
         cs.background = self.opt_background.isChecked()
         cs.outer_strip = self.opt_strip.isChecked()

@@ -175,8 +175,27 @@ def _from_dict(cls: type, data: Any, path: str, warnings: list[str]) -> Any:
     return obj
 
 
+def migrate_style_dict(data: Any) -> Any:
+    """Estilos antigos: ``clades.color_labels``/``clades.label_background`` (duas caixas) viram
+    ``clades.label_mode``, mantendo a aparência do arquivo. Sem nenhum dos três: padrão (fundo)."""
+    if not isinstance(data, dict) or not isinstance(data.get("clades"), dict):
+        return data
+    cl = dict(data["clades"])
+    old_text, old_bg = cl.pop("color_labels", None), cl.pop("label_background", None)
+    if "label_mode" not in cl and (old_text is not None or old_bg is not None):
+        cl["label_mode"] = "background" if old_bg else "text" if (old_text is None or old_text) else "none"
+    return {**data, "clades": cl}
+
+
 def style_from_dict(data: Any, warnings: list[str] | None = None) -> RenderStyle:
-    return _from_dict(RenderStyle, data, "style", warnings if warnings is not None else [])
+    warnings = warnings if warnings is not None else []
+    style = _from_dict(RenderStyle, migrate_style_dict(data), "style", warnings)
+    from jabuti.style import CLADE_LABEL_MODES
+
+    if style.clades.label_mode not in CLADE_LABEL_MODES:
+        warnings.append(f"Valor inválido em “style.clades.label_mode”: {style.clades.label_mode!r} (usando fundo).")
+        style.clades.label_mode = "background"
+    return style
 
 
 # ---------------------------------------------------------------- preset

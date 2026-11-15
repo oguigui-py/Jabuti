@@ -83,10 +83,11 @@ def scenarios():  # type: ignore[no-untyped-def]
     clades = [Clade(f"C{i}", s, None, True, "auto") for i, s in enumerate(clades_by_k(tree, 4))]
     names = tree.leaf_names()
 
-    def run(layout, full: bool, merge: bool = False):  # type: ignore[no-untyped-def]
+    def run(layout, full: bool, merge: bool = False, mode: str = "text"):  # type: ignore[no-untyped-def]
         def draw():  # type: ignore[no-untyped-def]
             scene = QGraphicsScene()
             st = RenderStyle(layout=layout, merge_backgrounds=merge)
+            st.clades.label_mode = mode          # cenários antigos: cor nas letras (como gravados)
             kw = {}
             if full:
                 st.clades.outer_strip = True
@@ -118,6 +119,13 @@ def scenarios():  # type: ignore[no-untyped-def]
         # padrão atual: fundos vizinhos unidos (os de cima: modo antigo, idêntico ao desenho original)
         ("rect-full-merged", run(LayoutKind.RECTANGULAR, True, True)),
         ("circ-full-merged", run(LayoutKind.CIRCULAR, True, True)),
+        # clados com fundo nos nomes (marca-texto, padrão desde o formato 2), fundos unidos
+        ("rect-marca-texto", run(LayoutKind.RECTANGULAR, False, True, "background")),
+        ("circ-marca-texto", run(LayoutKind.CIRCULAR, False, True, "background")),
+        ("fan-marca-texto", run(LayoutKind.FAN, False, True, "background")),
+        ("slanted-marca-texto", run(LayoutKind.SLANTED, False, True, "background")),
+        ("unrooted-marca-texto", run(LayoutKind.UNROOTED, False, True, "background")),
+        ("rect-full-marca-texto", run(LayoutKind.RECTANGULAR, True, True, "background")),
     ]
 
 

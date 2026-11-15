@@ -36,7 +36,7 @@ def custom_style() -> RenderStyle:
         support=SupportStyle(mode="symbols", index=0, threshold=80, symbol_size=9, size_by_value=True, color="#aabbcc"),
         symbols=SymbolStyle(shape="diamond", size=7, color="#ddeeff", use_clade_color=False),
         scale_bar=ScaleBarStyle(show=False, position="top-right", length=0.05),
-        clades=CladeStyle(palette="Set2", color_branches=False, color_labels=False, background=True,
+        clades=CladeStyle(palette="Set2", color_branches=False, label_mode="none", background=True,
                           background_alpha=0.3, outer_strip=True, strip_width=20, show_names=True,
                           name_mode="radial", neutral_color="#123123"),
         background=None,

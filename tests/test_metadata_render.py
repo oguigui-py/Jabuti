@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from jabuti.models.annotations import GRADIENT, gradient_color, metadata_colors, metadata_column  # noqa: E402
 from jabuti.models.clades import Clade  # noqa: E402
 from jabuti.parsers.newick import parse_newick_string  # noqa: E402
-from jabuti.style import LayoutKind, MetadataStyle, RenderStyle  # noqa: E402
+from jabuti.style import CladeStyle, LayoutKind, MetadataStyle, RenderStyle  # noqa: E402
 
 PAL = ["#111111", "#222222", "#333333"]
 ROWS = {
@@ -84,7 +84,7 @@ def branch_colors(scene):
 
 def test_meta_labels_override_clades(draw):
     clades = [Clade("ab", frozenset("AB"), color="#0000ff")]
-    _, res = draw(RenderStyle(), META, clades=clades)
+    _, res = draw(RenderStyle(clades=CladeStyle(label_mode="text")), META, clades=clades)
     assert res.leaf_items["A"][0].brush().color().name() == "#aa0000"
     assert res.leaf_items["D"][0].brush().color().name() == "#8a8a8a"  # sem metadado: regra dos clados (neutro)
 

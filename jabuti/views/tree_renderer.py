@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 from jabuti.layout.circular import CircGeometry, circular_geometry, circular_layout
 from jabuti.layout.rectangular import rectangular_layout, visible_nodes
-from jabuti.models.color_rules import ColorRules, propagate_meta
+from jabuti.models.color_rules import ColorRules, blend, propagate_meta
 from jabuti.models.clades import Clade, ResolvedClade, resolve_clades
 from jabuti.models.annotations import ContextGene, LeafColumn, LegendGroup, context_extent
 from jabuti.models.document import TreeEdits, collapsed_nodes
@@ -369,7 +369,14 @@ class TreeRenderer:
         else:
             self._render_rectangular(tree, style, res)
         if style.legend.in_figure:
-            clade_entries = [(rc.clade.name, rc.color) for rc in res.clades if rc.valid and rc.clade.visible]
+            cs = style.clades
+            if cs.label_mode == "background":
+                # a amostra mostra a cor que se vê atrás dos nomes (marca-texto)
+                under = style.background or "#ffffff"
+                clade_entries = [(rc.clade.name, blend(rc.color, cs.label_background_alpha, under))
+                                 for rc in res.clades if rc.valid and rc.clade.visible]
+            else:
+                clade_entries = [(rc.clade.name, rc.color) for rc in res.clades if rc.valid and rc.clade.visible]
             sections = ([LegendGroup("Clados", clade_entries)] if clade_entries else [])
             sections += [g for g in (legend or []) if not g.is_empty()]
             self._draw_legend(sections)

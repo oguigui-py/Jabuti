@@ -29,6 +29,42 @@ class LabelPaint:
     radius: float = 3.0
 
 
+def _linear(c: float) -> float:
+    c /= 255.0
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _hex_rgb(color: str) -> tuple[int, int, int]:
+    h = color.strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(ch * 2 for ch in h)
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def blend(color: str, alpha: float, under: str = "#ffffff") -> str:
+    """Cor vista de ``color`` com opacidade ``alpha`` sobre ``under`` (hex)."""
+    a = max(0.0, min(alpha, 1.0))
+    top, bot = _hex_rgb(color), _hex_rgb(under)
+    return "#" + "".join(f"{round(t * a + b * (1 - a)):02x}" for t, b in zip(top, bot))
+
+
+def luminance(color: str) -> float:
+    r, g, b = (_linear(c) for c in _hex_rgb(color))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast_ratio(a: str, b: str) -> float:
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def readable_text(background: str, alpha: float = 1.0, under: str = "#ffffff",
+                  dark: str = "#202020", light: str = "#ffffff") -> str:
+    """Texto escuro ou branco, o de maior contraste (WCAG) com o fundo visto."""
+    seen = blend(background, alpha, under)
+    return light if contrast_ratio(light, seen) > contrast_ratio(dark, seen) else dark
+
+
 def propagate_meta(tree: Tree, leaf_colors: dict[str, str]) -> dict[Node, str]:
     """Cor de metadado por nó: a da folha, ou a comum a todos os descendentes."""
     out: dict[Node, str] = {}
@@ -115,7 +151,7 @@ class ColorRules:
         if md.color_labels and leaf in self.meta_node:
             return self.meta_node[leaf]
         cs = self.style.clades
-        if self.has_clades and cs.color_labels:
+        if self.has_clades and cs.label_mode == "text":
             rc = self.clade_of(leaf)
             return rc.color if rc else cs.neutral_color
         return self.style.label.color
@@ -136,10 +172,15 @@ class ColorRules:
         cs = self.style.clades
         if look is not None and look.background:
             paint.background, paint.background_alpha = look.background, look.background_alpha
-        elif cs.label_background and self.has_clades:
+        elif cs.label_mode == "background" and self.has_clades:
             rc = self.clade_of(leaf)
             if rc is not None:
                 paint.background, paint.background_alpha = rc.color, cs.label_background_alpha
         if paint.background and look is not None:
             paint.padding, paint.radius = look.padding, look.radius
+        # texto na cor padrão sobre fundo escuro: branco (contraste)
+        if paint.background and paint.color.lower() == lab.color.lower() and not (look and look.text_color):
+            under = self.style.background or "#ffffff"
+            if readable_text(paint.background, paint.background_alpha, under, dark=lab.color) != lab.color:
+                paint.color = "#ffffff"
         return paint

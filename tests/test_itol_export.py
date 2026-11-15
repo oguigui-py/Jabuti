@@ -166,7 +166,7 @@ def test_roundtrip_jabuti_features(window, qtbot, tmp_path):
     sp, fp = window.style_panel, window.figure_panel
     sp.detect()
     sp.opt_background.setChecked(True)
-    sp.opt_label_bg.setChecked(True)
+    sp.label_mode_bg.setChecked(True)
     names = window.tree.leaf_names()
     sp.label_panel.style_leaves(names[5:8], text_color="#aa0000", bold=True)
     window.metadata_tab.load("examples/metadata.tsv")

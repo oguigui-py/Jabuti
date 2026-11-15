@@ -21,7 +21,7 @@ from typing import Any, Callable
 from jabuti.parsers.errors import JabutiParseError
 
 PROJECT_FORMAT = "jabuti-project"
-PROJECT_VERSION = 1
+PROJECT_VERSION = 2
 PROJECT_SUFFIX = ".jabuti"
 BUNDLE_DATA_DIR = "dados"
 BUNDLE_MAX_BYTES = 20 * 1024 * 1024        # arquivos maiores não entram no pacote
@@ -84,7 +84,21 @@ def _v0_to_v1(data: dict) -> dict:
     return out
 
 
-MIGRATIONS: dict[int, Callable[[dict], dict]] = {0: _v0_to_v1}
+def _v1_to_v2(data: dict) -> dict:
+    """Formato 2: cor dos clados nos nomes vira ``clades.label_mode`` (fundo/texto); os
+    projetos antigos mantêm a aparência (as duas caixas antigas são convertidas)."""
+    from jabuti.presets import migrate_style_dict
+
+    out = dict(data)
+    view = dict(out.get("view") or {})
+    if isinstance(view.get("style"), dict):
+        view["style"] = migrate_style_dict(view["style"])
+    out["view"] = view
+    out["version"] = 2
+    return out
+
+
+MIGRATIONS: dict[int, Callable[[dict], dict]] = {0: _v0_to_v1, 1: _v1_to_v2}
 
 
 def migrate(data: dict) -> tuple[dict, list[str]]:
