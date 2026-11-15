@@ -251,3 +251,31 @@ def test_log_bars_from_panel_note_and_preset(window, tmp_path):
     fp.load_style(back)
     fp.bar_list.setCurrentRow(0)
     assert fp.bar_log.isChecked()
+
+
+# ------------------------------------------------------------------ texto x símbolo no mesmo ponto
+def test_symbol_clearance_geometry():
+    from jabuti.views.tree_renderer import symbol_clearance
+
+    p = QPointF(0, 0)
+    assert symbol_clearance(p, 20.0, []) == 0.0
+    assert symbol_clearance(p, 20.0, [(QPointF(5, 0), 10.0)]) == 5.0          # dentro do texto
+    assert symbol_clearance(p, 20.0, [(QPointF(40, 0), 10.0)]) == 0.0         # longe
+    assert symbol_clearance(p, 20.0, [(QPointF(3, 0), 6.0), (QPointF(-2, 0), 12.0)]) == 6.0   # o maior
+
+
+@pytest.mark.parametrize("layout", [LayoutKind.RECTANGULAR, LayoutKind.CIRCULAR, LayoutKind.UNROOTED])
+@pytest.mark.parametrize("orientation", ["along", "tangent", "horizontal"])
+def test_branch_text_moves_off_coinciding_symbol(window, layout, orientation):
+    from PySide6.QtGui import QPainterPath
+
+    # "clado A" (texto) e o círculo vermelho (símbolo) estão na posição 0,5 do mesmo ramo
+    window.figure_panel.itol.import_files([SYMBOL, TEXT], wait=True)
+    _with_style(window, layout=layout, branch_text=BranchTextStyle(orientation, 2.0, False))
+    text = next(t for t in _branch_texts(window) if t.text() == "clado A")
+    assert text.data(3) > 0                                                   # foi afastado
+    poly = QPainterPath()
+    poly.addPolygon(text.mapToScene(text.boundingRect()))
+    symbols = [i for i in window.renderer.scene.items() if i.data(1) == "itol-symbol"]
+    assert not any(i.mapToScene(i.path()).intersects(poly) for i in symbols)
+    assert not window.shown

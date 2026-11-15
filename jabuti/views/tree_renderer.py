@@ -236,6 +236,17 @@ def branch_text_pose(a: QPointF, b: QPointF, p: QPointF, w: float, h: float, ori
     return q - origin, origin, ang
 
 
+def symbol_clearance(p: QPointF, half_extent: float, symbols: list[tuple[QPointF, float]]) -> float:
+    """Afastamento extra de um texto centrado em ``p`` (meia extensão ao longo do ramo
+    ``half_extent``) para não cobrir símbolos do mesmo ramo: a metade do maior símbolo que
+    cai dentro do texto; 0 se nenhum."""
+    extra = 0.0
+    for c, size in symbols:
+        if math.hypot(c.x() - p.x(), c.y() - p.y()) < half_extent + size / 2:
+            extra = max(extra, size / 2)
+    return extra
+
+
 class _EdgeBatch:
     """Agrupa segmentos por (cor, espessura) em poucos QGraphicsPathItem."""
 
@@ -541,29 +552,41 @@ class TreeRenderer:
         return t
 
     def _draw_marks(self, seg_of) -> None:  # type: ignore[no-untyped-def]
-        """Símbolos e textos do iTOL sobre os ramos (posição 0–1 do ramo que chega ao nó)."""
+        """Símbolos e textos do iTOL sobre os ramos (posição 0–1 do ramo que chega ao nó).
+
+        Símbolos primeiro: um texto que cairia sobre um símbolo do mesmo ramo é afastado do
+        ramo pela metade do símbolo, além da distância mínima."""
+        placed: dict[int, list[tuple[QPointF, float]]] = {}      # id(nó) -> (centro, tamanho)
+        texts = []
         for m in self._marks:
             seg = seg_of(m.node)
             if seg is None:
                 continue
             a, b = seg
-            f = max(0.0, min(m.frac, 1.0))
-            p = a + (b - a) * f
-            if m.kind == "symbol":
-                size = self.style.label.size * 1.3 * max(min(m.size, 1.0), 0.05)
-                item = self._shape_item(m.shape, m.filled, p, size, m.color)
-                item.setData(1, TAG_ITOL_SYMBOL)
-                item.setZValue(2)
+            p = a + (b - a) * max(0.0, min(m.frac, 1.0))
+            if m.kind != "symbol":
+                texts.append((m, a, b, p))
                 continue
+            size = self.style.label.size * 1.3 * max(min(m.size, 1.0), 0.05)
+            item = self._shape_item(m.shape, m.filled, p, size, m.color)
+            item.setData(1, TAG_ITOL_SYMBOL)
+            item.setZValue(2)
+            placed.setdefault(id(m.node), []).append((p, size))
+        bt = self.style.figure.branch_text
+        for m, a, b, p in texts:
             t = self._styled_text(m.text, m.color, (m.bold, m.italic, m.size))
             t.setData(1, TAG_ITOL_TEXT)
             t.setZValue(2)
             br = t.boundingRect()
-            bt = self.style.figure.branch_text
-            pos, origin, rot = branch_text_pose(a, b, p, br.width(), br.height(), bt.orientation, bt.offset)
+            # quanto o texto ocupa ao longo do ramo, a partir de p (tangente: só a altura)
+            half = br.height() / 2 if bt.orientation == "tangent" else br.width() / 2
+            extra = symbol_clearance(p, half, placed.get(id(m.node), []))
+            pos, origin, rot = branch_text_pose(a, b, p, br.width(), br.height(), bt.orientation,
+                                                bt.offset + extra)
             t.setTransformOriginPoint(origin)
             t.setRotation(rot + m.rotation)
             t.setPos(pos)
+            t.setData(3, extra)
             if bt.halo:
                 self._add_halo(t)
 
