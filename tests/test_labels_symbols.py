@@ -1,8 +1,6 @@
 """Rótulos (fonte), símbolos nas pontas, suporte como símbolos e barra de escala."""
 
-import math
 import os
-import re
 
 import pytest
 

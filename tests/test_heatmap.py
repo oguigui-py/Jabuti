@@ -13,7 +13,7 @@ from jabuti.models.annotations import (  # noqa: E402
     presence_matrix,
 )
 from jabuti.parsers.gff import GeneQuery, parse_gff3  # noqa: E402
-from jabuti.parsers.newick import load_tree, parse_newick_string  # noqa: E402
+from jabuti.parsers.newick import parse_newick_string  # noqa: E402
 from jabuti.style import HeatmapStyle, LayoutKind, RenderStyle  # noqa: E402
 
 GFF = "tests/data/gff"
