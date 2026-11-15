@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
         self.viz_tab.layout_cb.currentIndexChanged.connect(self._layout_changed)
         for w in (self.viz_tab.fan_angle, self.viz_tab.fan_start, self.viz_tab.rotation):
             w.valueChanged.connect(self._live_timer.start)
-        for w in (self.viz_tab.mirror, self.viz_tab.daylight):
+        for w in (self.viz_tab.mirror, self.viz_tab.daylight, self.viz_tab.avoid_overlap):
             w.toggled.connect(self._live_timer.start)
         self.metadata_tab.changed.connect(self._live_timer.start)
         self.metadata_tab.columns_changed.connect(self._metadata_columns_changed)

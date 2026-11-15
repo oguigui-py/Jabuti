@@ -371,8 +371,13 @@ escala dos ramos, espaço entre folhas e exportação.
   *girar* e *espelhar*. Cores de clados (ramos e rótulos), grupos de rótulos, suporte (números,
   símbolos e níveis), colapso (leque triangular), ramo encurtado e barra de escala funcionam;
   colunas de dados, faixa/fundo/nome de clado e alinhar pontas não se aplicam (os controles
-  ficam desativados com uma dica, e a barra de status avisa). Com ramos internos muito curtos
-  os rótulos podem se encostar: aumente a *Escala dos ramos* ou ligue o *daylight*.
+  ficam desativados com uma dica, e a barra de status avisa). **Evitar sobreposição de
+  rótulos** (ligado por padrão, só neste layout): os nomes que se encostariam são afastados
+  para fora ou girados alguns graus; quando não há lugar perto, o nome vai mais para fora e
+  ganha uma linha fina até a folha. Só os textos se movem: as folhas e os ramos ficam onde
+  estão. O resultado é sempre o mesmo para a mesma árvore e vale na tela, nas exportações,
+  no lote e no projeto (no exemplo de 40 folhas, de 30 sobreposições para nenhuma; ~0,3 s com
+  500 folhas).
 
 Todos respeitam reenraizamento, ladderize, colapso, folhas ocultas, ramo encurtado e a
 exportação SVG/PDF/PNG/TIFF.

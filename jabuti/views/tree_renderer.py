@@ -47,6 +47,7 @@ TAG_COLUMN_HEADER = "column-header"
 TAG_CONTEXT = "gene-context"
 TAG_LABEL_BG = "label-background"
 TAG_LEGEND = "legend"
+TAG_LABEL_GUIDE = "label-guide"   # linha da folha até o rótulo afastado (não enraizada)
 TAG_BAR = "bar"
 TAG_BAR_MISSING = "bar-missing"
 TAG_BAR_REF = "bar-reference"
@@ -1918,6 +1919,7 @@ class TreeRenderer:
         for hl in self._highlights:
             for name in hl.leaves:
                 hl_by_leaf[name] = hl
+        pending = []
         for leaf in lay.leaf_order:
             p = pt(leaf)
             res.leaf_points[leaf.name] = p
@@ -1926,7 +1928,15 @@ class TreeRenderer:
             ang = lay.edge_angle(leaf) if leaf.parent is not None else 0.0
             spec = self._label_spec(leaf)
             item = self._leaf_text(leaf, spec)
-            anchor = p + QPointF(math.cos(ang), math.sin(ang)) * (pad + self._marker / 2 + spec.pad)
+            pending.append((leaf, p, ang, spec, item, pad + self._marker / 2 + spec.pad))
+        placed = self._unrooted_label_positions(pending, row_h) if style.unrooted.avoid_overlap else {}
+        for leaf, p, ang, spec, item, start in pending:
+            where = placed.get(leaf.name)
+            if where is not None:
+                ang, start = where.angle, where.offset + spec.pad
+                if where.guide:
+                    self._label_guide(p, ang, start - spec.pad)
+            anchor = p + QPointF(math.cos(ang), math.sin(ang)) * start
             self._rotate_radial(item, anchor, ang)
             res.leaf_items.setdefault(leaf.name, []).append(item)
             self._label_background(leaf, item, spec, row_h - 1, res)
@@ -1957,6 +1967,36 @@ class TreeRenderer:
         self._support_items(tree, style, place, pt)
         if lay.uses_lengths and lay.extent > 0:
             self._scale_bar(lay.extent, scale, row_h)
+
+    def _unrooted_label_positions(self, pending: list, row_h: float) -> dict:  # type: ignore[type-arg]
+        """Ajuste dos rótulos (só os textos se movem; folhas e ramos ficam onde estão)."""
+        from jabuti.layout.label_placement import LabelBox, place_labels
+
+        boxes = []
+        for leaf, p, ang, spec, item, start in pending:
+            br = item.boundingRect()
+            boxes.append(LabelBox(leaf.name, p.x(), p.y(), ang, start - spec.pad, br.width() + 2 * spec.pad,
+                                  min(br.height() + 2 * spec.pad, max(row_h, br.height()))))
+        out = {pl.key: pl for pl in place_labels(boxes)}
+        self.label_moves = sum(1 for b in boxes if (out[b.key].angle, out[b.key].offset) != (b.angle, b.offset))
+        unresolved = sum(1 for pl in out.values() if not pl.resolved)
+        if unresolved:
+            self.notes.append(f"{unresolved} rótulo(s) sem lugar livre na árvore não enraizada")
+        return out
+
+    def _label_guide(self, leaf_point: QPointF, ang: float, start: float) -> None:
+        """Linha fina da folha até o rótulo afastado."""
+        u = QPointF(math.cos(ang), math.sin(ang))
+        path = QPainterPath()
+        path.moveTo(leaf_point + u * (self._marker / 2 + 1.0))
+        path.lineTo(leaf_point + u * max(start - 1.0, self._marker / 2 + 1.0))
+        item = QGraphicsPathItem(path)
+        pen = QPen(QColor("#9a9a9a"), 0.5)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        item.setPen(pen)
+        item.setZValue(-0.5)
+        item.setData(1, TAG_LABEL_GUIDE)
+        self.scene.addItem(item)
 
     def _fan_headers(self, lay, geom: CircGeometry, pt) -> None:  # type: ignore[no-untyped-def]
         """Leque: nomes das colunas/anéis no vão, logo antes do início do arco, um por anel."""

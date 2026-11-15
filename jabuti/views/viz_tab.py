@@ -67,6 +67,10 @@ class VizTab(QWidget):
         self.mirror = QCheckBox("Espelhar")
         self.daylight = QCheckBox("Refinar (daylight)")
         self.daylight.setToolTip("Gira as subárvores para igualar os vãos entre elas (mais lento em árvores grandes)")
+        self.avoid_overlap = QCheckBox("Evitar sobreposição de rótulos")
+        self.avoid_overlap.setChecked(True)
+        self.avoid_overlap.setToolTip("Afasta ou gira um pouco os nomes que se encostam; se não houver lugar perto, "
+                                      "o nome vai mais para fora com uma linha fina até a folha. A árvore não muda.")
         self.branch_scale = QSpinBox()
         self.branch_scale.setRange(10, 1000)
         self.branch_scale.setSuffix(" %")
@@ -94,8 +98,12 @@ class VizTab(QWidget):
         ur_row.addWidget(self.rotation)
         ur_row.addWidget(self.mirror)
         ur_row.addWidget(self.daylight)
+        ur_col = QVBoxLayout()
+        ur_col.setContentsMargins(0, 0, 0, 0)
+        ur_col.addLayout(ur_row)
+        ur_col.addWidget(self.avoid_overlap)
         self.ur_box = QWidget()
-        self.ur_box.setLayout(ur_row)
+        self.ur_box.setLayout(ur_col)
         form.addRow("Não enraizada:", self.ur_box)
         form.addRow(self.use_lengths)
         form.addRow(self.align_tips)
@@ -160,6 +168,7 @@ class VizTab(QWidget):
         self.rotation.setValue(round(style.unrooted.rotation) % 360)
         self.mirror.setChecked(style.unrooted.mirror)
         self.daylight.setChecked(style.unrooted.daylight)
+        self.avoid_overlap.setChecked(style.unrooted.avoid_overlap)
         self._sync_layout_options()
 
     def render_style(self) -> RenderStyle:
@@ -170,5 +179,6 @@ class VizTab(QWidget):
             use_lengths=self.use_lengths.isChecked(),
             align_tips=self.align_tips.isChecked(),
             fan=FanStyle(float(self.fan_angle.value()), float(self.fan_start.value())),
-            unrooted=UnrootedStyle(float(self.rotation.value()), self.mirror.isChecked(), self.daylight.isChecked()),
+            unrooted=UnrootedStyle(float(self.rotation.value()), self.mirror.isChecked(), self.daylight.isChecked(),
+                                   self.avoid_overlap.isChecked()),
         )

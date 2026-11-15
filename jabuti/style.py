@@ -347,6 +347,7 @@ class UnrootedStyle:
     rotation: float = 0.0           # graus
     mirror: bool = False
     daylight: bool = False          # refinamento "equal daylight" (Felsenstein)
+    avoid_overlap: bool = True      # afastar/girar rótulos que se sobrepõem (só os textos)
 
 
 @dataclass
