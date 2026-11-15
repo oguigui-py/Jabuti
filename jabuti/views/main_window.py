@@ -314,6 +314,8 @@ class MainWindow(QMainWindow):
         exp.addSeparator()
         act["export_itol"] = self._action(exp, "Para o iTOL…", lambda: self.export_itol(), "Ctrl+Shift+E",
                                           "Árvore + um arquivo por anotação, no formato do iTOL")
+        act["batch"] = self._action(m, "Exportar em lote…", lambda: self.batch_export(), "Ctrl+Shift+B",
+                                    "Vários layouts e/ou presets em vários formatos, de uma vez")
         m.addSeparator()
         act["quit"] = self._action(m, "Sair", self.close, SK.Quit)
         act["quit"].setMenuRole(QAction.MenuRole.QuitRole)
@@ -906,31 +908,7 @@ class MainWindow(QMainWindow):
             self.style_panel.set_tree(self.tree, style.use_lengths)
         edits = self.style_panel.edits
         try:
-            self.display_tree = apply_edits(self.tree, edits)
-            self._itol_cache = None
-            itol = self.itol_effects(style)
-            columns, groups, meta_colors = self.annotation_columns(style)
-            context, ctx_group = self.context_tracks(style)
-            if ctx_group is not None:
-                groups.append(ctx_group)
-            label_groups = self.style_panel.label_groups
-            groups.extend(self._label_legend(label_groups))
-            if itol.label_groups:       # estilos do iTOL por baixo dos grupos do usuário (os seus vencem)
-                label_groups = LabelGroupSet(itol.label_groups + label_groups.groups, label_groups.show_in_legend)
-            lv = style.figure.support_levels
-            if lv.enabled and lv.legend and self.display_tree.max_support_values():
-                from jabuti.models.support import level_labels, value_name
-
-                name = value_name(lv.index, self.display_tree.max_support_values())
-                groups.append(LegendGroup(f"Suporte ({name})", list(zip(level_labels(lv.cutoffs), lv.colors))))
-            if self.display_tree.broken and style.figure.break_legend:
-                groups.append(LegendGroup("Escala", [(f"// {style.figure.break_legend_text}", None)]))
-            result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
-                                          edits.collapsed, columns, meta_colors, context, label_groups,
-                                          legend=groups, hidden=edits.hidden,
-                                          names=self.display_names(style), highlights=edits.highlights,
-                                          branch_looks=itol.branch_looks, ranges=itol.ranges,
-                                          marks=itol.marks)
+            result, groups, meta_colors, label_groups, itol, context = self._render_with(style, self.renderer)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
@@ -957,6 +935,54 @@ class MainWindow(QMainWindow):
         project = getattr(self, "project", None)
         if project is not None:
             project.update_dirty()
+
+    def _render_with(self, style: RenderStyle, renderer: TreeRenderer):  # type: ignore[no-untyped-def]
+        """Monta as entradas a partir dos painéis e desenha com ``renderer``.
+
+        Devolve (resultado, grupos de legenda, cores de metadado, grupos de rótulo, iTOL, contexto)."""
+        edits = self.style_panel.edits
+        self.display_tree = apply_edits(self.tree, edits)
+        self._itol_cache = None
+        itol = self.itol_effects(style)
+        columns, groups, meta_colors = self.annotation_columns(style)
+        context, ctx_group = self.context_tracks(style)
+        if ctx_group is not None:
+            groups.append(ctx_group)
+        label_groups = self.style_panel.label_groups
+        groups.extend(self._label_legend(label_groups))
+        if itol.label_groups:       # estilos do iTOL por baixo dos grupos do usuário (os seus vencem)
+            label_groups = LabelGroupSet(itol.label_groups + label_groups.groups, label_groups.show_in_legend)
+        lv = style.figure.support_levels
+        if lv.enabled and lv.legend and self.display_tree.max_support_values():
+            from jabuti.models.support import level_labels, value_name
+
+            name = value_name(lv.index, self.display_tree.max_support_values())
+            groups.append(LegendGroup(f"Suporte ({name})", list(zip(level_labels(lv.cutoffs), lv.colors))))
+        if self.display_tree.broken and style.figure.break_legend:
+            groups.append(LegendGroup("Escala", [(f"// {style.figure.break_legend_text}", None)]))
+        result = renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
+                                 edits.collapsed, columns, meta_colors, context, label_groups,
+                                 legend=groups, hidden=edits.hidden,
+                                 names=self.display_names(style), highlights=edits.highlights,
+                                 branch_looks=itol.branch_looks, ranges=itol.ranges,
+                                 marks=itol.marks)
+        return result, groups, meta_colors, label_groups, itol, context
+
+    def render_to_scene(self, style: RenderStyle, scene):  # type: ignore[no-untyped-def]
+        """Desenha a figura com ``style`` numa cena própria (exportação em lote).
+
+        Não toca na tela nem nos painéis: o estado que o desenho atualiza é restaurado."""
+        if self.tree is None:
+            raise ValueError("Abra uma árvore primeiro.")
+        saved = {k: getattr(self, k, None) for k in ("display_tree", "_itol_cache", "_render_notes", "_export_blocks")}
+        self._render_notes = []
+        try:
+            result = self._render_with(style, TreeRenderer(scene))[0]
+            notes = list(self._render_notes) + [n for n in result.notes if n not in self._render_notes]
+        finally:
+            for k, v in saved.items():
+                setattr(self, k, v)
+        return result, notes
 
     def _make_snapshot(self, style, result, meta_colors, label_groups, itol, context):  # type: ignore[no-untyped-def]
         """O que acabou de ser desenhado, para a exportação iTOL."""
@@ -1131,6 +1157,31 @@ class MainWindow(QMainWindow):
             return
         QApplication.restoreOverrideCursor()
         self.statusBar().showMessage(f"Exportado: {path}")
+
+    def batch_export(self, request=None, show_progress: bool = True):  # type: ignore[no-untyped-def]
+        """Exportação em lote (diálogo → progresso → resumo). ``request`` pula o diálogo (testes)."""
+        from PySide6.QtWidgets import QDialog
+
+        from jabuti.views.batch_export import BatchDialog, BatchRunner, show_report
+
+        if self.tree is None:
+            show_error(self, Exception("Abra uma árvore primeiro."), "Exportar em lote")
+            return None
+        if request is None:
+            dlg = BatchDialog(self)
+            if dlg.exec() != QDialog.DialogCode.Accepted:
+                return None
+            request = dlg.request()
+        runner = BatchRunner(self, request, show_progress)
+        self._batch_runner = runner              # acessível nos testes
+        report = runner.run()
+        if report is not None:
+            show_report(self, report, request.dest)
+            self.statusBar().showMessage(
+                f"Lote: {len(report.generated)} arquivo(s) em {request.dest}"
+                + (f"; {len(report.failed)} com erro" if report.failed else "")
+                + (f"; {len(report.skipped)} pulado(s)" if report.skipped else ""), 12000)
+        return report
 
     def export_itol(self, dest: str | None = None, as_zip: bool | None = None) -> Path | None:
         """Resumo do que será gerado + avisos; depois grava a pasta ou o .zip.

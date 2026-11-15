@@ -406,6 +406,27 @@ ao abrir; um de versão mais nova do Jabuti é recusado com uma mensagem, sem ab
 
 `*.jabuti` está no `.gitignore`, para um projeto salvo dentro do repositório não ser versionado.
 
+## Exportação em lote
+
+*Arquivo → Exportar em lote…* (Cmd/Ctrl+Shift+B) gera várias figuras de uma vez:
+
+- **Layouts:** qualquer combinação de retangular, diagonal, circular, leque e não enraizada.
+- **Estilos:** o estilo atual do projeto e/ou presets (`.json` de *Estilo → Presets*). Um preset
+  muda **só o visual** (cores, fontes, ramos, rótulos, legenda…); colunas, anotações iTOL, nomes,
+  ordem das colunas, metadados usados e comprimentos de ramo continuam os do projeto.
+- **Formatos:** SVG, PDF, PNG e TIFF, com o dpi de PNG e TIFF e a compressão LZW.
+- **Pasta e nome dos arquivos:** modelo com `{projeto}`, `{layout}`, `{preset}` e `{ext}`
+  (padrão `{projeto}_{layout}_{preset}.{ext}`), com prévia no diálogo. Nomes repetidos no
+  lote ganham `_2`, `_3`…; arquivos que já existem na pasta só são sobrescritos com
+  confirmação (*Sobrescrever*, *Pular existentes* ou *Cancelar*).
+
+Durante a exportação, uma barra mostra “Exportando… n de N” com *Cancelar*, que vale a partir
+do item seguinte (um PNG enorme já começado termina). Um erro num item não interrompe os outros.
+PNG/TIFF acima do limite de 30.000 px por lado são pulados com o motivo. No fim, um resumo
+lista o que foi gerado, o que foi pulado e o que falhou, com o motivo de cada um. A janela não
+muda: cada figura é desenhada numa cena separada, e o layout e o estilo do projeto ficam como
+estavam.
+
 ## Instalação
 
 Requer Python 3.11 ou mais novo (testado com 3.14.3). Escolha **uma** das formas:
@@ -464,6 +485,7 @@ Cmd no macOS, Ctrl no Windows/Linux.
 | | Adicionar GFF3… | |
 | | Exportar ▸ Figura em SVG/PDF/PNG/TIFF… | SVG: Cmd/Ctrl+E |
 | | Exportar ▸ Para o iTOL… | Cmd/Ctrl+Shift+E |
+| | Exportar em lote… | Cmd/Ctrl+Shift+B |
 | | Sair | Cmd/Ctrl+Q |
 | Editar | Buscar folha | Cmd/Ctrl+F |
 | | Limpar seleção | Esc |
