@@ -22,6 +22,9 @@ para testar a matriz (heatmap externo) do painel Figura.
 `paraburkholderia_40.treefile`: `tree_colors.txt` (TAB: faixas, ramos, rótulos), `labels.txt`
 (COMMA, com aspas), `colorstrip.txt` (SPACE, com legenda), `styles.txt` (DATASET_STYLE),
 `simplebar.txt` (TAB, com uma linha `X` e uma folha inexistente), `multibar.txt` (COMMA),
-`heatmap.txt` (SPACE, 3 cores e `X` = sem dado) e `binary.txt` (COMMA, formas 1–4 e um `A|B`). Todos têm
+`heatmap.txt` (SPACE, 3 cores e `X` = sem dado), `binary.txt` (COMMA, formas 1–4 e um `A|B`),
+`symbol.txt` (símbolos sobre ramos e em duas colunas), `text.txt` (TAB: textos sobre ramos e numa
+coluna), `collapse.txt` (colapsa B29–B35; a linha com uma folha só vira aviso) e `popup_info.txt`
+(tipo ignorado, para ver o aviso). Todos têm
 comentários; `tree_colors.txt`, `colorstrip.txt` e `simplebar.txt` têm um ID de folha inexistente, que aparece em
 “Problemas na leitura”.

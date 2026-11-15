@@ -20,7 +20,16 @@ from jabuti.parsers.errors import JabutiParseError, read_text
 
 # tipos com leitura própria no Jabuti (os demais aparecem na lista como "ignorados")
 SUPPORTED = {"TREE_COLORS", "LABELS", "DATASET_COLORSTRIP", "DATASET_STYLE",
-             "DATASET_SIMPLEBAR", "DATASET_MULTIBAR", "DATASET_HEATMAP", "DATASET_BINARY"}
+             "DATASET_SIMPLEBAR", "DATASET_MULTIBAR", "DATASET_HEATMAP", "DATASET_BINARY",
+             "DATASET_SYMBOL", "DATASET_TEXT", "COLLAPSE"}
+# por que cada tipo conhecido não é suportado (aviso na lista)
+UNSUPPORTED_WHY = {
+    "POPUP_INFO": "pop-ups só existem na página interativa do iTOL, não numa figura estática",
+    "DATASET_RANGE": "use as faixas “range” do TREE_COLORS",
+    "DATASET_ALIGNMENT": "alinhamentos de sequência não são desenhados pelo Jabuti",
+    "DATASET_CONNECTION": "conexões entre folhas não são desenhadas pelo Jabuti",
+    "DATASET_IMAGE": "imagens externas não são carregadas",
+}
 # tipos do iTOL conhecidos, mas não suportados (ainda)
 KNOWN = SUPPORTED | {
     "DATASET_SIMPLEBAR", "DATASET_MULTIBAR", "DATASET_HEATMAP", "DATASET_BINARY", "DATASET_SYMBOL",
@@ -66,6 +75,10 @@ OPTIONS = {
                                           "AUTO_LEGEND", "DISPLAY_TREE", "TREE_WIDTH", "SHOW_VALUES",
                                           "LABEL_SHIFT", "LABEL_COLOR", "LABEL_SIZE_FACTOR",
                                           "VERTICAL_GRID", "HORIZONTAL_GRID", "GRID_COLOR", "GRID_WIDTH"},
+    "DATASET_SYMBOL": _COMMON_OPTIONS | {"MAXIMUM_SIZE", "GRADIENT_FILL", "SYMBOL_SPACING"},
+    "DATASET_TEXT": _COMMON_OPTIONS | {"SIZE_FACTOR", "EXTERNAL_LABEL_SCALE", "STRAIGHT_LABELS",
+                                       "LABELS_BELOW", "VERTICAL_SHIFT", "TEXT_LABEL_SCALE"},
+    "COLLAPSE": {"SEPARATOR", "DATA"},
     "DATASET_BINARY": _COMMON_OPTIONS | {"FIELD_SHAPES", "FIELD_LABELS", "FIELD_COLORS", "SYMBOL_SPACING",
                                          "HORIZONTAL_GRID", "VERTICAL_GRID", "GRID_COLOR", "GRID_WIDTH",
                                          "SHOW_LABELS", "LABEL_COLOR"},
@@ -209,7 +222,8 @@ def parse_itol(path: str | Path, cancelled=None) -> ItolDataset:  # type: ignore
     ds = ItolDataset(p, kind)
     if kind not in SUPPORTED:
         what = KIND_NAMES.get(kind, kind)
-        ds.warnings.append((lineno, f"tipo {kind} ({what}) não é suportado nesta versão — arquivo ignorado"))
+        why = UNSUPPORTED_WHY.get(kind, "não é suportado nesta versão")
+        ds.warnings.append((lineno, f"tipo {kind} ({what}): {why} — arquivo ignorado"))
     known_options = OPTIONS.get(kind)
     sep: str | None = None
     in_data = False
@@ -232,7 +246,8 @@ def parse_itol(path: str | Path, cancelled=None) -> ItolDataset:  # type: ignore
                 in_data = True
                 if sep is None:
                     sep = _guess_separator([l for l in lines[n:] if l.strip() and not l.strip().startswith("#")])
-                    ds.warnings.append((n, f"sem linha SEPARATOR; usando {sep}"))
+                    if kind != "COLLAPSE":           # o template do COLLAPSE não tem SEPARATOR
+                        ds.warnings.append((n, f"sem linha SEPARATOR; usando {sep}"))
                 continue
             fields = _split_any(s) if sep is None or sep == "SPACE" else split_line(s, sep)
             if len(fields) <= 1 and sep is not None:

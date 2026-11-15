@@ -53,10 +53,13 @@ def test_split_each_separator(sep, line, expected):
 
 
 def test_examples_parse_without_warnings():
+    from jabuti.parsers.itol import SUPPORTED
+
     kinds = {parse_itol(p).kind for p in ALL_EXAMPLES}
-    assert kinds == {"TREE_COLORS", "LABELS", "DATASET_COLORSTRIP", "DATASET_STYLE", "DATASET_SIMPLEBAR",
-                     "DATASET_MULTIBAR", "DATASET_HEATMAP", "DATASET_BINARY"}
+    assert kinds == SUPPORTED | {"POPUP_INFO"}                 # um exemplo por tipo suportado
     for p in ALL_EXAMPLES:
+        if "popup" in p:
+            continue
         assert parse_itol(p).warnings == [], p
         assert sniff_itol(p)
 
@@ -507,3 +510,116 @@ def test_gui_binary_margin_moves_column(window, tmp_path):
         return min(i.sceneBoundingRect().x() for i in window.renderer.scene.items() if i.data(1) == "binary")
 
     assert first_x(30) - first_x(0) == pytest.approx(30, abs=0.5)
+
+
+# --------------------------------------------------------------------- etapa 3: extras
+STAGE3 = [f"examples/itol/{n}.txt" for n in ("symbol", "text", "collapse", "popup_info")]
+
+
+def test_examples_stage3_parse():
+    for p in STAGE3:
+        ds = parse_itol(p)
+        if ds.kind == "POPUP_INFO":
+            assert not ds.supported and "figura estática" in ds.warnings[0][1]
+        else:
+            assert ds.supported and ds.warnings == [], p
+
+
+def test_symbol_branch_and_columns(tree):
+    fx = run(tree, parse_itol("examples/itol/symbol.txt"))
+    assert len(fx.marks) == 3 and all(m.kind == "symbol" and m.frac in (0.5, 0.3) for m in fx.marks)
+    star = next(m for m in fx.marks if m.shape == 3)
+    assert star.color == "#ff7f0e" and star.size == 1.0
+    (ic,) = fx.columns
+    c1, c2 = ic.tracks
+    assert c1.kind == c2.kind == "binary" and c1.header == "Marcadores 1" and c2.header == "Marcadores 2"
+    assert c1.shapes[A02] == (2, True) and c1.shapes["Paraburkholderia_unamae_A03"] == (2, False)
+    assert c1.shape_sizes["Paraburkholderia_unamae_A03"] == 0.5
+    assert c2.shapes["Paraburkholderia_nodosa_A12"] == (12, True)
+    assert ic.legend.entries == [("evento A", "#d62728"), ("evento B", "#ff7f0e"), ("evento C", "#1f77b4")]
+
+
+def test_symbol_bad_values(tmp_path, tree):
+    text = (f"DATASET_SYMBOL\nSEPARATOR COMMA\nDATA\n{A00},99,1,#ff0000,1,1\n{A09},2,x,#ff0000,1,1\n"
+            f"{A02},2,1,#ff0000,1,1.5\n{A02},2,1\n")
+    fx = run(tree, parse_itol(write(tmp_path, text)))
+    st = fx.stats["itol:0"]
+    assert st.applied == 2 and st.ignored == 2
+    assert fx.marks[0].shape == 1 and fx.marks[1].frac == 1.0
+    assert [l for l, _ in st.problems] == [4, 5, 6, 7]
+
+
+def test_text_branch_and_column(tree):
+    fx = run(tree, parse_itol("examples/itol/text.txt"))
+    (ic,) = fx.columns
+    col = ic.column
+    assert col.kind == "text" and col.header == "Notas"
+    assert col.texts["Paraburkholderia_terrae_B28"] == "novo isolado"        # tags HTML removidas
+    assert col.text_styles[A00] == (True, False, 1.0) and col.text_colors["Paraburkholderia_terrae_B28"] == "#8e44ad"
+    assert sorted(m.text for m in fx.marks) == ["Burkholderia s.s.", "clado A"]
+    assert all(m.kind == "text" and m.frac == 0.5 for m in fx.marks)
+
+
+def test_collapse_counts_and_sets(tree):
+    from jabuti.models.itol_apply import collapse_sets
+
+    ds = parse_itol("examples/itol/collapse.txt")
+    fx = run(tree, ds)
+    st = fx.stats["itol:0"]
+    assert st.applied == 1 and st.ignored == 1 and st.problems[0][0] == 6
+    sets = collapse_sets(ItolEntry("c", ds), tree)
+    assert len(sets) == 1 and len(sets[0]) == 7
+
+
+def test_unsupported_types_listed(tmp_path, tree):
+    for kind in ("POPUP_INFO", "DATASET_RANGE", "DATASET_CONNECTION", "DATASET_LINECHART"):
+        ds = parse_itol(write(tmp_path, f"{kind}\nSEPARATOR COMMA\nDATA\n{A00},1\n", f"{kind}.txt"))
+        assert not ds.supported and "arquivo ignorado" in ds.warnings[0][1]
+        assert not run(tree, ds).columns
+
+
+def test_gui_stage3_marks_columns_collapse(window, tmp_path):
+    from jabuti.style import LayoutKind
+    from jabuti.views.export import export_svg
+
+    fp = window.figure_panel
+    edits = window.style_panel.edits
+    assert not edits.collapsed
+    fp.itol.import_files(STAGE3, wait=True)
+    window.generate()
+    assert len(edits.collapsed) == 1 and len(edits.collapsed[0]) == 7
+    tags = [i.data(1) for i in window.renderer.scene.items()]
+    assert tags.count("itol-symbol") == 3 and "itol-text" in tags and "binary" in tags
+    assert "popup_info.txt:1" in fp.itol.report.toPlainText()
+    orig = window.current_style
+    for kind in LayoutKind:
+        def cs(kind=kind):  # type: ignore[no-untyped-def]
+            s = orig()
+            s.layout = kind
+            return s
+        window.current_style = cs
+        window.generate()
+        assert not window.shown, kind
+        assert [i.data(1) for i in window.renderer.scene.items()].count("itol-symbol") == 3, kind
+    export_svg(window.renderer.scene, tmp_path / "s.svg")
+    window.current_style = orig
+    # desligar o COLLAPSE expande; religar colapsa de novo; remover expande
+    key = next(e.key for e in fp.itol.entries if e.dataset.kind == "COLLAPSE")
+    fp.itol.set_visible(key, False)
+    assert not edits.collapsed
+    fp.itol.set_visible(key, True)
+    assert len(edits.collapsed) == 1
+    fp.itol.list.setCurrentRow(next(i for i, e in enumerate(fp.itol.entries) if e.key == key))
+    fp.itol.remove_current()
+    assert not edits.collapsed
+
+
+def test_gui_collapse_then_user_expand(window):
+    fp = window.figure_panel
+    edits = window.style_panel.edits
+    fp.itol.import_files(["examples/itol/collapse.txt"], wait=True)
+    (leaves,) = edits.collapsed
+    window.style_panel.expand(leaves)                 # "Expandir" normal
+    assert not edits.collapsed
+    fp.itol.set_visible(fp.itol.entries[0].key, False)  # desligar depois não quebra nada
+    assert not edits.collapsed

@@ -54,6 +54,8 @@ TAG_BAR_VALUE = "bar-value"
 TAG_STACKED = "stacked-bar"
 TAG_MATRIX = "matrix"
 TAG_BINARY = "binary"            # formas de presença/ausência (iTOL DATASET_BINARY)
+TAG_ITOL_SYMBOL = "itol-symbol"  # símbolos do iTOL sobre os ramos
+TAG_ITOL_TEXT = "itol-text"      # textos do iTOL (sobre os ramos ou em coluna)
 TAG_BREAK = "branch-break"
 TAG_ROW_HIGHLIGHT = "row-highlight"
 TAG_SUPPORT_LEVEL = "support-level"
@@ -161,7 +163,8 @@ def cap_style(cap: str) -> Qt.PenCapStyle:
 
 def shape_path(shape: int, c: QPointF, size: float) -> QPainterPath:
     """Formas do iTOL: 1 quadrado, 2 círculo, 3 estrela, 4 triângulo p/ direita,
-    5 triângulo p/ esquerda, 6 "check" (traço); outras = quadrado."""
+    5 triângulo p/ esquerda, 6 "check" (traço), 7/8/9 linha contínua/tracejada/pontilhada,
+    10/11/12 seta p/ esquerda/direita/dupla; outras = quadrado."""
     h = size / 2
     x, y = c.x(), c.y()
     path = QPainterPath()
@@ -183,6 +186,20 @@ def shape_path(shape: int, c: QPointF, size: float) -> QPainterPath:
         path.moveTo(x - h, y)
         path.lineTo(x - h * 0.25, y + h * 0.75)
         path.lineTo(x + h, y - h * 0.8)
+    elif shape in (7, 8, 9):                 # linha contínua, tracejada, pontilhada (traço)
+        path.moveTo(x - h, y)
+        path.lineTo(x + h, y)
+    elif shape in (10, 11, 12):              # seta p/ esquerda, p/ direita, dupla
+        t = h * 0.45                         # meia altura da haste
+        if shape == 11:
+            pts = [(-h, -t), (0, -t), (0, -h), (h, 0), (0, h), (0, t), (-h, t)]
+        elif shape == 10:
+            pts = [(h, -t), (0, -t), (0, -h), (-h, 0), (0, h), (0, t), (h, t)]
+        else:
+            pts = [(-h, 0), (-h * 0.4, -h), (-h * 0.4, -t), (h * 0.4, -t), (h * 0.4, -h), (h, 0),
+                   (h * 0.4, h), (h * 0.4, t), (-h * 0.4, t), (-h * 0.4, h)]
+        path.addPolygon(QPolygonF([QPointF(x + a, y + b) for a, b in pts]))
+        path.closeSubpath()
     else:
         path.addRect(QRectF(x - h, y - h, size, size))
     return path
@@ -247,11 +264,13 @@ class TreeRenderer:
         highlights: list | None = None,
         branch_looks: tuple[dict, dict] | None = None,
         ranges: list | None = None,
+        marks: list | None = None,
     ) -> RenderResult:
         """``branch_looks`` = (ramo que termina no nó, conector que sai do nó) → ``BranchLook``;
         ``ranges`` = faixas de fundo por clado (``RangeBackground``) — ambos do iTOL."""
         self.scene.clear()
         self._edge_looks, self._node_looks = branch_looks or ({}, {})
+        self._marks = list(marks or [])        # símbolos/textos do iTOL nos ramos (BranchMark)
         # faixas maiores primeiro: uma faixa dentro de outra fica por cima e continua visível
         self._ranges = sorted((r for r in (ranges or []) if r.node is not None),
                               key=lambda r: -len(r.node.leaves()))
@@ -499,16 +518,83 @@ class TreeRenderer:
         got = col.shapes.get(names[0]) if len(names) == 1 else col.shape_for_group(names)
         if got is None or size <= 0:
             return
-        shape, filled = got
-        item = QGraphicsPathItem(shape_path(shape, center, size))
-        color = QColor(col.shape_color)
-        pen = QPen(color, max(min(size * 0.12, 1.2), 0.5))
-        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
-        item.setPen(pen)
-        item.setBrush(QBrush(color) if filled and shape != 6 else QBrush(Qt.BrushStyle.NoBrush))
+        one = names[0] if len(names) == 1 else None
+        if one is not None and one in col.shape_sizes:
+            size *= max(min(col.shape_sizes[one], 1.0), 0.05)
+        color = col.shape_colors.get(one, col.shape_color) if one is not None else col.shape_color
+        item = self._shape_item(got[0], got[1], center, size, color)
         item.setData(1, TAG_BINARY)
         item.setData(2, col.key)
+
+    def _shape_item(self, shape: int, filled: bool, center: QPointF, size: float, color: str) -> QGraphicsPathItem:
+        item = QGraphicsPathItem(shape_path(shape, center, size))
+        c = QColor(color)
+        line = shape in (6, 7, 8, 9)
+        pen = QPen(c, max(min(size * 0.12, 1.2), 0.5) * (1.6 if line else 1.0))
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        if shape == 8:
+            pen.setDashPattern([3.0, 2.0])
+        elif shape == 9:
+            pen.setDashPattern([1.0, 1.5])
+        item.setPen(pen)
+        item.setBrush(QBrush(c) if filled and not line else QBrush(Qt.BrushStyle.NoBrush))
         self.scene.addItem(item)
+        return item
+
+    def _styled_text(self, text: str, color: str, style: tuple[bool, bool, float]) -> QGraphicsSimpleTextItem:
+        bold, italic, factor = style
+        t = self._text(text, max(self.style.label.size * factor, 3.0), color)
+        f = t.font()
+        f.setBold(bold)
+        f.setItalic(italic)
+        t.setFont(f)
+        return t
+
+    def _text_column_width(self, col: LeafColumn) -> float:
+        best = 0.0
+        for leaf, text in col.texts.items():
+            bold, italic, factor = col.text_styles.get(leaf, (False, False, 1.0))
+            f = QFont(self._font)
+            f.setPointSizeF(max(self.style.label.size * factor, 3.0))
+            f.setBold(bold)
+            f.setItalic(italic)
+            best = max(best, QFontMetricsF(f).horizontalAdvance(text))
+        return best + 6
+
+    def _text_cell(self, col: LeafColumn, names: list[str]):  # type: ignore[no-untyped-def]
+        """Texto da célula (folha, ou clado colapsado com o mesmo texto em todas)."""
+        texts = {col.texts.get(n) for n in names}
+        if len(texts) != 1 or None in texts:
+            return None
+        n = names[0]
+        t = self._styled_text(texts.pop(), col.text_colors.get(n, "#202020"),
+                              col.text_styles.get(n, (False, False, 1.0)))
+        t.setData(1, TAG_ITOL_TEXT)
+        t.setData(2, col.key)
+        return t
+
+    def _draw_marks(self, seg_of) -> None:  # type: ignore[no-untyped-def]
+        """Símbolos e textos do iTOL sobre os ramos (posição 0–1 do ramo que chega ao nó)."""
+        for m in self._marks:
+            seg = seg_of(m.node)
+            if seg is None:
+                continue
+            a, b = seg
+            f = max(0.0, min(m.frac, 1.0))
+            p = a + (b - a) * f
+            if m.kind == "symbol":
+                size = self.style.label.size * 1.3 * max(min(m.size, 1.0), 0.05)
+                item = self._shape_item(m.shape, m.filled, p, size, m.color)
+                item.setData(1, TAG_ITOL_SYMBOL)
+                item.setZValue(2)
+                continue
+            t = self._styled_text(m.text, m.color, (m.bold, m.italic, m.size))
+            t.setData(1, TAG_ITOL_TEXT)
+            t.setZValue(2)
+            br = t.boundingRect()
+            t.setTransformOriginPoint(br.width() / 2, br.height())
+            t.setRotation(m.rotation)
+            t.setPos(p.x() - br.width() / 2, p.y() - br.height() - 1)
 
     def _cell_text(self, text: str, center: QPointF, bg: str) -> None:
         c = QColor(bg)
@@ -834,6 +920,8 @@ class TreeRenderer:
         if track == CLADE_STRIP:
             return self.style.clades.strip_width
         m = getattr(track, "margin", 0.0) if margin else 0.0
+        if isinstance(track, LeafColumn) and track.kind == "text":
+            return m + (track.width or self._text_column_width(track))
         if isinstance(track, BarTrack):
             return m + track.width + self._value_text_width(track)
         if isinstance(track, StackedTrack):
@@ -965,6 +1053,15 @@ class TreeRenderer:
             elif isinstance(track, StackedTrack):
                 self._stacked_rect(track, lay, x, sy, top, bottom)
                 x += track.width + pad
+            elif track.kind == "text":
+                cw = self._track_extent(track, 0, margin=False)
+                for node, names in self._tips(lay):
+                    t = self._text_cell(track, names)
+                    if t is not None:
+                        t.setPos(x + 3, lay.pos[node][1] * sy - t.boundingRect().height() / 2)
+                if hm.show_headers:
+                    self._column_header(track.header, x, cw, top, horizontal_ok=True)
+                x += cw
             elif track.kind == "binary":
                 cw = track.width if track.width else sy * hm.cell_width
                 for node, names in self._tips(lay):
@@ -1347,6 +1444,17 @@ class TreeRenderer:
                 c, w, d = self._node_pen(node)
                 edges.seg(c, w, QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()), d)
         edges.flush(self.scene)
+
+        def seg_rect(node: Node):  # type: ignore[no-untyped-def]
+            if node not in res.node_points:
+                return None
+            p = res.node_points[node]
+            if node.parent is None:
+                return p, p
+            pp = pt(node.parent)
+            return (pp if slanted else QPointF(pp.x(), p.y())), p
+
+        self._draw_marks(seg_rect)
         for node in self._broken(tree):
             pp = pt(node.parent)
             p = pt(node)
@@ -1540,6 +1648,16 @@ class TreeRenderer:
                 c, w, d = self._node_pen(node)
                 edges.arc(c, w, r, lay.pos[node.children[0]][1], lay.pos[node.children[-1]][1], d)
         edges.flush(self.scene)
+
+        def seg_circ(node: Node):  # type: ignore[no-untyped-def]
+            if node not in res.node_points:
+                return None
+            if node.parent is None:
+                return res.node_points[node], res.node_points[node]
+            th = lay.pos[node][1]
+            return pt(rad(node.parent), th), pt(rad(node), th)
+
+        self._draw_marks(seg_circ)
         for node in self._broken(tree):
             th = lay.pos[node][1]
             mid = (rad(node.parent) + rad(node)) / 2
@@ -1638,6 +1756,12 @@ class TreeRenderer:
                 self._bars_circ(track, lay, r0, root_span, pt)
             elif isinstance(track, StackedTrack):
                 self._stacked_circ(track, lay, r0, pt)
+            elif track.kind == "text":
+                for node, names in self._tips(lay):
+                    t = self._text_cell(track, names)
+                    if t is not None:
+                        a, b = lay.span[node]
+                        self._rotate_radial(t, pt(r0 + 3, (a + b) / 2), (a + b) / 2)
             elif track.kind == "binary":
                 for node, names in self._tips(lay):
                     a, b = lay.span[node]
@@ -1749,6 +1873,8 @@ class TreeRenderer:
                 c, w, d = self._edge_pen(node)
                 edges.seg(c, w, pt(node.parent), p, d)
         edges.flush(self.scene)
+        self._draw_marks(lambda n: None if n not in res.node_points else (
+            (res.node_points[n], res.node_points[n]) if n.parent is None else (pt(n.parent), res.node_points[n])))
         for node in self._broken(tree):
             pp, p = pt(node.parent), pt(node)
             self._break_mark((pp + p) / 2, math.atan2(p.y() - pp.y(), p.x() - pp.x()), self._width(node))

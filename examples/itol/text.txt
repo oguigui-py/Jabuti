@@ -1,0 +1,13 @@
+DATASET_TEXT
+# Textos sintéticos. Separador: TAB.
+# ID	texto	posição	cor	estilo	fator	rotação
+# posição -1 = coluna externa; 0–1 = sobre o ramo. Tags HTML do iTOL (<b>, <i>…) são removidas.
+SEPARATOR TAB
+DATASET_LABEL	Notas
+COLOR	#000000
+DATA
+Paraburkholderia_xenovorans_A00	tipo	-1	#000000	bold	1
+Paraburkholderia_terrae_B28	<i>novo</i> isolado	-1	#8e44ad	italic	1
+Burkholderia_cepacia_ATCC25416	clínico	-1	#c0392b	normal	0.9
+Paraburkholderia_xenovorans_A00|Paraburkholderia_hospita_A09	clado A	0.5	#1f6fb2	bold	0.9	0
+Burkholderia_cepacia_ATCC25416|Burkholderia_cenocepacia_J2315	Burkholderia s.s.	0.5	#c0392b	normal	0.8	0

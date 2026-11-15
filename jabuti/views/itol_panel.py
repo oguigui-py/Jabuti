@@ -51,6 +51,7 @@ class ItolPanel(QWidget):
     changed = Signal()
     status_message = Signal(str)
     loaded = Signal(bool)              # terminou de ler (algum ok?)
+    collapse_changed = Signal(object, bool)   # ItolEntry de COLLAPSE, aplicar (True) / desfazer (False)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -189,6 +190,9 @@ class ItolPanel(QWidget):
         if self._last_ok:
             self._report_pending = True
             self._refresh(select=len(self.entries) - 1)
+            for e in self.entries:
+                if e.key in self._new_keys and e.dataset.kind == "COLLAPSE" and e.visible:
+                    self.collapse_changed.emit(e, True)
             self.changed.emit()
         self.loaded.emit(self._last_ok)
 
@@ -252,6 +256,7 @@ class ItolPanel(QWidget):
             on = item.checkState() == Qt.CheckState.Checked
             if self.entries[row].visible != on:
                 self.entries[row].visible = on
+                self._collapse_toggled(self.entries[row])
                 self.changed.emit()
 
     def _rows_moved(self, *_a) -> None:  # type: ignore[no-untyped-def]
@@ -275,15 +280,22 @@ class ItolPanel(QWidget):
         if 0 <= row < len(self.entries):
             e = self.entries.pop(row)
             self.prefs.pop(e.key, None)
+            if e.dataset.kind == "COLLAPSE":
+                self.collapse_changed.emit(e, False)
             self._refresh(select=row)
             self.changed.emit()
 
     def set_visible(self, key: str, on: bool) -> None:
         for i, e in enumerate(self.entries):
-            if e.key == key:
+            if e.key == key and e.visible != on:
                 e.visible = on
+                self._collapse_toggled(e)
                 self._refresh(select=i)
                 self.changed.emit()
+
+    def _collapse_toggled(self, e: ItolEntry) -> None:
+        if e.dataset.kind == "COLLAPSE":
+            self.collapse_changed.emit(e, e.visible)
 
     # ------------------------------------------------------------ editor
     def _selected(self, row: int) -> None:

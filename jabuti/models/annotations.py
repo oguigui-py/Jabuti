@@ -28,6 +28,11 @@ class LeafColumn:
     # 3 estrela, 4 triângulo p/ direita, 5 triângulo p/ esquerda, 6 "check"
     shapes: dict[str, tuple[int, bool]] = field(default_factory=dict)
     shape_color: str = "#000000"
+    shape_colors: dict[str, str] = field(default_factory=dict)     # cor por folha (símbolos do iTOL)
+    shape_sizes: dict[str, float] = field(default_factory=dict)    # tamanho relativo (0–1) por folha
+    # kind "text": cor e estilo por folha (bold, italic, fator de tamanho)
+    text_colors: dict[str, str] = field(default_factory=dict)
+    text_styles: dict[str, tuple[bool, bool, float]] = field(default_factory=dict)
 
     @property
     def always_header(self) -> bool:

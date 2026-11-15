@@ -1,0 +1,22 @@
+DATASET_SYMBOL
+# Símbolos sintéticos. Separador: COMMA.
+# ID,símbolo,tamanho,cor,preenchido,posição[,rótulo]
+# posição 0–1 = sobre o ramo (0 = no pai, 1 = no nó); posição negativa = coluna externa (-1, -2…)
+SEPARATOR COMMA
+DATASET_LABEL,Marcadores
+COLOR,#000000
+MAXIMUM_SIZE,10
+LEGEND_TITLE,Marcadores (sintético)
+LEGEND_SHAPES,2,3,11
+LEGEND_COLORS,#d62728,#ff7f0e,#1f77b4
+LEGEND_LABELS,evento A,evento B,evento C
+DATA
+Paraburkholderia_xenovorans_A00|Paraburkholderia_hospita_A09,2,10,#d62728,1,0.5
+Paraburkholderia_xenovorans_B20|Paraburkholderia_tropica_B22,3,10,#ff7f0e,1,0.5
+Burkholderia_cepacia_ATCC25416|Burkholderia_cenocepacia_J2315,11,9,#1f77b4,1,0.3
+Paraburkholderia_tropica_A02,2,8,#d62728,1,-1
+Paraburkholderia_unamae_A03,2,5,#d62728,0,-1
+Paraburkholderia_terrae_B28,3,10,#ff7f0e,1,-1
+Paraburkholderia_sabiae_A11,11,10,#1f77b4,1,-2
+Paraburkholderia_nodosa_A12,12,10,#1f77b4,1,-2
+Paraburkholderia_mimosarum_A13,8,10,#555555,1,-2

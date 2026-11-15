@@ -9,6 +9,7 @@ Tipos desta etapa: ``TREE_COLORS``, ``LABELS``, ``DATASET_COLORSTRIP`` e ``DATAS
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 from typing import Iterable
@@ -45,6 +46,23 @@ class RangeBackground:
 
 
 @dataclass
+class BranchMark:
+    """Símbolo ou texto do iTOL sobre o ramo que chega a ``node`` (``frac`` 0 = pai, 1 = nó)."""
+
+    node: Node
+    frac: float
+    kind: str = "symbol"           # "symbol" | "text"
+    shape: int = 1
+    filled: bool = True
+    color: str = "#000000"
+    size: float = 1.0              # símbolo: relativo ao MAXIMUM_SIZE; texto: fator do tamanho dos rótulos
+    text: str = ""
+    bold: bool = False
+    italic: bool = False
+    rotation: float = 0.0
+
+
+@dataclass
 class ItolStats:
     applied: int = 0
     ignored: int = 0
@@ -73,6 +91,7 @@ class ItolEffects:
     names: dict[str, str] = field(default_factory=dict)
     columns: list[ItolColumn] = field(default_factory=list)
     legends: list[LegendGroup] = field(default_factory=list)
+    marks: list[BranchMark] = field(default_factory=list)
     stats: dict[str, ItolStats] = field(default_factory=dict)
 
     @property
@@ -90,6 +109,7 @@ class ItolEntry:
     title: str = ""                                         # "" = DATASET_LABEL / nome do arquivo
     colors: dict[str, str] = field(default_factory=dict)    # cor original -> cor nova
     labels: dict[str, str] = field(default_factory=dict)    # cor original -> rótulo da legenda
+    collapsed_sets: list[frozenset[str]] = field(default_factory=list)   # COLLAPSE já aplicados
 
     @property
     def name(self) -> str:
@@ -237,6 +257,16 @@ def dataset_entries(ds: ItolDataset) -> list[tuple[str, str]]:
             if opt == "COLOR_MID" and not ds.flag("USE_MID_COLOR"):
                 continue
             add(ds.option(opt) or HEATMAP_DEFAULTS[opt], name)
+    elif ds.kind == "DATASET_SYMBOL":
+        for c, l in zip(ds.options.get("LEGEND_COLORS", []), ds.options.get("LEGEND_LABELS", [])):
+            add(c, l)
+        for r in ds.rows:
+            if len(r.fields) >= 4:
+                add(r.fields[3])
+    elif ds.kind == "DATASET_TEXT":
+        for r in ds.rows:
+            if len(r.fields) >= 4:
+                add(r.fields[3])
     elif ds.kind == "DATASET_STYLE":
         for r in ds.rows:
             if len(r.fields) >= 4:
@@ -295,7 +325,8 @@ class _Builder:
         handler = {"TREE_COLORS": self._tree_colors, "LABELS": self._labels,
                    "DATASET_COLORSTRIP": self._colorstrip, "DATASET_STYLE": self._style,
                    "DATASET_SIMPLEBAR": self._simplebar, "DATASET_MULTIBAR": self._multibar,
-                   "DATASET_HEATMAP": self._heatmap, "DATASET_BINARY": self._binary}[ds.kind]
+                   "DATASET_HEATMAP": self._heatmap, "DATASET_BINARY": self._binary,
+                   "DATASET_SYMBOL": self._symbol, "DATASET_TEXT": self._text, "COLLAPSE": self._collapse}[ds.kind]
         handler(entry, resolver, st)
 
     def _targets(self, row, resolver: Resolver, st: ItolStats, min_fields: int, what: str) -> list[Node]:  # type: ignore[no-untyped-def]
@@ -707,6 +738,124 @@ class _Builder:
         self.fx.columns.append(ItolColumn(entry.key, f"iTOL presença: {entry.title or ds.label} ({n} colunas)",
                                           tracks, legend))
 
+    # -- extras (etapa 3)
+    def _symbol(self, entry: ItolEntry, resolver: Resolver, st: ItolStats) -> None:
+        ds = entry.dataset
+        max_size = ds.number("MAXIMUM_SIZE", 50.0) or 50.0
+        columns: dict[int, dict[str, dict]] = {}
+        for row in ds.rows:
+            nodes = self._targets(row, resolver, st, 6, "ID, símbolo, tamanho, cor, preenchido e posição")
+            if not nodes:
+                continue
+            f = row.fields
+            try:
+                shape, size, pos = int(float(f[1])), float(f[2]), float(f[5])
+            except ValueError:
+                st.ignored += 1
+                st.problems.append((row.line, "símbolo, tamanho ou posição não numérico"))
+                continue
+            if not 1 <= shape <= 12:
+                st.problems.append((row.line, f"símbolo {shape} desconhecido (use 1–12): usando quadrado"))
+                shape = 1
+            c = self._color(entry, f[3], row, st)
+            if c is None:
+                continue
+            filled = f[4].strip() != "0"
+            rel = max(size, 0.0) / max_size if max_size > 0 else 1.0
+            if pos < 0:
+                k = max(int(round(-pos)), 1)
+                col = columns.setdefault(k, {"shapes": {}, "colors": {}, "sizes": {}})
+                for node in nodes:
+                    for name in _leaf_names(node):
+                        col["shapes"][name] = (shape, filled)
+                        col["colors"][name] = c[0]
+                        col["sizes"][name] = rel
+            else:
+                if pos > 1:
+                    st.problems.append((row.line, f"posição {pos:g} fora de 0–1: no fim do ramo"))
+                for node in nodes:
+                    self.fx.marks.append(BranchMark(node, min(pos, 1.0), "symbol", shape, filled, c[0], rel))
+            st.applied += 1
+        if not columns:
+            return
+        title = entry.title or ds.label
+        tracks = []
+        for k in sorted(columns):
+            col = columns[k]
+            header = title if len(columns) == 1 else f"{title} {k}"
+            first = next(iter(col["colors"].values()), "#000000")
+            tracks.append(LeafColumn(f"{entry.key}:{k}", header, {}, self.missing_color, {}, "binary", None,
+                                     margin=max(ds.number("MARGIN", 0.0) or 0.0, 0.0) if not tracks else 0.0,
+                                     shapes=col["shapes"], shape_color=first, shape_colors=col["colors"],
+                                     shape_sizes=col["sizes"]))
+        legend = None
+        lc, ll = ds.options.get("LEGEND_COLORS", []), ds.options.get("LEGEND_LABELS", [])
+        if lc and ll:
+            entries = [(entry.labels.get(pc[0], l), entry.color(pc[0]))
+                       for ctext, l in zip(lc, ll) if (pc := parse_color(ctext)) is not None]
+            legend = LegendGroup(entry.title or ds.option("LEGEND_TITLE") or title, entries) if entries else None
+        self.fx.columns.append(ItolColumn(entry.key, f"iTOL símbolos: {title}", tracks, legend))
+
+    def _text(self, entry: ItolEntry, resolver: Resolver, st: ItolStats) -> None:
+        ds = entry.dataset
+        factor = ds.number("SIZE_FACTOR", 1.0) or 1.0
+        texts: dict[str, str] = {}
+        colors: dict[str, str] = {}
+        styles: dict[str, tuple[bool, bool, float]] = {}
+        for row in ds.rows:
+            nodes = self._targets(row, resolver, st, 2, "ID e texto")
+            if not nodes:
+                continue
+            f = row.fields + [""] * 7
+            text = html.unescape(re.sub(r"<[^>]+>", "", f[1])).strip()
+            if not text:
+                st.ignored += 1
+                st.problems.append((row.line, "texto vazio"))
+                continue
+            try:
+                pos = float(f[2]) if f[2].strip() else -1.0
+                size = float(f[5]) if f[5].strip() else 1.0
+                rot = float(f[6]) if f[6].strip() else 0.0
+            except ValueError:
+                st.ignored += 1
+                st.problems.append((row.line, "posição, tamanho ou rotação não numérico"))
+                continue
+            color = "#000000"
+            if f[3].strip():
+                c = self._color(entry, f[3], row, st)
+                if c is None:
+                    continue
+                color = c[0]
+            bold, italic = _label_style(f[4]) or (False, False)
+            size = max(size, 0.1) * factor
+            if pos < 0:
+                for node in nodes:
+                    for name in _leaf_names(node):
+                        texts[name], colors[name], styles[name] = text, color, (bold, italic, size)
+            else:
+                for node in nodes:
+                    self.fx.marks.append(BranchMark(node, min(pos, 1.0), "text", color=color, size=size,
+                                                    text=text, bold=bold, italic=italic, rotation=rot))
+            st.applied += 1
+        if texts:
+            title = entry.title or ds.label
+            col = LeafColumn(entry.key, title, {}, self.missing_color, texts, "text", None,
+                             margin=max(ds.number("MARGIN", 0.0) or 0.0, 0.0), text_colors=colors,
+                             text_styles=styles)
+            self.fx.columns.append(ItolColumn(entry.key, f"iTOL texto: {title}", [col], None))
+
+    def _collapse(self, entry: ItolEntry, resolver: Resolver, st: ItolStats) -> None:
+        """Só conta: os colapsos entram nas edições da árvore ao importar (``collapse_sets``)."""
+        for row in entry.dataset.rows:
+            nodes = self._targets(row, resolver, st, 1, "ID")
+            if not nodes:
+                continue
+            if all(n.is_leaf for n in nodes):
+                st.ignored += 1
+                st.problems.append((row.line, "uma folha não tem o que colapsar (use A|B para o clado)"))
+                continue
+            st.applied += 1
+
 
 def _scale_values(items: list[str]) -> list[float]:
     """DATASET_SCALE: "10" ou "10-rótulo-cor-largura-tracejado-fator" → valores."""
@@ -738,3 +887,18 @@ def apply_itol(entries: list[ItolEntry], tree: Tree, hidden: Iterable[str] = (),
         else:
             b.fx.stats[e.key] = ItolStats()
     return b.finish()
+
+
+def collapse_sets(entry: ItolEntry, tree: Tree, hidden: Iterable[str] = ()) -> list[frozenset[str]]:
+    """Conjuntos de folhas dos clados de um COLLAPSE (para as edições da árvore)."""
+    rows = [r for r in entry.dataset.rows if r.fields]
+    resolver = Resolver(tree, (r.fields[0] for r in rows), hidden)
+    out: list[frozenset[str]] = []
+    for r in rows:
+        nodes, _tol, _why = resolver.resolve(r.fields[0])
+        for n in nodes:
+            if not n.is_leaf:
+                leaves = frozenset(_leaf_names(n))
+                if leaves not in out:
+                    out.append(leaves)
+    return out

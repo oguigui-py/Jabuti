@@ -184,6 +184,9 @@ anotação; os outros continuam abrindo como árvore. A leitura roda em segundo 
 | `DATASET_SIMPLEBAR` | coluna de barras (`COLOR`, `WIDTH`, `MARGIN`, `SHOW_VALUE`; os valores de `DATASET_SCALE` viram linhas de referência no eixo) |
 | `DATASET_MULTIBAR` | barras empilhadas (`FIELD_COLORS`, `FIELD_LABELS`, `WIDTH`, `MARGIN`), com legenda das séries; `X` = sem dado na série |
 | `DATASET_HEATMAP` | matriz externa, uma coluna por campo (`FIELD_LABELS`): gradiente `COLOR_MIN` → `COLOR_MAX` ou com `USE_MID_COLOR`/`COLOR_MID`, limites `USER_MIN/MID/MAX_VALUE`, `X` = sem dado (`COLOR_NAN`), `STRIP_WIDTH` = largura da célula, `SHOW_VALUES`; legenda em barra de cor |
+| `DATASET_SYMBOL` | símbolos (`ID,símbolo,tamanho,cor,preenchido,posição`): posição 0–1 = sobre o ramo que chega ao nó (0 = no pai, 1 = no nó); posição negativa = coluna externa (-1, -2… viram colunas separadas). Símbolos 1–6 como no `BINARY`, 7/8/9 linha contínua/tracejada/pontilhada, 10/11/12 seta p/ esquerda/direita/dupla; tamanho relativo a `MAXIMUM_SIZE`; legenda de `LEGEND_*` |
+| `DATASET_TEXT` | textos (`ID,texto,posição,cor,estilo,fator,rotação`): posição -1 = coluna de texto externa; 0–1 = sobre o ramo (com a rotação pedida); estilo normal/bold/italic/bold-italic; `SIZE_FACTOR` |
+| `COLLAPSE` | um ID por linha (`A|B` = clado): os clados entram nos colapsos normais da árvore, então *Expandir* funciona como sempre; desligar ou remover o dataset expande de novo os clados que ele colapsou |
 | `DATASET_BINARY` | colunas de presença/ausência: `1` = forma cheia, `0` = vazada, `-1` = nada; `FIELD_SHAPES` 1 quadrado, 2 círculo, 3 estrela, 4 triângulo p/ direita, 5 triângulo p/ esquerda, 6 "check"; `FIELD_COLORS` (padrão `COLOR`) e `FIELD_LABELS` |
 
 As colunas importadas funcionam em todos os layouts com colunas (retangular, diagonal, circular,
@@ -191,9 +194,11 @@ leque), entram em *Ordem das colunas* (arrastar, ocultar), na legenda e na expor
 SVG/PDF/PNG/TIFF. Ao selecionar o dataset, as cores de cada campo (e as do gradiente do heatmap)
 e os nomes dos campos podem ser editados.
 
-Ainda **ignorados** (aparecem na lista com aviso): `DATASET_SYMBOL`, `DATASET_TEXT`, `COLLAPSE`
-(próxima etapa) e `POPUP_INFO`, `DATASET_RANGE`, `DATASET_PIECHART`, `DATASET_ALIGNMENT`,
-`DATASET_CONNECTION`, entre outros.
+**Ignorados** (aparecem na lista com o motivo em *Problemas na leitura*): `POPUP_INFO` (pop-ups só
+existem na página interativa do iTOL), `DATASET_RANGE` (use o `range` do `TREE_COLORS`),
+`DATASET_ALIGNMENT`, `DATASET_CONNECTION`, `DATASET_IMAGE`, `DATASET_PIECHART`, `DATASET_BOXPLOT`,
+`DATASET_LINECHART`, `DATASET_GRADIENT`, `DATASET_DOMAINS`, `DATASET_EXTERNALSHAPE` e qualquer
+outro `DATASET_*`.
 
 **Aproximações** em relação ao iTOL:
 - **Cores:** `#rgb`, `#rrggbb`, `rgb()` e `rgba()`. A opacidade do `rgba` vale nos fundos (faixas `range` e fundo de rótulo).
@@ -221,6 +226,17 @@ Ainda **ignorados** (aparecem na lista com aviso): `DATASET_SYMBOL`, `DATASET_TE
 - **Presença/ausência:**
   - a legenda mostra quadrados de cor, sem as formas;
   - num clado colapsado, a forma sai cheia se alguma folha tem 1.
+- **Símbolos e textos:**
+  - na árvore não enraizada, os que vão sobre os ramos aparecem, mas as colunas externas não;
+  - o rótulo opcional (7º campo) do `DATASET_SYMBOL` é ignorado;
+  - na legenda, os símbolos aparecem como quadrados de cor;
+  - no `DATASET_TEXT`, as tags HTML (`<b>`, `<i>`, `<sup>`, `<font …>`) são removidas, porque vale só o estilo do campo `style`;
+  - a rotação vale só para textos sobre os ramos (a coluna de texto segue a direção dos rótulos);
+  - um texto sobre o ramo fica centrado logo acima do ponto pedido.
+- **`COLLAPSE`:**
+  - é aplicado uma vez, ao importar ou religar;
+  - uma folha sozinha não tem o que colapsar e é ignorada com aviso;
+  - se você expandir um clado à mão, desligar o dataset depois não o colapsa de novo.
 - **IDs de nó interno nas colunas:** um ID `A|B` em barras, heatmap ou presença/ausência vale para todas as folhas do clado.
 
 ## Personalização (painel **Estilo**, à direita)

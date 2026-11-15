@@ -1,0 +1,6 @@
+COLLAPSE
+# Clados colapsados (um ID por linha; A|B = ancestral comum). Sintético.
+DATA
+Paraburkholderia_hospita_B29|Paraburkholderia_sprentiae_B35
+# uma folha sozinha não tem o que colapsar: aparece em "Problemas na leitura"
+Paraburkholderia_terrae_B28

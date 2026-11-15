@@ -1,0 +1,5 @@
+POPUP_INFO
+# Tipo do iTOL que não faz sentido numa figura estática: importado e ignorado com aviso.
+SEPARATOR COMMA
+DATA
+Paraburkholderia_xenovorans_A00,Título,<b>conteúdo</b>

@@ -185,6 +185,7 @@ class MainWindow(QMainWindow):
         self.gff_tab.changed.connect(self._live_timer.start)
         self.figure_panel.changed.connect(self._live_timer.start)
         self.figure_panel.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
+        self.figure_panel.itol.collapse_changed.connect(self._itol_collapse)
         self.figure_panel.root_group_requested.connect(self.root_on_selection)
         self.figure_panel.hidden_changed.connect(self.canvas.clear_selection)
         self.figure_panel.clade_from_list_requested.connect(self.clade_from_list)
@@ -518,6 +519,25 @@ class MainWindow(QMainWindow):
         return display_names(self.display_tree.leaf_names(), style.figure.names, mapping,
                              self.style_panel.edits.marked)
 
+    def _itol_collapse(self, entry, on: bool) -> None:  # type: ignore[no-untyped-def]
+        """COLLAPSE do iTOL: entra nos colapsos normais (o "Expandir" funciona como sempre);
+        desligar ou remover o dataset expande de novo os clados que ele colapsou."""
+        from jabuti.models.itol_apply import collapse_sets
+
+        edits = self.style_panel.edits
+        if on:
+            if self.tree is None:
+                return
+            tree = self.display_tree or apply_edits(self.tree, edits)
+            entry.collapsed_sets = collapse_sets(entry, tree, edits.hidden)
+            for leaves in entry.collapsed_sets:
+                edits.collapse(leaves)
+        else:
+            for leaves in entry.collapsed_sets:
+                edits.expand(leaves)
+            entry.collapsed_sets = []
+        self._live_timer.start()
+
     def itol_effects(self, style: RenderStyle):  # type: ignore[no-untyped-def]
         """Anotações iTOL aplicadas à árvore desenhada (calculadas uma vez por desenho)."""
         from jabuti.models.itol_apply import ItolEffects, apply_itol
@@ -669,7 +689,8 @@ class MainWindow(QMainWindow):
                                           edits.collapsed, columns, meta_colors, context, label_groups,
                                           legend=groups, hidden=edits.hidden,
                                           names=self.display_names(style), highlights=edits.highlights,
-                                          branch_looks=itol.branch_looks, ranges=itol.ranges)
+                                          branch_looks=itol.branch_looks, ranges=itol.ranges,
+                                          marks=itol.marks)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
