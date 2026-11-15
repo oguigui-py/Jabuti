@@ -217,8 +217,16 @@ class MainWindow(QMainWindow):
         self.tree_tab.tree_changed.connect(self.on_tree_changed)
         self.viz_tab.generate_requested.connect(self.generate)
         self.viz_tab.export_requested.connect(self.export)
+        from PySide6.QtGui import QGuiApplication
+
+        from jabuti.views.project_io import ProjectController
+
+        self.project = ProjectController(self)
+        # perguntar ao fechar com alterações (desligado sem tela real: testes e modo offscreen)
+        self.ask_on_close = QGuiApplication.platformName() not in ("offscreen", "minimal")
         self._build_menu()
         apply_tooltips(self)
+        self.project.update_title()
         self.statusBar().showMessage("Abra uma árvore (aba Árvore) ou arraste um arquivo para a janela.")
         self._load_user_default()
 
@@ -277,6 +285,20 @@ class MainWindow(QMainWindow):
         self.recent_menu = m.addMenu("Abrir recente")
         self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
         self._fill_recent_menu()
+        m.addSeparator()
+        act["open_project"] = self._action(m, "Abrir projeto…", self.project.choose_and_open, "Ctrl+Shift+O",
+                                           "Abre um projeto do Jabuti (.jabuti, ou .zip com cópia dos dados)")
+        self.recent_projects_menu = m.addMenu("Projetos recentes")
+        self.recent_projects_menu.aboutToShow.connect(self._fill_recent_projects_menu)
+        self._fill_recent_projects_menu()
+        act["save_project"] = self._action(m, "Salvar projeto", self.project.save, SK.Save,
+                                           "Salva a figura inteira (dados, edições e estilo) num .jabuti")
+        act["save_project_as"] = self._action(m, "Salvar projeto como…", self.project.save_as, SK.SaveAs)
+        if act["save_project_as"].shortcut().isEmpty():
+            act["save_project_as"].setShortcut(QKeySequence("Ctrl+Shift+S"))
+        act["save_bundle"] = self._action(m, "Salvar projeto com cópia dos dados…", lambda: self.project.save_bundle(),
+                                          None, "Um .zip com o projeto e cópia da árvore, tabelas e anotações iTOL "
+                                          "(sem GFFs), para mandar a alguém")
         m.addSeparator()
         act["import_itol"] = self._action(m, "Importar anotação iTOL…", self.figure_panel.itol._choose, "Ctrl+Shift+I",
                                           "Arquivos de anotação do iTOL (cores, faixas, barras, símbolos…)")
@@ -360,6 +382,51 @@ class MainWindow(QMainWindow):
         clear = menu.addAction("Limpar lista")
         clear.setEnabled(bool(items))
         clear.triggered.connect(lambda: (clear_recent(), self._fill_recent_menu()))
+
+    def _fill_recent_projects_menu(self) -> None:
+        from jabuti.settings import clear_recent, recent_files
+
+        menu = self.recent_projects_menu
+        menu.clear()
+        try:
+            items = recent_files("projects")
+        except Exception:  # noqa: BLE001
+            items = []
+        for p in items:
+            a = menu.addAction(Path(p).name)
+            a.setToolTip(p)
+            a.setStatusTip(p)
+            a.triggered.connect(lambda _=False, path=p: self.open_project(path))
+        if not items:
+            menu.addAction("(nenhum projeto recente)").setEnabled(False)
+        menu.addSeparator()
+        clear = menu.addAction("Limpar lista")
+        clear.setEnabled(bool(items))
+        clear.triggered.connect(lambda: (clear_recent("projects"), self._fill_recent_projects_menu()))
+
+    def open_project(self, path: str | Path, wait: bool = False) -> bool:
+        """Abre um projeto (.jabuti ou .zip com cópia dos dados), substituindo a sessão atual."""
+        if not self.maybe_save():
+            return False
+        return self.project.open(path, wait=wait)
+
+    def maybe_save(self) -> bool:
+        """Alterações não salvas: Salvar / Descartar / Cancelar. True = pode seguir."""
+        if not self.ask_on_close or not self.project.is_dirty():
+            return True
+        from PySide6.QtWidgets import QMessageBox
+
+        name = self.project.display_name() or "a figura atual"
+        box = QMessageBox(QMessageBox.Icon.Warning, "Alterações não salvas",
+                          f"Salvar as alterações em “{name}”?", parent=self)
+        box.setInformativeText("Sem salvar, as alterações desde o último salvamento se perdem.")
+        save = box.addButton("Salvar", QMessageBox.ButtonRole.AcceptRole)
+        discard = box.addButton("Descartar", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        if box.clickedButton() is save:
+            return self.project.save() is not None
+        return box.clickedButton() is discard
 
     def open_tree(self, path: str | Path) -> bool:
         """Abre uma árvore (menu, recentes, linha de comando)."""
@@ -887,6 +954,9 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(msg)
         # depois da mensagem acima: o resumo de uma importação iTOL recém-feita fica visível
         self.figure_panel.itol.set_effects(itol if self.figure_panel.itol.entries else None)
+        project = getattr(self, "project", None)
+        if project is not None:
+            project.update_dirty()
 
     def _make_snapshot(self, style, result, meta_colors, label_groups, itol, context):  # type: ignore[no-untyped-def]
         """O que acabou de ser desenhado, para a exportação iTOL."""
@@ -1121,6 +1191,9 @@ class MainWindow(QMainWindow):
         return out
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
+        if not self.maybe_save():
+            event.ignore()
+            return
         self.gff_tab.shutdown()  # não deixa thread de leitura viva ao fechar
         self.figure_panel.shutdown()
         super().closeEvent(event)
@@ -1133,7 +1206,13 @@ class MainWindow(QMainWindow):
     def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
         from jabuti.parsers.itol import sniff_itol
 
+        from jabuti.views.project_io import project_from_argument
+
         urls = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
+        projects = [u for u in urls if project_from_argument(u)]
+        if projects:
+            self.open_project(projects[0])
+            return
         itol = [u for u in urls if sniff_itol(u)]
         others = [u for u in urls if u not in itol]
         if others:

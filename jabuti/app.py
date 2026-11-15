@@ -69,6 +69,11 @@ class Launcher(QObject):
 
     def _open_files(self) -> None:
         win = self.build()
+        from jabuti.views.project_io import project_from_argument
+
+        if project_from_argument(self.path):
+            win.open_project(self.path)
+            return
         if win.open_tree(self.path) and self.itol:
             win.import_itol(self.itol, wait=False)
 

@@ -346,6 +346,21 @@ class ItolPanel(QWidget):
             self._refresh(select=row)
             self.changed.emit()
 
+    def clear_all(self) -> None:
+        """Remove todas as anotações (abrir outro projeto). Desfaz os COLLAPSE aplicados."""
+        for e in self.entries:
+            if e.dataset.kind == "COLLAPSE" and e.collapsed_sets:
+                self.collapse_changed.emit(e, False)
+        self.entries = []
+        self.prefs = {}
+        self.stats = {}
+        self._refresh()
+        self.changed.emit()
+
+    def paths(self) -> list:
+        """Arquivos das anotações, na ordem atual (prioridade)."""
+        return [e.dataset.path for e in self.entries]
+
     def set_visible(self, key: str, on: bool) -> None:
         for i, e in enumerate(self.entries):
             if e.key == key and e.visible != on:

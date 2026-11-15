@@ -122,6 +122,7 @@ class FigurePanel(QWidget):
         self.break_legend_text = "outgroup branch not to scale"
         self.name_map: dict[str, str] = {}          # tabela de nomes (dados: fora do preset)
         self.name_map_file = ""
+        self.name_map_path: Path | None = None
         self._load_kind = "data"
         self._custom_colors: dict[tuple[str, str], str] = {}   # cor escolhida para série desmarcada
         self.metadata_by_leaf = lambda: {}          # fornecido pela janela (aba Metadados)
@@ -576,6 +577,7 @@ class FigurePanel(QWidget):
         mapping, warns = parse_name_table(table)
         self.name_map = mapping
         self.name_map_file = path.name
+        self.name_map_path = path
         self._last_ok = True
         self.refresh_names()
         if warns:
@@ -584,7 +586,7 @@ class FigurePanel(QWidget):
 
     def clear_name_table(self) -> None:
         if self.name_map:
-            self.name_map, self.name_map_file = {}, ""
+            self.name_map, self.name_map_file, self.name_map_path = {}, "", None
             self.refresh_names()
             self._emit()
 
@@ -1288,6 +1290,14 @@ class FigurePanel(QWidget):
             loader.cancel()
             loader.join(timeout_ms / 1000)
         self._loaders = [w for w in self._loaders if w.is_running()]
+
+    def clear_tables(self) -> None:
+        """Remove todas as tabelas e a tabela de nomes (abrir outro projeto)."""
+        self.sources.clear()
+        self.name_map, self.name_map_file, self.name_map_path = {}, "", None
+        self.refresh_tables()
+        self.refresh_names()
+        self.tables_changed.emit()
 
     def remove_current_table(self) -> None:
         name = self.table_combo.currentData()

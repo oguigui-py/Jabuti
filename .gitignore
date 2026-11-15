@@ -34,3 +34,8 @@ data/
 !tests/data/**
 !examples/
 !examples/**
+
+# projetos do Jabuti salvos (contêm caminhos e, no .zip, dados)
+*.jabuti
+*.jabuti.zip
+*.jabuti.tmp

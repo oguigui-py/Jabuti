@@ -15,6 +15,7 @@ DESCRIPTION = ("Jabuti — visualizador offline de árvores filogenéticas de pr
 EPILOG = """exemplos:
   python -m jabuti
   python -m jabuti examples/paraburkholderia_40.treefile
+  python -m jabuti meu_projeto.jabuti
   python -m jabuti arvore.treefile --itol cores.txt faixas.txt
 
 Produced by Laboratório de Genômica Eco-evolutiva Microbiana · Designed by Guilherme Gonçalves"""
@@ -29,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jabuti", description=DESCRIPTION, epilog=EPILOG, add_help=False,
                                 formatter_class=_Formatter)
     p.add_argument("-h", "--help", action="help", help="mostra esta ajuda e sai")
-    p.add_argument("tree", nargs="?", metavar="ÁRVORE", help="arquivo Newick a abrir (.nwk, .treefile, .tre…)")
+    p.add_argument("tree", nargs="?", metavar="ÁRVORE", help="árvore Newick (.nwk, .treefile, .tre…) ou projeto (.jabuti, ou .zip com cópia dos dados)")
     p.add_argument("--itol", nargs="+", metavar="ARQ", default=[],
                    help="anotações do iTOL a importar depois de abrir a árvore")
     p.add_argument("--no-splash", action="store_true", help="abre direto, sem a tela de abertura")

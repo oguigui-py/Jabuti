@@ -373,6 +373,39 @@ exportação SVG/PDF/PNG/TIFF.
 
 Exemplo para testar: `python -m jabuti examples/paraburkholderia_40.treefile` (árvore sintética).
 
+## Projetos (`.jabuti`)
+
+*Arquivo → Salvar projeto* (Cmd/Ctrl+S) guarda a figura inteira para reabrir sem refazer nada:
+
+- a árvore (caminho) e o estado dela: enraizamento, ladderize, rotações, folhas ocultas,
+  colapsos, ramos encurtados, marcas e destaques de linha;
+- metadados, tabelas de dados (com o mapeamento feito à mão), tabela de nomes, GFFs (buscas de
+  genes, mapeamento arquivo→folha, contexto gênico) e anotações iTOL (ordem, visibilidade,
+  cores e títulos editados);
+- clados, grupos de rótulos, regras de nomes, colunas e sua ordem, todo o estilo (o mesmo
+  conteúdo dos presets: layout, legenda…) e as opções de exportação (dpi, TIFF/LZW).
+
+O `.jabuti` é um JSON com versão do formato. Os dados **não** vão dentro: cada arquivo é
+guardado pelo caminho relativo à pasta do projeto e pelo absoluto. Mover a pasta inteira
+(projeto + dados) continua funcionando. Arquivos que sumiram aparecem numa lista ao abrir, com
+*Localizar…* e *Ignorar* por arquivo; o resto abre normalmente, e um arquivo ignorado continua
+registrado no projeto. Só a árvore é obrigatória. Projetos de formato mais antigo são convertidos
+ao abrir; um de versão mais nova do Jabuti é recusado com uma mensagem, sem abrir pela metade.
+
+- **Abrir:** *Arquivo → Abrir projeto…* (Cmd/Ctrl+Shift+O), *Projetos recentes*,
+  `python -m jabuti projeto.jabuti` ou arrastar o `.jabuti` para a janela. A leitura de tabelas,
+  GFFs e anotações roda em segundo plano, e a janela continua respondendo.
+- **Alterações não salvas:** o título mostra o nome do projeto com `*`, e ao fechar (ou abrir outro
+  projeto) o Jabuti pergunta *Salvar / Descartar / Cancelar*.
+- **Mandar para alguém:** *Salvar projeto com cópia dos dados…* gera um `.zip` com o projeto e
+  uma pasta `dados/` com a árvore, as tabelas e as anotações iTOL. GFFs e arquivos acima de 20 MB
+  ficam de fora; um aviso lista o que ficou de fora e lembra que **os dados passam a ficar
+  dentro do arquivo**. No `.zip` o projeto **não guarda nenhum caminho do seu computador** (só
+  caminhos relativos a `dados/`; os arquivos de fora guardam só o nome). Para abrir, use
+  *Abrir projeto…* no `.zip`: ele é extraído numa pasta com o mesmo nome, ao lado dele.
+
+`*.jabuti` está no `.gitignore`, para um projeto salvo dentro do repositório não ser versionado.
+
 ## Instalação
 
 Requer Python 3.11 ou mais novo (testado com 3.14.3). Escolha **uma** das formas:
@@ -400,6 +433,7 @@ O Jabuti usa só QtCore, QtGui, QtWidgets e QtSvg, que vêm no pacote **PySide6-
 ```bash
 python -m jabuti                                   # janela vazia
 python -m jabuti minha_arvore.treefile             # abre a árvore
+python -m jabuti projeto.jabuti                    # abre um projeto (ou o .zip com cópia dos dados)
 python -m jabuti arvore.treefile --itol cores.txt faixas.txt   # e importa anotações do iTOL
 python -m jabuti --version                         # versão (não abre janela)
 python -m jabuti --help                            # ajuda da linha de comando
@@ -421,6 +455,10 @@ Cmd no macOS, Ctrl no Windows/Linux.
 |---|---|---|
 | Arquivo | Abrir árvore… | Cmd/Ctrl+O |
 | | Abrir recente ▸ (até 10; *Limpar lista*) | |
+| | Abrir projeto… | Cmd/Ctrl+Shift+O |
+| | Projetos recentes ▸ | |
+| | Salvar projeto / Salvar projeto como… | Cmd/Ctrl+S / Cmd/Ctrl+Shift+S |
+| | Salvar projeto com cópia dos dados… (`.zip`) | |
 | | Importar anotação iTOL… | Cmd/Ctrl+Shift+I |
 | | Importar metadados… | Cmd/Ctrl+Shift+M |
 | | Adicionar GFF3… | |

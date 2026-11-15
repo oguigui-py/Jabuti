@@ -34,6 +34,7 @@ class TreeTab(QWidget):
         self.original: Tree | None = None
         self.path: Path | None = None
         self.group: list[str] = []          # folhas do "grupo selecionado" (enraizamento)
+        self.rooting: dict = {"mode": "file"}   # último enraizamento aplicado (vai para o projeto)
 
         self.open_btn = QPushButton("Abrir árvore (Newick / .treefile)…")
         self.open_btn.clicked.connect(self._choose_file)
@@ -100,6 +101,7 @@ class TreeTab(QWidget):
         self.outgroup.setCompleter(comp)
         self.root_box.setEnabled(True)
         self.rb_orig.setChecked(True)
+        self.rooting = {"mode": "file"}
         self.tree_changed.emit(tree.copy())
         return True
 
@@ -131,19 +133,60 @@ class TreeTab(QWidget):
         if self.original is None:
             return False
         tree = self.original.copy()
+        rooting: dict = {"mode": "file"}
         try:
             if self.rb_mid.isChecked():
                 tree.reroot_midpoint()
+                rooting = {"mode": "midpoint"}
             elif self.rb_out.isChecked():
-                tree.reroot_outgroup(self.outgroup.currentText().strip())
+                leaf = self.outgroup.currentText().strip()
+                tree.reroot_outgroup(leaf)
+                rooting = {"mode": "outgroup", "leaf": leaf}
             elif self.rb_group.isChecked():
                 group = set(self.group) & set(tree.leaf_names())
                 extras = tree.group_extras(group)
                 if extras and not self.confirm_extras(extras, len(group)):
                     return False
                 tree.reroot_on_group(group)
+                rooting = {"mode": "group", "leaves": sorted(group)}
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao enraizar")
             return False
+        self.rooting = rooting
         self.tree_changed.emit(tree)
         return True
+
+    def apply_rooting_spec(self, spec: dict) -> str | None:
+        """Reaplica um enraizamento salvo no projeto (sem perguntas). Devolve um aviso ou None."""
+        if self.original is None or not isinstance(spec, dict):
+            return None
+        mode = spec.get("mode", "file")
+        names = set(self.original.leaf_names())
+        if mode == "file":
+            return None
+        tree = self.original.copy()
+        try:
+            if mode == "midpoint":
+                tree.reroot_midpoint()
+                self.rb_mid.setChecked(True)
+            elif mode == "outgroup":
+                leaf = str(spec.get("leaf", ""))
+                if leaf not in names:
+                    return f"enraizamento: a folha “{leaf}” não está na árvore (mantida a raiz do arquivo)"
+                tree.reroot_outgroup(leaf)
+                self.outgroup.setCurrentText(leaf)
+                self.rb_out.setChecked(True)
+            elif mode == "group":
+                group = set(spec.get("leaves") or []) & names
+                if not group:
+                    return "enraizamento: nenhuma folha do grupo está na árvore (mantida a raiz do arquivo)"
+                tree.reroot_on_group(group)
+                self.set_group(sorted(group))
+                self.rb_group.setChecked(True)
+            else:
+                return f"enraizamento “{mode}” desconhecido (mantida a raiz do arquivo)"
+        except Exception as exc:  # noqa: BLE001
+            return f"enraizamento não reaplicado: {exc}"
+        self.rooting = dict(spec)
+        self.tree_changed.emit(tree)
+        return None

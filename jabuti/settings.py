@@ -76,23 +76,26 @@ def pick_dir(parent: QWidget | None, title: str, kind: str) -> str:
 
 
 # ------------------------------------------------------------------ recentes
-def recent_files() -> list[str]:
-    """Árvores abertas recentemente (mais nova primeiro); as que sumiram do disco saem da lista."""
-    raw = settings().value("recent/trees", [], list) or []
+def recent_files(kind: str = "trees") -> list[str]:
+    """Arquivos abertos recentemente (mais novo primeiro): ``kind`` = "trees" ou "projects".
+
+    Os que sumiram do disco saem da lista."""
+    key = f"recent/{kind}"
+    raw = settings().value(key, [], list) or []
     if isinstance(raw, str):
         raw = [raw]
     alive = [p for p in raw if p and Path(p).is_file()]
     if alive != raw:
-        settings().setValue("recent/trees", alive)
+        settings().setValue(key, alive)
     return alive
 
 
-def add_recent(path: str | Path) -> list[str]:
+def add_recent(path: str | Path, kind: str = "trees") -> list[str]:
     p = str(Path(path).resolve())
-    items = [p, *[x for x in recent_files() if x != p]][:MAX_RECENT]
-    settings().setValue("recent/trees", items)
+    items = [p, *[x for x in recent_files(kind) if x != p]][:MAX_RECENT]
+    settings().setValue(f"recent/{kind}", items)
     return items
 
 
-def clear_recent() -> None:
-    settings().setValue("recent/trees", [])
+def clear_recent(kind: str = "trees") -> None:
+    settings().setValue(f"recent/{kind}", [])
