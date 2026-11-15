@@ -376,12 +376,13 @@ def test_simplebar(tree):
     assert st.ignored == 2 and [l for l, _ in st.problems] == [14, 52]
 
 
-def test_simplebar_width_clamped_and_log_warned(tmp_path, tree):
+def test_simplebar_width_clamped_and_log_scale(tmp_path, tree):
     text = f"DATASET_SIMPLEBAR\nSEPARATOR COMMA\nWIDTH,1000\nLOG_SCALE,1\nDATA\n{A00},3\n"
     fx = run(tree, parse_itol(write(tmp_path, text)))
-    assert fx.columns[0].column.width == 600
+    track = fx.columns[0].column
+    assert track.width == 600 and track.log
     msgs = [m for _, m in fx.stats["itol:0"].problems]
-    assert any("LOG_SCALE" in m for m in msgs) and any("WIDTH" in m for m in msgs)
+    assert any("WIDTH" in m for m in msgs) and not any("LOG_SCALE" in m for m in msgs)
 
 
 def test_multibar(tree):

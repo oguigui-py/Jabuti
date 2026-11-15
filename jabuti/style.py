@@ -208,6 +208,7 @@ class BarSpec:
     vmin: float | None = None       # None = automático (0, ou o mínimo se houver negativos)
     vmax: float | None = None       # None = automático (o máximo)
     width: float = 80.0             # px da coluna (ou do anel)
+    log: bool = False               # escala logarítmica (valores ≤ 0 ficam sem barra)
 
 
 @dataclass
@@ -297,6 +298,22 @@ class ItolPref:
     entry_labels: list[str] = field(default_factory=list)   # rótulo da legenda de cada cor ("" = do arquivo)
 
 
+BRANCH_TEXT_ORIENTATIONS = {
+    "along": "Ao longo do ramo",
+    "tangent": "Tangente (perpendicular ao ramo)",
+    "horizontal": "Horizontal",
+}
+
+
+@dataclass
+class BranchTextStyle:
+    """Textos do iTOL sobre os ramos (circular, leque e não enraizada; na retangular dá no mesmo)."""
+
+    orientation: str = "along"      # chave de BRANCH_TEXT_ORIENTATIONS
+    offset: float = 2.0             # distância mínima do ramo (px)
+    halo: bool = True               # contorno claro atrás do texto
+
+
 @dataclass
 class FigureConfig:
     """Opções do painel "Figura" (todas desligadas por padrão)."""
@@ -312,6 +329,7 @@ class FigureConfig:
     break_legend: bool = False                               # nota do ramo encurtado na legenda
     break_legend_text: str = "outgroup branch not to scale"
     itol: list[ItolPref] = field(default_factory=list)       # anotações iTOL (ajustes, não dados)
+    branch_text: BranchTextStyle = field(default_factory=BranchTextStyle)
 
 
 @dataclass

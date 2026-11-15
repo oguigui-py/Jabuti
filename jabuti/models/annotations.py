@@ -84,6 +84,11 @@ class LegendGroup:
     kind: str = "swatches"                       # "swatches" | "colorbar"
     stops: list[str] = field(default_factory=list)
     ticks: list[tuple[float, str]] = field(default_factory=list)   # (fração 0–1, rótulo)
+    # forma de cada amostra (alinhada a ``entries``): (forma do iTOL 1–12, cheia); None = quadrado
+    shapes: list[tuple[int, bool] | None] = field(default_factory=list)
+
+    def shape_at(self, i: int) -> tuple[int, bool] | None:
+        return self.shapes[i] if i < len(self.shapes) else None
 
     def is_empty(self) -> bool:
         return not self.entries and not (self.kind == "colorbar" and self.stops)

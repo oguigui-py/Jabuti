@@ -11,6 +11,9 @@ from pathlib import Path
 from PySide6.QtCore import QEventLoop, Qt, Signal, Slot
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -28,7 +31,7 @@ from PySide6.QtWidgets import (
 
 from jabuti.models.itol_apply import ItolEffects, ItolEntry, dataset_entries
 from jabuti.parsers.itol import KIND_NAMES, parse_itol
-from jabuti.style import ItolPref
+from jabuti.style import BRANCH_TEXT_ORIENTATIONS, BranchTextStyle, ItolPref
 from jabuti.views.errors import show_error
 from jabuti.views.widgets.swatches import ColorButton
 from jabuti.workers import FileLoader
@@ -120,6 +123,34 @@ class ItolPanel(QWidget):
         ev.addWidget(self.colors)
         self.editor = ed
         v.addWidget(ed)
+        # textos sobre os ramos (DATASET_TEXT com posição 0–1)
+        brow = QHBoxLayout()
+        brow.addWidget(QLabel("Textos nos ramos:"))
+        self.bt_orient = QComboBox()
+        for key, name in BRANCH_TEXT_ORIENTATIONS.items():
+            self.bt_orient.addItem(name, key)
+        self.bt_orient.setToolTip("Orientação dos textos do iTOL desenhados sobre os ramos. Na circular, no leque "
+                                  "e na não enraizada, “Ao longo do ramo” acompanha a direção do ramo e fica "
+                                  "sempre de pé; “Horizontal” é o comportamento antigo.")
+        self.bt_orient.currentIndexChanged.connect(self._bt_changed)
+        brow.addWidget(self.bt_orient, 1)
+        v.addLayout(brow)
+        brow = QHBoxLayout()
+        brow.addWidget(QLabel("Distância do ramo:"))
+        self.bt_offset = QDoubleSpinBox()
+        self.bt_offset.setRange(0.0, 30.0)
+        self.bt_offset.setSingleStep(0.5)
+        self.bt_offset.setSuffix(" px")
+        self.bt_offset.setToolTip("Espaço mínimo entre o texto e o ramo, para não encostar na linha.")
+        self.bt_offset.valueChanged.connect(self._bt_changed)
+        brow.addWidget(self.bt_offset)
+        self.bt_halo = QCheckBox("Halo claro")
+        self.bt_halo.setToolTip("Contorno claro atrás do texto: continua legível sobre ramos e fundos coloridos.")
+        self.bt_halo.toggled.connect(self._bt_changed)
+        brow.addWidget(self.bt_halo)
+        brow.addStretch(1)
+        v.addLayout(brow)
+        self.set_branch_text(BranchTextStyle())
         v.addWidget(QLabel("<b>Problemas na leitura</b>"))
         self.report = QPlainTextEdit()
         self.report.setReadOnly(True)
@@ -129,6 +160,27 @@ class ItolPanel(QWidget):
         self.hint = _hint("Nenhuma anotação importada.")
         v.addWidget(self.hint)
         self._refresh()
+
+    # ------------------------------------------------------------ textos nos ramos
+    def branch_text(self) -> BranchTextStyle:
+        return BranchTextStyle(self.bt_orient.currentData() or "along", self.bt_offset.value(),
+                               self.bt_halo.isChecked())
+
+    def set_branch_text(self, bt: BranchTextStyle) -> None:
+        widgets = (self.bt_orient, self.bt_offset, self.bt_halo)
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            i = self.bt_orient.findData(bt.orientation)
+            self.bt_orient.setCurrentIndex(i if i >= 0 else 0)
+            self.bt_offset.setValue(bt.offset)
+            self.bt_halo.setChecked(bt.halo)
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+
+    def _bt_changed(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        self.changed.emit()
 
     # ------------------------------------------------------------ leitura
     def _choose(self) -> None:

@@ -49,7 +49,8 @@ Exemplos sintéticos: `examples/gff/*.gff3` (22 genomas) para `examples/paraburk
   a ordem dos anéis. **Incluir legenda na figura exportada** (desligado por padrão) desenha essa
   mesma legenda na figura, ao lado do desenho (direita ou esquerda, alinhada em cima ou embaixo),
   sem cobrir árvore, heatmap nem barra de escala; aparece também na tela e sai igual no
-  SVG/PDF/PNG. A escolha vai para os presets.
+  SVG/PDF/PNG/TIFF. Símbolos e colunas de presença/ausência aparecem na legenda com a mesma forma
+  da coluna (círculo, estrela, seta…, cheia ou vazada). A escolha vai para os presets.
 
 Exemplo sintético: `examples/metadata.tsv` (chave = linhagem).
 
@@ -68,7 +69,10 @@ desenho é exatamente o de antes. As opções vão para os presets (os dados car
 - **Barras** — *+ Barras* cria uma coluna de barras a partir de uma coluna numérica: cor única,
   por clado ou por metadado (a coluna de *Colorir por* do painel Estilo), valor ao lado da barra,
   linhas de referência tracejadas (ex.: `4; 8` — vírgula sem espaço é decimal), mínimo/máximo
-  (automático = de 0, ou do menor valor negativo, até o maior) e largura. No retangular a coluna
+  (automático = de 0, ou do menor valor negativo, até o maior) e largura. **Escala logarítmica**
+  (log10) serve para valores que variam em ordens de grandeza: o eixo vai de uma potência de 10
+  abaixo do menor valor positivo a uma acima do maior, com marcas nas potências de 10; valores ≤ 0
+  não têm logaritmo e ficam sem barra (a barra de status diz quantos). No retangular a coluna
   tem eixo com mínimo, referências e máximo; no circular as barras são radiais e as referências
   viram arcos tracejados. Folha sem dado mostra um traço curto; clado colapsado usa a média.
   As colunas entram depois das faixas de metadados e do heatmap de genes.
@@ -181,13 +185,13 @@ anotação; os outros continuam abrindo como árvore. A leitura roda em segundo 
 | `LABELS` | nomes de exibição das folhas |
 | `DATASET_COLORSTRIP` | faixa de cor (coluna ou anel), com `STRIP_WIDTH`, `SHOW_STRIP_LABELS`, legenda de `LEGEND_TITLE/COLORS/LABELS` (ou dos rótulos dos dados) e `COLOR_BRANCHES` |
 | `DATASET_STYLE` | `branch` / `label`, para `node` ou `clade`: cor, fator de espessura ou de tamanho, `dashed` ou estilo do texto e cor de fundo do rótulo |
-| `DATASET_SIMPLEBAR` | coluna de barras (`COLOR`, `WIDTH`, `MARGIN`, `SHOW_VALUE`; os valores de `DATASET_SCALE` viram linhas de referência no eixo) |
+| `DATASET_SIMPLEBAR` | coluna de barras (`COLOR`, `WIDTH`, `MARGIN`, `SHOW_VALUE`, `LOG_SCALE`; os valores de `DATASET_SCALE` viram linhas de referência no eixo) |
 | `DATASET_MULTIBAR` | barras empilhadas (`FIELD_COLORS`, `FIELD_LABELS`, `WIDTH`, `MARGIN`), com legenda das séries; `X` = sem dado na série |
 | `DATASET_HEATMAP` | matriz externa, uma coluna por campo (`FIELD_LABELS`): gradiente `COLOR_MIN` → `COLOR_MAX` ou com `USE_MID_COLOR`/`COLOR_MID`, limites `USER_MIN/MID/MAX_VALUE`, `X` = sem dado (`COLOR_NAN`), `STRIP_WIDTH` = largura da célula, `SHOW_VALUES`; legenda em barra de cor |
-| `DATASET_SYMBOL` | símbolos (`ID,símbolo,tamanho,cor,preenchido,posição`): posição 0–1 = sobre o ramo que chega ao nó (0 = no pai, 1 = no nó); posição negativa = coluna externa (-1, -2… viram colunas separadas). Símbolos 1–6 como no `BINARY`, 7/8/9 linha contínua/tracejada/pontilhada, 10/11/12 seta p/ esquerda/direita/dupla; tamanho relativo a `MAXIMUM_SIZE`; legenda de `LEGEND_*` |
-| `DATASET_TEXT` | textos (`ID,texto,posição,cor,estilo,fator,rotação`): posição -1 = coluna de texto externa; 0–1 = sobre o ramo (com a rotação pedida); estilo normal/bold/italic/bold-italic; `SIZE_FACTOR` |
+| `DATASET_SYMBOL` | símbolos (`ID,símbolo,tamanho,cor,preenchido,posição`): posição 0–1 = sobre o ramo que chega ao nó (0 = no pai, 1 = no nó); posição negativa = coluna externa (-1, -2… viram colunas separadas). Símbolos 1–6 como no `BINARY`, 7/8/9 linha contínua/tracejada/pontilhada, 10/11/12 seta p/ esquerda/direita/dupla; tamanho relativo a `MAXIMUM_SIZE`; legenda de `LEGEND_*`, com a forma de `LEGEND_SHAPES` (vazada com `LEGEND_SHAPE_INVERT`) |
+| `DATASET_TEXT` | textos (`ID,texto,posição,cor,estilo,fator,rotação`): posição -1 = coluna de texto externa; 0–1 = sobre o ramo; estilo normal/bold/italic/bold-italic; `SIZE_FACTOR`. Nos ramos, a orientação fica em *Textos nos ramos*: ao longo do ramo (padrão; sempre de pé), tangente ou horizontal (como antes), com distância mínima do ramo e halo claro; a rotação do arquivo é somada |
 | `COLLAPSE` | um ID por linha (`A|B` = clado): os clados entram nos colapsos normais da árvore, então *Expandir* funciona como sempre; desligar ou remover o dataset expande de novo os clados que ele colapsou |
-| `DATASET_BINARY` | colunas de presença/ausência: `1` = forma cheia, `0` = vazada, `-1` = nada; `FIELD_SHAPES` 1 quadrado, 2 círculo, 3 estrela, 4 triângulo p/ direita, 5 triângulo p/ esquerda, 6 "check"; `FIELD_COLORS` (padrão `COLOR`) e `FIELD_LABELS` |
+| `DATASET_BINARY` | colunas de presença/ausência: `1` = forma cheia, `0` = vazada, `-1` = nada; `FIELD_SHAPES` 1 quadrado, 2 círculo, 3 estrela, 4 triângulo p/ direita, 5 triângulo p/ esquerda, 6 "check"; `FIELD_COLORS` (padrão `COLOR`) e `FIELD_LABELS`; a legenda desenha a forma de cada campo |
 
 As colunas importadas funcionam em todos os layouts com colunas (retangular, diagonal, circular,
 leque), entram em *Ordem das colunas* (arrastar, ocultar), na legenda e na exportação
@@ -216,7 +220,7 @@ outro `DATASET_*`.
 - **Barras (`SIMPLEBAR`, `MULTIBAR`):**
   - `WIDTH` vale em pontos, até 600 (o padrão do iTOL, 1000, é reduzido com aviso);
   - as barras partem sempre do 0, então um `BAR_ZERO` diferente de 0 só gera aviso;
-  - `LOG_SCALE`, `SIDE_STACKED` e `ALIGN_FIELDS` são ignorados com aviso;
+  - `LOG_SCALE` vale no `SIMPLEBAR` (valores ≤ 0 ficam sem barra, com aviso); no `MULTIBAR`, `LOG_SCALE`, `SIDE_STACKED` e `ALIGN_FIELDS` são ignorados com aviso;
   - no `SIMPLEBAR`, uma linha com valor não numérico (inclusive `X`) é ignorada;
   - dos itens de `DATASET_SCALE` (`valor-rótulo-cor-…`), só o valor é usado.
 - **Heatmap:**

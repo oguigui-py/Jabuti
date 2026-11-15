@@ -344,8 +344,11 @@ class MainWindow(QMainWindow):
             blocks[f"bar:{b.id}"] = [bar_track(
                 f"bar:{b.id}", b.column, values, vmin=b.vmin, vmax=b.vmax, color=b.color,
                 color_mode=b.color_mode, colors=meta_colors, refs=list(b.refs), show_values=b.show_values,
-                width=b.width, missing_color=md.missing_color)]
+                width=b.width, missing_color=md.missing_color, log=b.log)]
             labels[f"bar:{b.id}"] = f"Barras: {b.column}"
+            if blocks[f"bar:{b.id}"][0].nonpositive:
+                self._render_notes.append(f"barras “{b.column}” em escala log: {blocks[f'bar:{b.id}'][0].nonpositive} "
+                                          "valor(es) ≤ 0 ficaram sem barra")
         for st in fig.stacked:
             rows = visible(fp.by_leaf(st.source))
             series = [c for c in st.columns if numeric_column(rows, c)]

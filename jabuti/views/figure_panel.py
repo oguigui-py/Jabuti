@@ -226,6 +226,10 @@ class FigurePanel(QWidget):
         crow.addWidget(self.bar_color)
         self.bar_values = QCheckBox("Mostrar o valor ao lado")
         self.bar_values.toggled.connect(self._bar_edited)
+        self.bar_log = QCheckBox("Escala logarítmica")
+        self.bar_log.setToolTip("Eixo em log10, útil quando os valores variam em ordens de grandeza. "
+                                "Valores ≤ 0 não têm logaritmo: ficam sem barra (marcados como sem dado).")
+        self.bar_log.toggled.connect(self._bar_edited)
         self.bar_refs = QLineEdit()
         self.bar_refs.setPlaceholderText("ex.: 4; 8")
         self.bar_refs.setToolTip("Linhas tracejadas nesses valores (separe por ; ou espaço)")
@@ -252,6 +256,7 @@ class FigurePanel(QWidget):
         f.addRow("Coluna:", self.bar_column)
         f.addRow("Cor:", crow)
         f.addRow(self.bar_values)
+        f.addRow(self.bar_log)
         f.addRow("Referências:", self.bar_refs)
         f.addRow("Mínimo:", mrow)
         f.addRow("Máximo:", xrow)
@@ -1449,6 +1454,7 @@ class FigurePanel(QWidget):
             self.bar_color_mode.setCurrentIndex(max(self.bar_color_mode.findData(spec.color_mode), 0))
             self.bar_color.set_color(spec.color)
             self.bar_values.setChecked(spec.show_values)
+            self.bar_log.setChecked(spec.log)
             self.bar_refs.setText("; ".join(f"{r:g}" for r in spec.refs))
             self.bar_auto_min.setChecked(spec.vmin is None)
             self.bar_auto_max.setChecked(spec.vmax is None)
@@ -1492,6 +1498,7 @@ class FigurePanel(QWidget):
         spec.color_mode = self.bar_color_mode.currentData()
         spec.color = self.bar_color.color()
         spec.show_values = self.bar_values.isChecked()
+        spec.log = self.bar_log.isChecked()
         try:
             spec.refs = parse_refs(self.bar_refs.text())
             self.bar_hint.setText("")
@@ -1945,6 +1952,7 @@ class FigurePanel(QWidget):
         fig.break_legend = self.break_legend.isChecked()
         fig.break_legend_text = self.break_text.text().strip() or "outgroup branch not to scale"
         fig.itol = self.itol.to_prefs()
+        fig.branch_text = self.itol.branch_text()
         return style
 
     def load_style(self, style: RenderStyle) -> list[str]:
@@ -1989,6 +1997,7 @@ class FigurePanel(QWidget):
         self.track_order = list(fig.track_order)
         self.hidden_tracks = list(fig.hidden_tracks)
         self.itol.load_prefs(list(fig.itol))
+        self.itol.set_branch_text(fig.branch_text)
         nr = fig.names
         was = self._filling
         self._filling = True

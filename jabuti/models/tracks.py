@@ -8,6 +8,7 @@ da faixa de cor dos clados.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -49,21 +50,45 @@ class BarTrack:
     width: float = 80.0
     missing_color: str = "#d9d9d9"
     margin: float = 0.0                          # espaço antes da coluna (px)
+    log: bool = False                            # escala logarítmica (valores ≤ 0 = sem dado)
 
     def value_for(self, names: list[str]) -> float | None:
-        """Valor da folha, ou a média de um clado colapsado (ignora folhas sem dado)."""
-        return mean([self.values[n] for n in names if n in self.values])
+        """Valor da folha, ou a média de um clado colapsado (ignora folhas sem dado).
+
+        Em escala log, valores ≤ 0 contam como sem dado."""
+        return mean([self.values[n] for n in names if n in self.values and (not self.log or self.values[n] > 0)])
+
+    @property
+    def nonpositive(self) -> int:
+        """Quantos valores ficam sem barra por serem ≤ 0 em escala log."""
+        return sum(1 for v in self.values.values() if v <= 0) if self.log else 0
 
     def frac(self, v: float) -> float:
+        if self.log:
+            if v <= 0 or self.vmin <= 0 or self.vmax <= self.vmin:
+                return 0.0
+            lo, hi = math.log10(self.vmin), math.log10(self.vmax)
+            return max(0.0, min((math.log10(v) - lo) / (hi - lo), 1.0))
         return max(0.0, min((v - self.vmin) / (self.vmax - self.vmin), 1.0))
 
     @property
     def base(self) -> float:
-        """Fração onde a barra começa (o zero, se estiver dentro do eixo)."""
+        """Fração onde a barra começa (o zero, se estiver dentro do eixo; o mínimo em log)."""
+        if self.log:
+            return 0.0
         return self.frac(min(max(0.0, self.vmin), self.vmax))
 
     def visible_refs(self) -> list[float]:
-        return [r for r in self.refs if self.vmin <= r <= self.vmax]
+        return [r for r in self.refs if self.vmin <= r <= self.vmax and (not self.log or r > 0)]
+
+    def axis_ticks(self) -> list[float]:
+        """Marcas do eixo: mínimo, referências e máximo (em log, também as potências de 10)."""
+        ticks = [self.vmin, *self.visible_refs(), self.vmax]
+        if self.log and self.vmin > 0 and self.vmax > self.vmin:
+            lo, hi = math.ceil(math.log10(self.vmin) - 1e-9), math.floor(math.log10(self.vmax) + 1e-9)
+            if hi - lo <= 8:
+                ticks += [10.0 ** k for k in range(lo, hi + 1)]
+        return sorted(set(ticks))
 
 
 @dataclass
@@ -107,9 +132,24 @@ def stacked_track(key: str, header: str, series: list[str], colors: list[str],
 
 
 def bar_track(key: str, header: str, values: dict[str, float], *, vmin: float | None = None,
-              vmax: float | None = None, **kw) -> BarTrack:  # type: ignore[no-untyped-def]
-    lo, hi = auto_range(list(values.values()), vmin, vmax)
-    return BarTrack(key, header, values, lo, hi, **kw)
+              vmax: float | None = None, log: bool = False, **kw) -> BarTrack:  # type: ignore[no-untyped-def]
+    if log:
+        lo, hi = log_range(list(values.values()), vmin, vmax)
+    else:
+        lo, hi = auto_range(list(values.values()), vmin, vmax)
+    return BarTrack(key, header, values, lo, hi, log=log, **kw)
+
+
+def log_range(values: list[float], vmin: float | None = None, vmax: float | None = None) -> tuple[float, float]:
+    """Eixo log: de uma potência de 10 abaixo do menor valor positivo até uma acima do maior.
+
+    Mínimo/máximo do usuário valem se forem positivos."""
+    pos = [v for v in values if v > 0]
+    lo = vmin if vmin is not None and vmin > 0 else (10.0 ** math.floor(math.log10(min(pos))) if pos else 1.0)
+    hi = vmax if vmax is not None and vmax > 0 else (10.0 ** math.ceil(math.log10(max(pos))) if pos else 10.0)
+    if hi <= lo:
+        hi = lo * 10.0
+    return lo, hi
 
 
 def parse_refs(text: str) -> list[float]:

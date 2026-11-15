@@ -206,6 +206,36 @@ def shape_path(shape: int, c: QPointF, size: float) -> QPainterPath:
     return path
 
 
+def branch_text_pose(a: QPointF, b: QPointF, p: QPointF, w: float, h: float, orientation: str,
+                     offset: float) -> tuple[QPointF, QPointF, float]:
+    """(posição, origem da rotação, ângulo) de um texto ``w``×``h`` no ponto ``p`` do ramo a→b.
+
+    * ``along``: paralelo ao ramo, centrado, do lado de "cima" e sempre de pé (nunca de ponta-cabeça);
+    * ``tangent``: perpendicular ao ramo, começando a ``offset`` dele;
+    * ``horizontal``: como antes (centrado acima do ponto, sem girar).
+    """
+    dx, dy = b.x() - a.x(), b.y() - a.y()
+    if orientation not in ("along", "tangent") or math.hypot(dx, dy) < 1e-9:
+        origin = QPointF(w / 2, h)
+        return QPointF(p.x() - w / 2, p.y() - h - offset), origin, 0.0
+    ang = math.degrees(math.atan2(dy, dx)) + (90.0 if orientation == "tangent" else 0.0)
+    ang = (ang + 180.0) % 360.0 - 180.0          # (-180, 180]
+    if ang > 90.0:
+        ang -= 180.0
+    elif ang <= -90.0:
+        ang += 180.0
+    r = math.radians(ang)
+    if orientation == "along":
+        up = QPointF(math.sin(r), -math.cos(r))  # "cima" do texto depois de girar
+        origin = QPointF(w / 2, h)               # meio da base encostado no ramo (+ offset)
+        q = p + up * offset
+    else:
+        fwd = QPointF(math.cos(r), math.sin(r))
+        origin = QPointF(0.0, h / 2)              # começo do texto, na altura do meio
+        q = p + fwd * offset
+    return q - origin, origin, ang
+
+
 class _EdgeBatch:
     """Agrupa segmentos por (cor, espessura) em poucos QGraphicsPathItem."""
 
@@ -529,9 +559,29 @@ class TreeRenderer:
             t.setData(1, TAG_ITOL_TEXT)
             t.setZValue(2)
             br = t.boundingRect()
-            t.setTransformOriginPoint(br.width() / 2, br.height())
-            t.setRotation(m.rotation)
-            t.setPos(p.x() - br.width() / 2, p.y() - br.height() - 1)
+            bt = self.style.figure.branch_text
+            pos, origin, rot = branch_text_pose(a, b, p, br.width(), br.height(), bt.orientation, bt.offset)
+            t.setTransformOriginPoint(origin)
+            t.setRotation(rot + m.rotation)
+            t.setPos(pos)
+            if bt.halo:
+                self._add_halo(t)
+
+    def _add_halo(self, t: QGraphicsSimpleTextItem) -> None:
+        """Contorno claro atrás do texto (filho do item: acompanha rotação e posição)."""
+        f = t.font()
+        path = QPainterPath()
+        path.addText(0, QFontMetricsF(f).ascent(), f, t.text())
+        halo = QGraphicsPathItem(path, t)
+        c = QColor(self.style.background or "#ffffff")
+        c.setAlphaF(0.85)
+        pen = QPen(c, max(f.pointSizeF() * 0.28, 1.5))
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        halo.setPen(pen)
+        halo.setBrush(QBrush(c))
+        halo.setFlag(QGraphicsItem.GraphicsItemFlag.ItemStacksBehindParent)
+        halo.setData(1, TAG_ITOL_TEXT)
+        halo.setData(0, "halo")
 
     def _cell_text(self, text: str, center: QPointF, bg: str) -> None:
         c = QColor(bg)
@@ -1063,7 +1113,7 @@ class TreeRenderer:
             item.setZValue(-0.5)      # atrás das barras e dos valores, à frente do fundo dos clados
             self._tagged(item, TAG_BAR_REF, track.key)
         # eixo: mínimo, referências e máximo embaixo da coluna
-        self._axis_rect(track.key, x0, w, bottom, [track.vmin, *track.visible_refs(), track.vmax], track.frac)
+        self._axis_rect(track.key, x0, w, bottom, track.axis_ticks(), track.frac)
         if self.style.heatmap.show_headers:
             self._column_header(track.header, x0, w, top, horizontal_ok=True)
 
@@ -1979,20 +2029,38 @@ class TreeRenderer:
                 y += sw + 1
                 small = size * 0.85
                 lh = 0.0
-                for frac, text in group.ticks:
+                ticks = list(group.ticks)
+                # extremos sempre; os do meio só se não encostarem em outro rótulo
+                order = [0, len(ticks) - 1, *range(1, len(ticks) - 1)] if len(ticks) > 1 else list(range(len(ticks)))
+                placed: list[tuple[float, float]] = []
+                for k in order:
+                    frac, text = ticks[k]
                     lab = self._text(text, small, "#202020")
                     br = lab.boundingRect()
-                    lab.setPos(min(max(frac * bar_w - br.width() / 2, 0), bar_w - br.width()), y)
+                    tx = min(max(frac * bar_w - br.width() / 2, 0), bar_w - br.width())
+                    if any(tx < b + 2 and tx + br.width() > a - 2 for a, b in placed):
+                        self.scene.removeItem(lab)
+                        continue
+                    placed.append((tx, tx + br.width()))
+                    lab.setPos(tx, y)
                     items.append(lab)
                     lh = max(lh, br.height())
                 y += lh + 1
-            for text, color in group.entries:
+            for i, (text, color) in enumerate(group.entries):
                 label = self._text(text, size, "#202020")
                 lh = label.boundingRect().height()
-                if color is not None:
+                shape = group.shape_at(i)
+                if color is not None and shape is not None and shape[0] != 1:
+                    # mesma forma desenhada na coluna (símbolo, presença/ausência)
+                    mark = self._shape_item(shape[0], shape[1], QPointF(sw / 2, y + lh / 2), sw, color)
+                    mark.setData(3, shape)
+                    items.append(mark)
+                    label.setPos(sw + size * 0.5, y)
+                elif color is not None:
                     square = QGraphicsRectItem(0, y + (lh - sw) / 2, sw, sw)
-                    square.setBrush(QBrush(QColor(color)))
-                    square.setPen(QPen(QColor("#777777"), 0.5))
+                    filled = shape is None or shape[1]
+                    square.setBrush(QBrush(QColor(color)) if filled else QBrush(Qt.BrushStyle.NoBrush))
+                    square.setPen(QPen(QColor("#777777" if filled else color), 0.5 if filled else 1.0))
                     self.scene.addItem(square)
                     items.append(square)
                     label.setPos(sw + size * 0.5, y)

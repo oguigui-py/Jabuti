@@ -144,14 +144,19 @@ class _Writer:
     def option(self, name: str, *values) -> None:  # type: ignore[no-untyped-def]
         self.lines.append("\t".join([name, *(_clean(v) for v in values)]))
 
-    def legend(self, title: str, entries: list[tuple[str, str]], shapes: list[int] | None = None) -> None:
-        entries = [(l, c) for l, c in entries if c]
-        if not entries:
+    def legend(self, title: str, entries: list[tuple[str, str | None]],
+               shapes: list[tuple[int, bool] | None] | None = None) -> None:
+        shapes = list(shapes or [])
+        rows = [(l, c, shapes[i] if i < len(shapes) and shapes[i] else (1, True))
+                for i, (l, c) in enumerate(entries) if c]
+        if not rows:
             return
         self.option("LEGEND_TITLE", title)
-        self.option("LEGEND_SHAPES", *[str(s) for s in (shapes or [1] * len(entries))])
-        self.option("LEGEND_COLORS", *[c for _l, c in entries])
-        self.option("LEGEND_LABELS", *[l for l, _c in entries])
+        self.option("LEGEND_SHAPES", *[str(sh[0]) for _l, _c, sh in rows])
+        self.option("LEGEND_COLORS", *[c for _l, c, _sh in rows])
+        self.option("LEGEND_LABELS", *[l for l, _c, _sh in rows])
+        if any(not sh[1] for _l, _c, sh in rows):
+            self.option("LEGEND_SHAPE_INVERT", *["0" if sh[1] else "1" for _l, _c, sh in rows])
 
     def row(self, *fields) -> None:  # type: ignore[no-untyped-def]
         out = [_clean(f) for f in fields]
@@ -310,7 +315,7 @@ class _Planner:
         names = {}
         if legend is not None and legend.kind == "swatches":
             names = {c: l for l, c in legend.entries if c}
-            w.legend(legend.title or title, legend.entries)
+            w.legend(legend.title or title, legend.entries, legend.shapes)
         if col.texts:
             w.option("SHOW_STRIP_LABELS", "1")
         for leaf in self.leaves:
@@ -347,12 +352,12 @@ class _Planner:
             w.option("DATASET_SCALE", *[_num(r) for r in t.refs])
         if t.show_values:
             w.option("SHOW_VALUE", "1")
-        if getattr(t, "log", False):
+        if t.log:
             w.option("LOG_SCALE", "1")
         if t.color_mode != "single":
             self.warn(f"barras “{t.header}”: cor por clado/metadado vira uma cor única (o SIMPLEBAR do iTOL "
                       "tem uma só cor)")
-        if t.vmin != 0:
+        if t.vmin != 0 and not t.log:
             self.warn(f"barras “{t.header}”: o mínimo {fmt_value(t.vmin)} não é exportado (o iTOL parte do 0)")
         for leaf in self.leaves:
             if leaf.name in t.values:
@@ -434,6 +439,8 @@ class _Planner:
         w.option("FIELD_LABELS", *[c.header for c in cols])
         if cols[0].margin:
             w.option("MARGIN", _num(cols[0].margin))
+        if legend is not None:
+            w.legend(legend.title, legend.entries, legend.shapes)
         for leaf in self.leaves:
             cells = [c.shapes.get(leaf.name) for c in cols]
             if all(x is None for x in cells):
@@ -448,7 +455,7 @@ class _Planner:
         if cols[0].margin:
             w.option("MARGIN", _num(cols[0].margin))
         if legend is not None:
-            w.legend(legend.title, legend.entries)
+            w.legend(legend.title, legend.entries, legend.shapes)
         for k, c in enumerate(cols, start=1):
             for leaf in self.leaves:
                 if leaf.name in c.shapes:

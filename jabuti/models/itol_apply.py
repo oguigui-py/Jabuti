@@ -434,14 +434,15 @@ class _Builder:
         legend = None
         lc, ll = ds.options.get("LEGEND_COLORS", []), ds.options.get("LEGEND_LABELS", [])
         if lc and ll:
-            entries = []
-            for ctext, label in zip(lc, ll):
+            entries, shapes = [], []
+            for i, (ctext, label) in enumerate(zip(lc, ll)):
                 pc = parse_color(ctext)
                 if pc is None:
                     st.problems.append((0, f"cor inválida na legenda “{ctext}”"))
                     continue
                 entries.append((entry.labels.get(pc[0], label), entry.color(pc[0])))
-            legend = LegendGroup(title, entries) if entries else None
+                shapes.append(_legend_shape(ds, i))
+            legend = LegendGroup(title, entries, shapes=shapes) if entries else None
         elif any(seen.values()):
             legend = LegendGroup(title, [(l, c) for c, l in seen.items() if l])
         self.fx.columns.append(ItolColumn(entry.key, f"iTOL: {header}", [col], legend))
@@ -550,7 +551,6 @@ class _Builder:
         from jabuti.models.tracks import bar_track
 
         ds = entry.dataset
-        self._unsupported_opts(ds, st, ("LOG_SCALE",))
         values: dict[str, float] = {}
         for names, vals in self._numeric_rows(entry, resolver, st, None, False):
             for n in names:
@@ -564,7 +564,10 @@ class _Builder:
         header = entry.title or ds.label
         track = bar_track(entry.key, header, values, color=color, refs=_scale_values(ds.options.get("DATASET_SCALE", [])),
                           show_values=ds.flag("SHOW_VALUE"), width=self._width(ds, "WIDTH", 80.0, st),
-                          missing_color=self.missing_color, margin=max(ds.number("MARGIN", 0.0) or 0.0, 0.0))
+                          missing_color=self.missing_color, margin=max(ds.number("MARGIN", 0.0) or 0.0, 0.0),
+                          log=ds.flag("LOG_SCALE"))
+        if track.nonpositive:
+            st.problems.append((0, f"LOG_SCALE: {track.nonpositive} valor(es) ≤ 0 ficam sem barra"))
         self.fx.columns.append(ItolColumn(entry.key, f"iTOL barras: {header}", [track], None))
 
     def _field_colors(self, entry: ItolEntry, n: int, st: ItolStats) -> list[str]:
@@ -738,7 +741,7 @@ class _Builder:
                              margin=margin if i == 0 else 0.0, shapes=cells[i], shape_color=colors[i])
                   for i in range(n)]
         title = entry.title or ds.option("LEGEND_TITLE") or ds.label
-        legend = LegendGroup(title, list(zip(labels, colors)))
+        legend = LegendGroup(title, list(zip(labels, colors)), shapes=[(sh, True) for sh in shapes])
         self.fx.columns.append(ItolColumn(entry.key, f"iTOL presença: {entry.title or ds.label} ({n} colunas)",
                                           tracks, legend))
 
@@ -795,9 +798,13 @@ class _Builder:
         legend = None
         lc, ll = ds.options.get("LEGEND_COLORS", []), ds.options.get("LEGEND_LABELS", [])
         if lc and ll:
-            entries = [(entry.labels.get(pc[0], l), entry.color(pc[0]))
-                       for ctext, l in zip(lc, ll) if (pc := parse_color(ctext)) is not None]
-            legend = LegendGroup(entry.title or ds.option("LEGEND_TITLE") or title, entries) if entries else None
+            entries, shapes = [], []
+            for i, (ctext, l) in enumerate(zip(lc, ll)):
+                if (pc := parse_color(ctext)) is not None:
+                    entries.append((entry.labels.get(pc[0], l), entry.color(pc[0])))
+                    shapes.append(_legend_shape(ds, i))
+            legend = (LegendGroup(entry.title or ds.option("LEGEND_TITLE") or title, entries, shapes=shapes)
+                      if entries else None)
         self.fx.columns.append(ItolColumn(entry.key, f"iTOL símbolos: {title}", tracks, legend))
 
     def _text(self, entry: ItolEntry, resolver: Resolver, st: ItolStats) -> None:
@@ -906,3 +913,19 @@ def collapse_sets(entry: ItolEntry, tree: Tree, hidden: Iterable[str] = ()) -> l
                 if leaves not in out:
                     out.append(leaves)
     return out
+
+
+def _legend_shape(ds: ItolDataset, i: int) -> tuple[int, bool] | None:
+    """Forma da i-ésima amostra da legenda (LEGEND_SHAPES; LEGEND_SHAPE_INVERT = vazada)."""
+    shapes = ds.options.get("LEGEND_SHAPES") or []
+    if i >= len(shapes):
+        return None
+    try:
+        shape = int(float(shapes[i]))
+    except ValueError:
+        return None
+    if not 1 <= shape <= 12:
+        return None
+    inv = ds.options.get("LEGEND_SHAPE_INVERT") or []
+    hollow = i < len(inv) and inv[i].strip() not in ("", "0")
+    return shape, not hollow
