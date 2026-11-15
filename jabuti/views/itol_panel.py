@@ -357,6 +357,16 @@ class ItolPanel(QWidget):
         self._refresh()
         self.changed.emit()
 
+    def restore_entries(self, items: list) -> None:
+        """Desfazer/refazer: volta a lista (mesmos datasets lidos) e os ajustes de cada um,
+        sem pedir redesenho (quem restaura desenha uma vez no fim)."""
+        entries = []
+        for entry, visible, title, colors, labels in items:
+            entry.visible, entry.title, entry.colors, entry.labels = visible, title, dict(colors), dict(labels)
+            entries.append(entry)
+        self.entries = entries
+        self._refresh()
+
     def paths(self) -> list:
         """Arquivos das anotações, na ordem atual (prioridade)."""
         return [e.dataset.path for e in self.entries]

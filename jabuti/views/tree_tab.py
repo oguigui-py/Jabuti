@@ -156,6 +156,14 @@ class TreeTab(QWidget):
         self.tree_changed.emit(tree)
         return True
 
+    def reset_rooting(self) -> None:
+        """Volta à raiz do arquivo (desfazer um enraizamento)."""
+        if self.original is None:
+            return
+        self.rb_orig.setChecked(True)
+        self.rooting = {"mode": "file"}
+        self.tree_changed.emit(self.original.copy())
+
     def apply_rooting_spec(self, spec: dict) -> str | None:
         """Reaplica um enraizamento salvo no projeto (sem perguntas). Devolve um aviso ou None."""
         if self.original is None or not isinstance(spec, dict):

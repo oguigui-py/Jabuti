@@ -228,6 +228,10 @@ class MainWindow(QMainWindow):
         from jabuti.views.project_io import ProjectController
 
         self.project = ProjectController(self)
+        from jabuti.views.undo import UndoController
+
+        self.undo = UndoController(self)
+        self._undo_tree_path = None
         # perguntar ao fechar com alterações (desligado sem tela real: testes e modo offscreen)
         self.ask_on_close = QGuiApplication.platformName() not in ("offscreen", "minimal")
         self._build_menu()
@@ -327,6 +331,15 @@ class MainWindow(QMainWindow):
         act["quit"].setMenuRole(QAction.MenuRole.QuitRole)
 
         m = bar.addMenu("&Editar")
+        act["undo"] = self._action(m, "Desfazer", self.undo.stack.undo, SK.Undo)
+        act["redo"] = self._action(m, "Refazer", self.undo.stack.redo, SK.Redo)
+        if act["redo"].shortcut().isEmpty():
+            act["redo"].setShortcut(QKeySequence("Ctrl+Shift+Z"))
+        # métodos (não lambdas): a ligação não prende a janela viva depois de fechada
+        self.undo.stack.indexChanged.connect(self._update_undo_actions)
+        self.undo.stack.cleanChanged.connect(self._update_undo_actions)
+        self._update_undo_actions()
+        m.addSeparator()
         act["find"] = self._action(m, "Buscar folha", self._focus_search, SK.Find,
                                    "Busca pelo nome (parte do nome basta)")
         act["clear_sel"] = self._action(m, "Limpar seleção", self._clear_selection, "Esc")
@@ -350,6 +363,20 @@ class MainWindow(QMainWindow):
         act["about"].setMenuRole(QAction.MenuRole.AboutRole)
         act["readme"] = self._action(m, "Abrir o README (manual)", self.open_readme, SK.HelpContents)
         act["log"] = self._action(m, "Mostrar pasta do log de erros", self.open_log_dir)
+
+    def _update_undo_actions(self, *_a) -> None:  # type: ignore[no-untyped-def]
+        try:
+            self._refresh_undo_texts()
+        except RuntimeError:                    # janela sendo destruída
+            pass
+
+    def _refresh_undo_texts(self) -> None:
+        st = self.undo.stack
+        a, b = self.actions_by_name["undo"], self.actions_by_name["redo"]
+        a.setEnabled(st.canUndo())
+        b.setEnabled(st.canRedo())
+        a.setText(f"Desfazer: {st.undoText()}" if st.canUndo() else "Desfazer")
+        b.setText(f"Refazer: {st.redoText()}" if st.canRedo() else "Refazer")
 
     # ------------------------------------------------------------ menus: apoio
     def _focus_search(self) -> None:
@@ -479,6 +506,12 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ ações
     def on_tree_changed(self, tree: Tree) -> None:
+        undo = getattr(self, "undo", None)
+        if undo is not None and not undo.restoring and self.tree_tab.path != self._undo_tree_path:
+            # outra árvore: o histórico recomeça (reenraizar a mesma árvore entra no histórico)
+            undo.stack.clear()
+            undo.last = None
+            self._undo_tree_path = self.tree_tab.path
         self.tree = tree
         self.style_panel.set_tree(tree, self.viz_tab.use_lengths.isChecked())
         self.gff_tab.set_tree_leaves(tree.leaf_names())
@@ -930,6 +963,9 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(msg)
         # depois da mensagem acima: o resumo de uma importação iTOL recém-feita fica visível
         self.figure_panel.itol.set_effects(itol if self.figure_panel.itol.entries else None)
+        undo = getattr(self, "undo", None)
+        if undo is not None:
+            undo.record()
         project = getattr(self, "project", None)
         if project is not None:
             project.update_dirty()

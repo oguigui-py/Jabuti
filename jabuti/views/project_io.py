@@ -519,6 +519,8 @@ class ProjectController(QObject):
         w.generate()
         w._live_timer.stop()
         add_recent(self.path, "projects")
+        w.undo.reset()                          # histórico recomeça no projeto aberto
+        w._undo_tree_path = w.tree_tab.path
         self.mark_clean()
         skipped = sum(len(v) for v in self.dangling.values())
         msg = f"Projeto aberto: {self.path.name}" + (f" ({skipped} arquivo(s) ignorado(s))" if skipped else "")

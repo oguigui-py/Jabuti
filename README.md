@@ -379,6 +379,23 @@ exportação SVG/PDF/PNG/TIFF.
 
 Exemplo para testar: `python -m jabuti examples/paraburkholderia_40.treefile` (árvore sintética).
 
+## Desfazer e refazer
+
+*Editar → Desfazer* e *Refazer* mostram o nome da ação (ex.: “Desfazer: Enraizar no ponto
+médio”) e cobrem:
+
+- **estrutura:** enraizamento (ponto médio, folha, grupo), ladderize, girar nós, colapsar e
+  expandir, ocultar e restaurar folhas, ramos encurtados e destaques de linha;
+- **estilo:** cores de ramos, clados e fundos, grupos de rótulos, detecção de clados, layout e
+  seus parâmetros (ângulo do leque, cladograma…), opções do painel Figura, anotações iTOL
+  importadas, removidas ou editadas.
+
+Arrastar um controle deslizante ou ajustar um valor várias vezes seguidas vira **um** passo.
+O histórico guarda até 100 passos, recomeça ao abrir outra árvore ou outro projeto, não vai
+para o `.jabuti` e não é apagado ao salvar. O asterisco do título acompanha o histórico:
+desfazer até o estado salvo tira o `*`. Cada passo guarda só o estado do documento (nomes de
+folhas, estilo), nunca uma cópia da árvore: com 2.000 folhas são ~25 KB por estado.
+
 ## Projetos (`.jabuti`)
 
 *Arquivo → Salvar projeto* (Cmd/Ctrl+S) guarda a figura inteira para reabrir sem refazer nada:
@@ -494,7 +511,8 @@ Cmd no macOS, Ctrl no Windows/Linux.
 | | Exportar ▸ Para o iTOL… | Cmd/Ctrl+Shift+E |
 | | Exportar em lote… | Cmd/Ctrl+Shift+B |
 | | Sair | Cmd/Ctrl+Q |
-| Editar | Buscar folha | Cmd/Ctrl+F |
+| Editar | Desfazer: *ação* / Refazer: *ação* | Cmd+Z / Cmd+Shift+Z (Windows: Ctrl+Z / Ctrl+Y) |
+| | Buscar folha | Cmd/Ctrl+F |
 | | Limpar seleção | Esc |
 | | Redesenhar | Cmd/Ctrl+R (F5 no Windows) |
 | Exibir | Ampliar / Reduzir | Cmd/Ctrl++ / Cmd/Ctrl+− |

@@ -134,7 +134,7 @@ def _build(w, work: Path) -> None:  # type: ignore[no-untyped-def]
     st["metadata"]["strips"] = ["symbiont"]
     st["legend"]["in_figure"] = True
     st["figure"]["names"]["underscore_to_space"] = True
-    data["edits"]["ladderize"] = "right"
+    data["edits"]["ladderize"] = "asc"
     data["edits"]["hidden"] = ["Paraburkholderia_hospita_A09"]
     data["edits"]["rotations"] = [["Paraburkholderia_xenovorans_A00", "Paraburkholderia_phymatum_A01"]]
     data["edits"]["highlights"] = [{"leaves": ["Paraburkholderia_tropica_A02"], "color": "#ffe066", "alpha": 0.5,
