@@ -48,3 +48,12 @@ def load_logo_pixmap(width: float, device_pixel_ratio: float = 1.0):  # type: ig
     pm = QPixmap.fromImage(scaled)
     pm.setDevicePixelRatio(dpr)
     return pm
+
+
+def readme_path() -> Path | None:
+    """README.md junto do código (ou empacotado ao lado dos assets); None se não houver."""
+    for base in (assets_dir().parent.parent, assets_dir().parent):
+        p = base / "README.md"
+        if p.is_file():
+            return p
+    return None

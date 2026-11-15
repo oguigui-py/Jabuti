@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -29,6 +28,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabuti.views.theme import muted_css
+from jabuti.settings import open_files
 from jabuti.models.itol_apply import ItolEffects, ItolEntry, dataset_entries
 from jabuti.parsers.itol import KIND_NAMES, parse_itol
 from jabuti.style import BRANCH_TEXT_ORIENTATIONS, BranchTextStyle, ItolPref
@@ -42,7 +43,7 @@ ITOL_FILTER = "Anotações iTOL (*.txt *.tsv *.csv *.itol);;Todos (*)"
 def _hint(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setWordWrap(True)
-    lbl.setStyleSheet("color: #888;")
+    lbl.setStyleSheet(muted_css())
     return lbl
 
 
@@ -73,12 +74,12 @@ class ItolPanel(QWidget):
 
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 0, 0, 6)
-        self.import_btn = QPushButton("Importar anotação iTOL…")
-        self.import_btn.setToolTip("Arquivos de anotação do iTOL (TREE_COLORS, LABELS, DATASET_COLORSTRIP, "
+        self.import_btn = QPushButton("Importar…")
+        self.import_btn.setToolTip("Importar anotações do iTOL (TREE_COLORS, LABELS, DATASET_COLORSTRIP, "
                                    "DATASET_STYLE…). Também dá para arrastar os arquivos para a janela.")
         self.import_btn.clicked.connect(self._choose)
-        self.export_btn = QPushButton("Exportar para o iTOL…")
-        self.export_btn.setToolTip("Gera a árvore (Newick) e um arquivo por anotação, no formato do iTOL, "
+        self.export_btn = QPushButton("Exportar…")
+        self.export_btn.setToolTip("Exportar para o iTOL: gera a árvore (Newick) e um arquivo por anotação, no formato do iTOL, "
                                    "reproduzindo a figura atual. Mostra um resumo antes de gravar.")
         self.export_btn.clicked.connect(self.export_requested)
         row = QHBoxLayout()
@@ -96,7 +97,7 @@ class ItolPanel(QWidget):
         self.list.currentRowChanged.connect(self._selected)
         v.addWidget(self.list)
         row = QHBoxLayout()
-        self.remove_btn = QPushButton("✕ Remover")
+        self.remove_btn = QPushButton("Remover")
         self.remove_btn.clicked.connect(self.remove_current)
         row.addStretch(1)
         row.addWidget(self.remove_btn)
@@ -147,9 +148,9 @@ class ItolPanel(QWidget):
         self.bt_halo = QCheckBox("Halo claro")
         self.bt_halo.setToolTip("Contorno claro atrás do texto: continua legível sobre ramos e fundos coloridos.")
         self.bt_halo.toggled.connect(self._bt_changed)
-        brow.addWidget(self.bt_halo)
         brow.addStretch(1)
         v.addLayout(brow)
+        v.addWidget(self.bt_halo)
         self.set_branch_text(BranchTextStyle())
         v.addWidget(QLabel("<b>Problemas na leitura</b>"))
         self.report = QPlainTextEdit()
@@ -184,7 +185,7 @@ class ItolPanel(QWidget):
 
     # ------------------------------------------------------------ leitura
     def _choose(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, "Importar anotação iTOL", "", ITOL_FILTER)
+        paths = open_files(self, "Importar anotação iTOL", "itol", ITOL_FILTER)
         if paths:
             self.import_files(paths, wait=False)
 

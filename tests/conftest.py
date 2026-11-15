@@ -38,3 +38,26 @@ def stop_gff_threads(request):
     for w in app.allWidgets():
         if isinstance(w, (GffTab, FigurePanel)):
             w.shutdown()
+
+
+@pytest.fixture(autouse=True)
+def flush_deleted_widgets():
+    """Destrói de fato as janelas fechadas no teste anterior (deleteLater + coleta de lixo).
+
+    Sem isso, janelas de testes anteriores se acumulam e o teste que mede pausas do laço
+    de eventos durante a leitura em segundo plano (test_async_loading) falha conforme a
+    ordem dos testes."""
+    yield
+    import gc
+
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    for w in app.topLevelWidgets():
+        if not w.isVisible():
+            w.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    gc.collect()

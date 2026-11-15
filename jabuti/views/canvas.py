@@ -7,11 +7,12 @@ e não vai para o arquivo exportado."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, Qt, Signal
+from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
     QContextMenuEvent,
+    QFont,
     QKeyEvent,
     QMouseEvent,
     QPainter,
@@ -47,9 +48,30 @@ class TreeCanvas(QGraphicsView):
         self._sel_anchor: str | None = None
         self._press_pos: QPoint | None = None
 
+    EMPTY_TEXT = ("Nenhuma árvore aberta\n\n"
+                  "Arquivo → Abrir árvore… (Cmd/Ctrl+O)\n"
+                  "ou arraste um arquivo .nwk / .treefile para esta área")
+
     @property
     def tree_scene(self) -> QGraphicsScene:
         return self._scene
+
+    def is_empty(self) -> bool:
+        return not self._scene.items()
+
+    def drawForeground(self, painter: QPainter, rect) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
+        """Estado vazio: instrução no meio da tela (só na tela; a exportação desenha a cena)."""
+        super().drawForeground(painter, rect)
+        if not self.is_empty():
+            return
+        painter.save()
+        painter.resetTransform()
+        f = QFont(self.font())
+        f.setPointSizeF(f.pointSizeF() * 1.15)
+        painter.setFont(f)
+        painter.setPen(QColor("#7a7a7a"))
+        painter.drawText(QRectF(self.viewport().rect()), int(Qt.AlignmentFlag.AlignCenter), self.EMPTY_TEXT)
+        painter.restore()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         delta = event.angleDelta().y() or event.pixelDelta().y()

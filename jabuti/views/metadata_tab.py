@@ -8,7 +8,6 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -19,6 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabuti.views.theme import muted_css
+from jabuti.settings import open_file
 from jabuti.parsers.metadata import (
     MetadataMatch,
     MetadataTable,
@@ -44,7 +45,7 @@ class MetadataTab(QWidget):
         self.leaves: list[str] = []
         self.match: MetadataMatch | None = None
 
-        open_btn = QPushButton("Abrir TSV/CSV…")
+        open_btn = QPushButton("Abrir tabela (TSV/CSV)…")
         open_btn.clicked.connect(self._choose_file)
         clear_btn = QPushButton("Remover")
         clear_btn.clicked.connect(self.clear)
@@ -65,7 +66,7 @@ class MetadataTab(QWidget):
         self.preview.setMinimumHeight(240)
         hint = QLabel("Escolha a coluna para colorir e as faixas no painel <b>Estilo → Metadados e legenda</b>.")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888;")
+        hint.setStyleSheet(muted_css())
 
         lay = QVBoxLayout(self)
         lay.addLayout(row)
@@ -78,7 +79,7 @@ class MetadataTab(QWidget):
 
     # ---------------------------------------------------------------- I/O
     def _choose_file(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir metadados", "", TABLE_FILTER)
+        path = open_file(self, "Abrir metadados", "table", TABLE_FILTER)
         if path:
             self.load(path)
 

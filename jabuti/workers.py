@@ -23,6 +23,7 @@ from typing import Any, Callable
 
 from PySide6.QtCore import QObject, Signal
 
+from jabuti.logs import get_logger
 from jabuti.parsers.errors import JabutiParseError
 from jabuti.parsers.gff import LoadCancelled
 
@@ -91,6 +92,7 @@ class FileLoader(QObject):
                 except JabutiParseError as exc:
                     batch.append((False, str(path), exc.user_message()))
                 except Exception as exc:  # noqa: BLE001 — nenhum erro pode derrubar a thread
+                    get_logger("workers").error("Erro lendo %s", path, exc_info=True)
                     batch.append((False, str(path), f"Arquivo: {path.name}\n{exc.__class__.__name__}: {exc}"))
                 done += 1
                 if time.monotonic() - last >= self.BATCH_SECONDS:

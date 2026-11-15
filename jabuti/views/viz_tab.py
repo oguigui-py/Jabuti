@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabuti.views.theme import muted_css
 from jabuti.style import LAYOUT_NAMES, FanStyle, LayoutKind, RenderStyle, UnrootedStyle
 
 NOT_UNROOTED = "Não se aplica à árvore não enraizada."
@@ -132,7 +133,7 @@ class VizTab(QWidget):
         hint = QLabel("Cores, clados, ramos, rótulos, símbolos, suporte e barra de escala ficam no painel "
                       "<b>Estilo</b>, à direita (atualizam na hora).")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888;")
+        hint.setStyleSheet(muted_css())
         lay.addWidget(hint)
         lay.addWidget(exp)
         lay.addStretch(1)

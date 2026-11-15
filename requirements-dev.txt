@@ -1,0 +1,7 @@
+# Testes, verificação e empacotamento (além das dependências de execução).
+-r requirements.txt
+pytest==9.2.0
+pytest-qt==4.5.0
+pyflakes==4.1.0
+# empacotamento (ainda não usado no repositório; fixe a versão ao gerar o primeiro executável)
+pyinstaller>=6.0

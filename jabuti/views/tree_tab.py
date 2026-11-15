@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QCompleter,
-    QFileDialog,
     QGroupBox,
     QLabel,
     QMessageBox,
@@ -19,6 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabuti.settings import add_recent, open_file
 from jabuti.models.tree import Tree
 from jabuti.parsers.newick import load_tree
 from jabuti.views.errors import show_error
@@ -45,7 +45,7 @@ class TreeTab(QWidget):
 
         root_box = QGroupBox("Enraizamento")
         self.rb_orig = QRadioButton("Como no arquivo")
-        self.rb_mid = QRadioButton("Midpoint")
+        self.rb_mid = QRadioButton("Ponto médio (midpoint)")
         self.rb_out = QRadioButton("Por folha (outgroup):")
         self.rb_group = QRadioButton("No grupo selecionado")
         self.rb_group.setToolTip("Ancestral comum das folhas selecionadas no desenho (Cmd/Shift+clique ou busca)")
@@ -73,7 +73,7 @@ class TreeTab(QWidget):
         lay.addStretch(1)
 
     def _choose_file(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir árvore", "", TREE_FILTER)
+        path = open_file(self, "Abrir árvore", "tree", TREE_FILTER)
         if path:
             self.load(path)
 
@@ -85,6 +85,10 @@ class TreeTab(QWidget):
             return False
         self.original = tree
         self.path = Path(path)
+        try:
+            add_recent(self.path)
+        except Exception:  # noqa: BLE001 — preferência não pode impedir a abertura
+            pass
         self.file_label.setText(f"<b>{self.path.name}</b>")
         self.summary_label.setText(tree.summary().describe())
         names = sorted(tree.leaf_names(), key=str.lower)

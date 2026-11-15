@@ -8,15 +8,15 @@ version = "0.1.0"
 description = "Visualizador offline de árvores filogenéticas (estilo iTOL simplificado)"
 requires-python = ">=3.11"
 dependencies = [
-    "PySide6>=6.6",
+    "PySide6-Essentials>=6.6",
     "biopython>=1.81",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7", "pytest-qt>=4", "pyinstaller>=6"]
+dev = ["pytest>=7", "pytest-qt>=4", "pyflakes>=3", "pyinstaller>=6"]
 
 [project.gui-scripts]
-jabuti = "jabuti.app:main"
+jabuti = "jabuti.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["jabuti*"]

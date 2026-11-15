@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabuti.views.theme import error_color, muted_css
 from jabuti.models.label_groups import (
     HIGHLIGHT_COLORS,
     SOURCES,
@@ -79,7 +80,7 @@ class LabelGroupsPanel(QWidget):
         pl.addLayout(row)
         row2 = QHBoxLayout()
         self.pattern_count = QLabel("")
-        self.pattern_count.setStyleSheet("color: #666;")
+        self.pattern_count.setStyleSheet(muted_css())
         self.pattern_select = QPushButton("Selecionar")
         self.pattern_group = QPushButton("Criar grupo")
         row2.addWidget(self.pattern_count, 1)
@@ -317,17 +318,17 @@ class LabelGroupsPanel(QWidget):
     def _update_pattern_count(self) -> None:
         if not self.pattern.text().strip():
             self.pattern_count.setText("")
-            self.pattern_count.setStyleSheet("color: #666;")
+            self.pattern_count.setStyleSheet(muted_css())
             ok = False
         else:
             try:
                 n = len(self.pattern_matches())
                 self.pattern_count.setText(f"{n} folha(s) casam")
-                self.pattern_count.setStyleSheet("color: #666;")
+                self.pattern_count.setStyleSheet(muted_css())
                 ok = n > 0
             except ValueError as exc:
                 self.pattern_count.setText(str(exc))
-                self.pattern_count.setStyleSheet("color: #b22222;")
+                self.pattern_count.setStyleSheet(f"color: {error_color()};")
                 ok = False
         self.pattern_select.setEnabled(ok)
         self.pattern_group.setEnabled(ok)

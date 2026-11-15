@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabuti.views.theme import muted_css
 from jabuti.layout.rectangular import node_depths
 from jabuti.models.clades import (
     CladeSet,
@@ -92,7 +93,7 @@ class LegendWidget(QFrame):
         if not sections:
             lbl = QLabel(self.EMPTY_TEXT)
             lbl.setWordWrap(True)
-            lbl.setStyleSheet("color: #888;")
+            lbl.setStyleSheet(muted_css())
             self._lay.addWidget(lbl)
             return
         for title, items, group in sections:
@@ -244,7 +245,7 @@ class StylePanel(QWidget):
 
         btns = QHBoxLayout()
         self.detect_btn = QPushButton("Detectar")
-        self.clear_btn = QPushButton("Limpar auto")
+        self.clear_btn = QPushButton("Limpar automáticos")
         self.clear_btn.setToolTip("Remove os clados detectados automaticamente (mantém os manuais)")
         btns.addWidget(self.detect_btn)
         btns.addWidget(self.clear_btn)
@@ -383,7 +384,7 @@ class StylePanel(QWidget):
         hint = QLabel("Usa o valor escolhido em “Símbolos e suporte → Valor”; nós sem suporte ficam com a mínima. "
                       "A cor padrão vale quando não há clados (ou a opção de clado está desligada).")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888;")
+        hint.setStyleSheet(muted_css())
         f.addRow(hint)
         return w
 
@@ -411,7 +412,7 @@ class StylePanel(QWidget):
         f.addRow("Opacidade:", self.guide_opacity)
         hint = QLabel("Ligação da ponta do ramo ao anel externo (layout circular com pontas alinhadas).")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888;")
+        hint.setStyleSheet(muted_css())
         f.addRow(hint)
         return w
 
@@ -586,7 +587,7 @@ class StylePanel(QWidget):
         hint = QLabel("As colunas vêm das buscas na aba GFF. No circular viram anéis (de dentro para fora "
                       "na ordem da lista; veja a legenda).")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888;")
+        hint.setStyleSheet(muted_css())
         f.addRow(hint)
         return w
 
@@ -609,7 +610,7 @@ class StylePanel(QWidget):
         f.addRow(row)
         hint = QLabel("Clique direito num nó: girar (inverter filhos), colapsar em triângulo ou expandir.")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888;")
+        hint.setStyleSheet(muted_css())
         f.addRow(hint)
         self.bg_row = SwatchRow(BACKGROUNDS, selected="#ffffff")
         self.bg_row.color_changed.connect(self._emit)
@@ -670,7 +671,7 @@ class StylePanel(QWidget):
             g.addWidget(b, i // 2, i % 2)
         self.default_info = QLabel("")
         self.default_info.setWordWrap(True)
-        self.default_info.setStyleSheet("color: #888;")
+        self.default_info.setStyleSheet(muted_css())
         g.addWidget(self.default_info, 2, 0, 1, 2)
         self.forget_default_btn = QPushButton("Esquecer meu padrão")
         self.forget_default_btn.clicked.connect(lambda: self.preset_action.emit("forget_default"))
@@ -852,7 +853,7 @@ class StylePanel(QWidget):
         hint = QLabel("A cor do metadado tem prioridade sobre a dos clados. Ramo interno só recebe a cor "
                       "se todas as folhas abaixo dele tiverem a mesma.")
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #888;")
+        hint.setStyleSheet(muted_css())
         v.addWidget(hint)
         v.addWidget(QLabel("Faixas de cor (ao lado da árvore / anéis):"))
         self.meta_strips = QListWidget()

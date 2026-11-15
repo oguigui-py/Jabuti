@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -31,6 +30,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabuti.views.theme import muted_css
+from jabuti.settings import open_file
 from jabuti.models.datatables import METADATA_SOURCE, DataSource, numeric_column
 from jabuti.models.document import TreeEdits
 from jabuti.models.tracks import parse_refs
@@ -66,7 +67,7 @@ NOT_FOR_UNROOTED = "Não se aplica à árvore não enraizada (não há um lado �
 def _hint(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setWordWrap(True)
-    lbl.setStyleSheet("color: #888;")
+    lbl.setStyleSheet(muted_css())
     return lbl
 
 
@@ -565,7 +566,7 @@ class FigurePanel(QWidget):
 
     # nomes
     def _choose_name_table(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Tabela de nomes", "", TABLE_FILTER)
+        path = open_file(self, "Tabela de nomes", "table", TABLE_FILTER)
         if path:
             self.load_name_table(path, wait=False)
 
@@ -720,7 +721,7 @@ class FigurePanel(QWidget):
     def _choose_list_file(self) -> None:
         from jabuti.parsers.errors import JabutiParseError, read_text
 
-        path, _ = QFileDialog.getOpenFileName(self, "Lista de nomes", "", "Texto (*.txt *.tsv *.csv *.list);;Todos (*)")
+        path = open_file(self, "Lista de nomes", "table", "Texto (*.txt *.tsv *.csv *.list);;Todos (*)")
         if not path:
             return
         try:
@@ -758,7 +759,7 @@ class FigurePanel(QWidget):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(8, 0, 0, 6)
-        self.lv_enabled = QCheckBox("Suporte em níveis (círculos coloridos nos nós)")
+        self.lv_enabled = QCheckBox("Suporte em níveis (círculos nos nós)")
         self.lv_enabled.toggled.connect(self._levels_edited)
         v.addWidget(self.lv_enabled)
         f = QFormLayout()
@@ -1208,7 +1209,7 @@ class FigurePanel(QWidget):
 
     # ------------------------------------------------------------ tabelas
     def _choose_table(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Carregar tabela de dados", "", TABLE_FILTER)
+        path = open_file(self, "Carregar tabela de dados", "table", TABLE_FILTER)
         if path:
             self.load_table(path, wait=False)
 

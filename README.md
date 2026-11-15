@@ -7,8 +7,9 @@ no estilo de um iTOL simplificado. App desktop em Python + PySide6 (macOS e Wind
 enraizamento midpoint, por folha ou no grupo selecionado, layouts retangular, circular (pontas
 alinhadas no anel externo, estilo iTOL), leque, diagonal e não enraizado, colunas de dados
 (barras, barras empilhadas, matriz), clados coloridos, estilos de linha, rótulos e símbolos, edição da árvore
-(ladderize, girar, colapsar), presets JSON, zoom/pan, busca de folhas e exportação SVG / PDF / PNG / TIFF.
-**Próximas fases:** anotações iTOL simples e builds `.app` / `.exe`.
+(ladderize, girar, colapsar), presets JSON, zoom/pan, busca de folhas, exportação SVG / PDF / PNG / TIFF,
+anotações do iTOL (importar e exportar), arquivos recentes e log de erros.
+**Próxima fase:** builds `.app` / `.exe` (PyInstaller).
 
 ## GFF3 e heatmap de genes (aba **GFF**)
 
@@ -37,7 +38,7 @@ Exemplos sintéticos: `examples/gff/*.gff3` (22 genomas) para `examples/paraburk
 
 ## Metadados (aba **Metadados**)
 
-- *Abrir TSV/CSV…* (TAB, vírgula ou ponto e vírgula; com cabeçalho; uma linha por genoma).
+- *Abrir tabela (TSV/CSV)…* (TAB, vírgula ou ponto e vírgula; com cabeçalho; uma linha por genoma).
   A coluna com o nome da folha é detectada automaticamente (pode trocar) e o casamento usa as
   mesmas regras tolerantes dos GFFs. O relatório lista folhas sem metadados e linhas sem folha.
 - No painel, *Metadados e legenda*: **colorir por coluna** os rótulos e/ou os ramos (categorias
@@ -372,26 +373,110 @@ exportação SVG/PDF/PNG/TIFF.
 
 Exemplo para testar: `python -m jabuti examples/paraburkholderia_40.treefile` (árvore sintética).
 
-## Ambiente (Conda)
+## Instalação
+
+Requer Python 3.11 ou mais novo (testado com 3.14.3). Escolha **uma** das formas:
 
 ```bash
+# venv + versões fixadas (recomendado para reproduzir exatamente o ambiente testado)
+python3 -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+python -m pip install -r requirements.txt
+python -m pip install -e .            # opcional: comando "jabuti" no terminal
+
+# desenvolvimento (testes, pyflakes, PyInstaller)
+python -m pip install -r requirements-dev.txt
+
+# Conda
 conda env create -f environment.yml
 conda activate jabuti
 ```
 
+O Jabuti usa só QtCore, QtGui, QtWidgets e QtSvg, que vêm no pacote **PySide6-Essentials**
+(o `PySide6` completo também funciona, mas deixa o executável bem maior).
+
 ## Rodar
 
 ```bash
-python -m jabuti                    # ou: python -m jabuti minha_arvore.treefile
-QT_QPA_PLATFORM=offscreen pytest    # testes
+python -m jabuti                                   # janela vazia
+python -m jabuti minha_arvore.treefile             # abre a árvore
+python -m jabuti arvore.treefile --itol cores.txt faixas.txt   # e importa anotações do iTOL
+python -m jabuti --version                         # versão (não abre janela)
+python -m jabuti --help                            # ajuda da linha de comando
+QT_QPA_PLATFORM=offscreen pytest                   # testes
+python -m pyflakes jabuti tests scripts            # verificação estática
+python scripts/bench.py 500 1000 2000 --export     # tempos com árvores grandes
 ```
 
 Ao abrir, uma tela de abertura (logo do LGEM sobre um fundo animado discreto)
 aparece por ~3 s enquanto a janela principal é montada; clique ou qualquer tecla
-pula. Um arquivo de árvore passado na linha de comando é carregado logo depois.
-Para desativar a abertura: `JABUTI_NO_SPLASH=1 python -m jabuti` (os testes e o
-modo `offscreen` já a desativam).
+pula. Para desativar: `python -m jabuti --no-splash` ou `JABUTI_NO_SPLASH=1` (os
+testes e o modo `offscreen` já a desativam).
 
-Assets (imagens) ficam em `jabuti/assets/` e são localizados por
-`jabuti.resources.asset_path`, que funciona rodando do código ou empacotado com
-PyInstaller (incluir `datas=[("jabuti/assets", "jabuti/assets")]` no spec).
+## Menus e atalhos
+
+Cmd no macOS, Ctrl no Windows/Linux.
+
+| Menu | Ação | Atalho |
+|---|---|---|
+| Arquivo | Abrir árvore… | Cmd/Ctrl+O |
+| | Abrir recente ▸ (até 10; *Limpar lista*) | |
+| | Importar anotação iTOL… | Cmd/Ctrl+Shift+I |
+| | Importar metadados… | Cmd/Ctrl+Shift+M |
+| | Adicionar GFF3… | |
+| | Exportar ▸ Figura em SVG/PDF/PNG/TIFF… | SVG: Cmd/Ctrl+E |
+| | Exportar ▸ Para o iTOL… | Cmd/Ctrl+Shift+E |
+| | Sair | Cmd/Ctrl+Q |
+| Editar | Buscar folha | Cmd/Ctrl+F |
+| | Limpar seleção | Esc |
+| | Redesenhar | Cmd/Ctrl+R (F5 no Windows) |
+| Exibir | Ampliar / Reduzir | Cmd/Ctrl++ / Cmd/Ctrl+− |
+| | Ajustar à janela | Cmd/Ctrl+0 |
+| | Mostrar/ocultar painel Figura | Cmd/Ctrl+Shift+F |
+| Ajuda | Sobre o Jabuti (versão, créditos, onde ficam configuração e log) | |
+| | Abrir o README (manual) | F1 / Cmd+? |
+| | Mostrar pasta do log de erros | |
+
+Também dá para arrastar árvores e arquivos do iTOL para a janela.
+
+## Formatos
+
+| Entrada | Formatos |
+|---|---|
+| Árvore | Newick (`.nwk`, `.newick`, `.tree`, `.tre`, `.treefile` do IQ-TREE, `.contree`), suporte simples ou `SH-aLRT/UFBoot` |
+| Genes | GFF3 (`.gff`, `.gff3`, também `.gz`): Prokka, Bakta, NCBI |
+| Metadados e dados numéricos | TSV/CSV/`;` com cabeçalho, uma linha por genoma |
+| Anotações | arquivos do iTOL (ver *Anotações iTOL*); exportação para o iTOL em pasta ou `.zip` |
+| Saída | SVG, PDF, PNG, TIFF (dpi escolhido; PNG/TIFF até 30.000 px por lado), presets JSON |
+
+## Configuração, recentes e log
+
+- Configuração (última pasta de cada tipo de arquivo, arquivos recentes) em `jabuti.ini`, e o
+  “meu padrão” de estilo em `default_preset.json`, na pasta padrão do sistema:
+  macOS `~/Library/Application Support/Jabuti/Jabuti`, Windows `%APPDATA%\Jabuti\Jabuti`,
+  Linux `~/.local/share/Jabuti/Jabuti` (o *Sobre o Jabuti* mostra o caminho exato). Apagar a
+  pasta volta tudo ao padrão.
+- Log de erros (rotativo, até ~4 MB) em `logs/jabuti.log` dentro da pasta de dados locais
+  (macOS e Linux: a mesma acima; Windows `%LOCALAPPDATA%\Jabuti\Jabuti`). Nenhum erro fecha o app: aparece
+  uma mensagem curta, com os detalhes técnicos em *Mostrar detalhes…* e no log.
+  *Ajuda → Mostrar pasta do log de erros* abre a pasta.
+- `JABUTI_CONFIG_DIR=/outra/pasta` usa outra pasta para tudo isso (útil em testes).
+
+## Desempenho
+
+Medido com `scripts/bench.py` (árvores aleatórias, faixa de metadados, barras e legenda; Mac,
+Python 3.14, Qt offscreen): desenhar leva ≤ 0,2 s com 2.000 folhas em qualquer layout, e
+repintar a tela ao dar zoom ou arrastar fica abaixo de 0,05 s. SVG/PDF saem em menos de 0,1 s. O
+lento é o PNG/TIFF de figuras enormes, porque o custo é o número de pixels (ex.: 2.000 folhas no
+circular a 150 dpi ≈ 30 s). Acima de 30.000 px por lado o Jabuti recusa e sugere DPI menor ou
+SVG/PDF.
+
+## Empacotamento (preparação)
+
+- Sem caminhos absolutos no código; assets (imagens) só por `jabuti.resources.asset_path`,
+  que funciona rodando do código ou empacotado com PyInstaller (no spec:
+  `datas=[("jabuti/assets", "jabuti/assets"), ("README.md", ".")]`; sem o README empacotado,
+  *Ajuda → Abrir o README* abre a página do repositório).
+- Ponto de entrada: `jabuti.cli:main` (o mesmo de `python -m jabuti`).
+- Versões fixadas em `requirements.txt` / `requirements-dev.txt`.
+

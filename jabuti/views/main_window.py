@@ -5,13 +5,11 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-import os
 
-from PySide6.QtCore import QPoint, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence
 from PySide6.QtWidgets import (
     QDockWidget,
-    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -53,6 +51,7 @@ from jabuti.models.tracks import (
     stacked_track,
 )
 from jabuti.resources import BRAND_GREEN
+from jabuti.settings import config_dir, open_file, pick_dir, save_file
 from jabuti.presets import (
     LoadedPreset,
     load_preset,
@@ -70,16 +69,27 @@ from jabuti.views.metadata_tab import MetadataTab
 from jabuti.views.export import export_pdf, export_png, export_svg, export_tiff
 from jabuti.views.figure_panel import FigureDock, FigurePanel
 from jabuti.views.tree_renderer import TreeRenderer
+from jabuti.views.tooltips import apply_tooltips
 from jabuti.views.tree_tab import TreeTab
 from jabuti.views.viz_tab import VizTab
 
 
 def user_default_preset_path() -> Path:
     """Arquivo do "meu padrão" (JABUTI_CONFIG_DIR sobrepõe, usado nos testes)."""
-    base = os.environ.get("JABUTI_CONFIG_DIR") or QStandardPaths.writableLocation(
-        QStandardPaths.StandardLocation.AppDataLocation
-    )
-    return Path(base) / "default_preset.json"
+    return config_dir() / "default_preset.json"
+
+
+README_URL = "https://github.com/oguigui-py/Jabuti#readme"
+
+
+def readme_url() -> str:
+    """README local (rodando do código-fonte) ou, se não houver, o do repositório."""
+    from PySide6.QtCore import QUrl
+
+    from jabuti.resources import readme_path
+
+    p = readme_path()
+    return QUrl.fromLocalFile(str(p)).toString() if p is not None else README_URL
 
 
 def _scroll(w: QWidget) -> QScrollArea:
@@ -117,6 +127,8 @@ class MainWindow(QMainWindow):
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText("Buscar folha…")
         self.search_box.setClearButtonEnabled(True)
+        self.search_box.setMinimumWidth(140)
+        self.search_box.setToolTip("Busca folhas pelo nome (parte do nome basta). Atalho: Cmd/Ctrl+F")
         self.search_box.returnPressed.connect(self.do_search)
         self.search_box.textChanged.connect(lambda t: t or self.canvas.clear_highlights())
         tb = QHBoxLayout()
@@ -206,6 +218,7 @@ class MainWindow(QMainWindow):
         self.viz_tab.generate_requested.connect(self.generate)
         self.viz_tab.export_requested.connect(self.export)
         self._build_menu()
+        apply_tooltips(self)
         self.statusBar().showMessage("Abra uma árvore (aba Árvore) ou arraste um arquivo para a janela.")
         self._load_user_default()
 
@@ -232,25 +245,170 @@ class MainWindow(QMainWindow):
         self.brand_label.setStyleSheet(f"color: {'#6fbf8f' if dark else BRAND_GREEN}; padding: 2px 8px;")
         bar.addWidget(self.brand_label)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
-        self.setUnifiedTitleAndToolBarOnMac(True)
+        # só no macOS nativo: no Qt 6 isto liga WA_TranslucentBackground, e fora do Cocoa
+        # (Windows, Linux, offscreen) o fundo da janela ficaria transparente
+        from PySide6.QtGui import QGuiApplication
+
+        if QGuiApplication.platformName() == "cocoa":
+            self.setUnifiedTitleAndToolBarOnMac(True)
+
+    def _action(self, menu: QMenu, text: str, slot, shortcut=None, tip: str = "") -> QAction:  # type: ignore[no-untyped-def]
+        a = QAction(text, self)
+        if shortcut is not None:
+            a.setShortcut(QKeySequence(shortcut))
+        if tip:
+            a.setStatusTip(tip)
+            a.setToolTip(tip)
+        a.triggered.connect(lambda _=False: slot())
+        menu.addAction(a)
+        return a
 
     def _build_menu(self) -> None:
-        m = self.menuBar().addMenu("Arquivo")
-        a = QAction("Abrir árvore…", self)
-        a.setShortcut(QKeySequence.StandardKey.Open)
-        a.triggered.connect(self.tree_tab._choose_file)
-        m.addAction(a)
+        """Menus Arquivo, Editar, Exibir e Ajuda. Os atalhos usam ``QKeySequence.StandardKey``,
+        que vira Cmd no macOS e Ctrl no Windows/Linux."""
+        SK = QKeySequence.StandardKey
+        bar = self.menuBar()
+        self.actions_by_name: dict[str, QAction] = {}
+        act = self.actions_by_name
+
+        m = bar.addMenu("&Arquivo")
+        act["open"] = self._action(m, "Abrir árvore…", self.tree_tab._choose_file, SK.Open,
+                                   "Abre uma árvore Newick (.nwk, .treefile, .tre…)")
+        self.recent_menu = m.addMenu("Abrir recente")
+        self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
+        self._fill_recent_menu()
+        m.addSeparator()
+        act["import_itol"] = self._action(m, "Importar anotação iTOL…", self.figure_panel.itol._choose, "Ctrl+Shift+I",
+                                          "Arquivos de anotação do iTOL (cores, faixas, barras, símbolos…)")
+        act["import_meta"] = self._action(m, "Importar metadados…", self._import_metadata, "Ctrl+Shift+M",
+                                          "Tabela TSV/CSV com uma coluna de genomas")
+        act["import_gff"] = self._action(m, "Adicionar GFF3…", self._import_gff, None,
+                                         "Anotações de genes (GFF3) para o heatmap e o contexto gênico")
+        m.addSeparator()
+        exp = m.addMenu("Exportar")
         for fmt in ("svg", "pdf", "png", "tiff"):
-            act = QAction(f"Exportar {fmt.upper()}…", self)
-            act.triggered.connect(lambda _=False, f=fmt: self.export(f))
-            m.addAction(act)
-        act = QAction("Exportar para o iTOL…", self)
-        act.triggered.connect(lambda: self.export_itol())
-        m.addAction(act)
-        find = QAction("Buscar folha", self)
-        find.setShortcut(QKeySequence.StandardKey.Find)
-        find.triggered.connect(lambda: (self.search_box.setFocus(), self.search_box.selectAll()))
-        self.addAction(find)
+            act[f"export_{fmt}"] = self._action(exp, f"Figura em {fmt.upper()}…", lambda f=fmt: self.export(f),
+                                                "Ctrl+E" if fmt == "svg" else None)
+        exp.addSeparator()
+        act["export_itol"] = self._action(exp, "Para o iTOL…", lambda: self.export_itol(), "Ctrl+Shift+E",
+                                          "Árvore + um arquivo por anotação, no formato do iTOL")
+        m.addSeparator()
+        act["quit"] = self._action(m, "Sair", self.close, SK.Quit)
+        act["quit"].setMenuRole(QAction.MenuRole.QuitRole)
+
+        m = bar.addMenu("&Editar")
+        act["find"] = self._action(m, "Buscar folha", self._focus_search, SK.Find,
+                                   "Busca pelo nome (parte do nome basta)")
+        act["clear_sel"] = self._action(m, "Limpar seleção", self._clear_selection, "Esc")
+        m.addSeparator()
+        act["redraw"] = self._action(m, "Redesenhar", self.generate, SK.Refresh,
+                                     "Gera a figura de novo com as opções atuais")
+        if act["redraw"].shortcut().isEmpty():
+            act["redraw"].setShortcut(QKeySequence("Ctrl+R"))
+
+        m = bar.addMenu("E&xibir")
+        act["zoom_in"] = self._action(m, "Ampliar", lambda: self.canvas.zoom_by(1.25), SK.ZoomIn)
+        act["zoom_out"] = self._action(m, "Reduzir", lambda: self.canvas.zoom_by(1 / 1.25), SK.ZoomOut)
+        act["fit"] = self._action(m, "Ajustar à janela", self.canvas.fit, "Ctrl+0")
+        m.addSeparator()
+        act["toggle_figure"] = self._action(
+            m, "Mostrar/ocultar painel Figura",
+            lambda: self.figure_holder.set_collapsed(not self.figure_holder.collapsed), "Ctrl+Shift+F")
+
+        m = bar.addMenu("Aj&uda")
+        act["about"] = self._action(m, "Sobre o Jabuti", self.show_about)
+        act["about"].setMenuRole(QAction.MenuRole.AboutRole)
+        act["readme"] = self._action(m, "Abrir o README (manual)", self.open_readme, SK.HelpContents)
+        act["log"] = self._action(m, "Mostrar pasta do log de erros", self.open_log_dir)
+
+    # ------------------------------------------------------------ menus: apoio
+    def _focus_search(self) -> None:
+        self.search_box.setFocus()
+        self.search_box.selectAll()
+
+    def _clear_selection(self) -> None:
+        self.canvas.clear_selection()
+        self.canvas.clear_highlights()
+        if self.search_box.hasFocus():
+            self.search_box.clear()
+
+    def _import_metadata(self) -> None:
+        self.tabs.setCurrentIndex(2)
+        self.metadata_tab._choose_file()
+
+    def _import_gff(self) -> None:
+        self.tabs.setCurrentIndex(1)
+        self.gff_tab._choose_files()
+
+    def _fill_recent_menu(self) -> None:
+        from jabuti.settings import clear_recent, recent_files
+
+        menu = self.recent_menu
+        menu.clear()
+        try:
+            items = recent_files()
+        except Exception:  # noqa: BLE001
+            items = []
+        for p in items:
+            a = menu.addAction(Path(p).name)
+            a.setToolTip(p)
+            a.setStatusTip(p)
+            a.triggered.connect(lambda _=False, path=p: self.open_tree(path))
+        if not items:
+            menu.addAction("(nenhum arquivo recente)").setEnabled(False)
+        menu.addSeparator()
+        clear = menu.addAction("Limpar lista")
+        clear.setEnabled(bool(items))
+        clear.triggered.connect(lambda: (clear_recent(), self._fill_recent_menu()))
+
+    def open_tree(self, path: str | Path) -> bool:
+        """Abre uma árvore (menu, recentes, linha de comando)."""
+        self.tabs.setCurrentIndex(0)
+        return self.tree_tab.load(path)
+
+    def about_text(self) -> str:
+        from jabuti.logs import log_path
+
+        return (f"<h2>Jabuti {__version__}</h2>"
+                "<p>Visualizador offline de árvores filogenéticas de procariotos.</p>"
+                "<p>Produced by Laboratório de Genômica Eco-evolutiva Microbiana<br>"
+                "Designed by Guilherme Gonçalves</p>"
+                f"<p><a href=\"{readme_url()}\">Manual (README)</a></p>"
+                f"<p><small>Configuração: {config_dir()}<br>Log de erros: {log_path()}</small></p>")
+
+    def show_about(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+
+        from jabuti.resources import load_logo_pixmap
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Sobre o Jabuti")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(self.about_text())
+        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        try:
+            pm = load_logo_pixmap(96, self.devicePixelRatioF())
+            if not pm.isNull():
+                box.setIconPixmap(pm)
+        except Exception:  # noqa: BLE001
+            pass
+        box.exec()
+
+    def open_readme(self) -> bool:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        return QDesktopServices.openUrl(QUrl(readme_url()))
+
+    def open_log_dir(self) -> bool:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        from jabuti.logs import log_dir
+
+        d = log_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        return QDesktopServices.openUrl(QUrl.fromLocalFile(str(d)))
 
     # ------------------------------------------------------------ ações
     def on_tree_changed(self, tree: Tree) -> None:
@@ -826,12 +984,12 @@ class MainWindow(QMainWindow):
     def on_preset_action(self, action: str) -> None:
         try:
             if action == "save":
-                path, _ = QFileDialog.getSaveFileName(self, "Salvar preset", "jabuti_preset.json", "Preset (*.json)")
+                path = save_file(self, "Salvar preset", "preset", "jabuti_preset.json", "Preset (*.json)")
                 if path:
                     save_preset(path if path.lower().endswith(".json") else path + ".json", self.collect_preset())
                     self.statusBar().showMessage(f"Preset salvo: {path}", 8000)
             elif action == "load":
-                path, _ = QFileDialog.getOpenFileName(self, "Carregar preset", "", "Preset (*.json);;Todos (*)")
+                path = open_file(self, "Carregar preset", "preset", "Preset (*.json);;Todos (*)")
                 if path:
                     self._report_preset(f"Preset carregado: {Path(path).name}", self.apply_preset(load_preset(path)))
             elif action == "save_default":
@@ -876,12 +1034,17 @@ class MainWindow(QMainWindow):
             return
         base = self.tree_tab.path.stem if self.tree_tab.path else "arvore"
         filters = {"svg": "SVG (*.svg)", "pdf": "PDF (*.pdf)", "png": "PNG (*.png)", "tiff": "TIFF (*.tif *.tiff)"}
-        path, _ = QFileDialog.getSaveFileName(self, f"Exportar {fmt.upper()}", f"{base}.{fmt}", filters[fmt])
+        path = save_file(self, f"Exportar {fmt.upper()}", "export", f"{base}.{fmt}", filters[fmt])
         if not path:
             return
         if not path.lower().endswith(f".{fmt}") and not (fmt == "tiff" and path.lower().endswith(".tif")):
             path += f".{fmt}"
         scene = self.canvas.tree_scene
+        from PySide6.QtWidgets import QApplication
+
+        self.statusBar().showMessage(f"Exportando {fmt.upper()}… (figuras grandes em PNG/TIFF podem levar alguns segundos)")
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
         try:
             if fmt == "svg":
                 export_svg(scene, path)
@@ -892,8 +1055,11 @@ class MainWindow(QMainWindow):
             else:
                 export_png(scene, path, self.viz_tab.dpi.value())
         except Exception as exc:  # noqa: BLE001
+            QApplication.restoreOverrideCursor()
             show_error(self, exc, "Erro ao exportar")
+            self.statusBar().clearMessage()
             return
+        QApplication.restoreOverrideCursor()
         self.statusBar().showMessage(f"Exportado: {path}")
 
     def export_itol(self, dest: str | None = None, as_zip: bool | None = None) -> Path | None:
@@ -933,9 +1099,9 @@ class MainWindow(QMainWindow):
             as_zip = clicked is zipped
             base = f"{snap.tree_name}_itol"
             if as_zip:
-                dest, _ = QFileDialog.getSaveFileName(self, "Salvar .zip para o iTOL", f"{base}.zip", "Zip (*.zip)")
+                dest = save_file(self, "Salvar .zip para o iTOL", "export", f"{base}.zip", "Zip (*.zip)")
             else:
-                parent = QFileDialog.getExistingDirectory(self, "Pasta onde criar a exportação")
+                parent = pick_dir(self, "Pasta onde criar a exportação", "export")
                 dest = str(Path(parent) / base) if parent else ""
             if not dest:
                 return None

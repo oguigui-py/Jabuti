@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
-    QFileDialog,
     QFormLayout,
     QGridLayout,
     QGroupBox,
@@ -29,6 +28,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from jabuti.views.theme import muted_css
+from jabuti.settings import open_files
 from jabuti.models.annotations import presence_matrix
 from jabuti.parsers.gff import GeneQuery, Genome, file_signature, find_genes, genome_name_from_path, parse_gff3
 from jabuti.parsers.names import match_names
@@ -178,7 +179,7 @@ class GffTab(QWidget):
                           "âncora apontar sempre para a direita; genes que casam com outras colunas "
                           "ficam com a cor delas.")
         ctx_hint.setWordWrap(True)
-        ctx_hint.setStyleSheet("color: #888;")
+        ctx_hint.setStyleSheet(muted_css())
         cl.addRow(ctx_hint)
 
         lay = QVBoxLayout(self)
@@ -200,7 +201,7 @@ class GffTab(QWidget):
 
     # ------------------------------------------------------------ arquivos
     def _choose_files(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, "Adicionar GFF3", "", GFF_FILTER)
+        paths = open_files(self, "Adicionar GFF3", "gff", GFF_FILTER)
         if paths:
             self.load_files(paths)
 
