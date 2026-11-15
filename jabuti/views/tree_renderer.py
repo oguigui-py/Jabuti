@@ -32,6 +32,7 @@ HIGHLIGHT = QColor("#ffe066")
 TAG_BRANCHES = "branches"
 TAG_GUIDES = "tip-guides"
 TAG_CLADE_BG = "clade-background"
+TAG_RANGE_BG = "range-background"        # faixa "range" do iTOL
 TAG_CLADE_STRIP = "clade-strip"
 TAG_CLADE_NAME = "clade-name"
 TAG_CUT = "cut-line"
@@ -161,29 +162,31 @@ class _EdgeBatch:
     """Agrupa segmentos por (cor, espessura) em poucos QGraphicsPathItem."""
 
     def __init__(self, cap: str = "flat") -> None:
-        self.paths: dict[tuple[str, float], QPainterPath] = {}
+        self.paths: dict[tuple[str, float, bool], QPainterPath] = {}
         self.cap = cap_style(cap)
 
-    def path(self, color: str, width: float) -> QPainterPath:
-        return self.paths.setdefault((color, width), QPainterPath())
+    def path(self, color: str, width: float, dashed: bool = False) -> QPainterPath:
+        return self.paths.setdefault((color, width, dashed), QPainterPath())
 
-    def seg(self, color: str, width: float, a: QPointF, b: QPointF) -> None:
-        p = self.path(color, width)
+    def seg(self, color: str, width: float, a: QPointF, b: QPointF, dashed: bool = False) -> None:
+        p = self.path(color, width, dashed)
         p.moveTo(a)
         p.lineTo(b)
 
-    def arc(self, color: str, width: float, r: float, th0: float, th1: float) -> None:
+    def arc(self, color: str, width: float, r: float, th0: float, th1: float, dashed: bool = False) -> None:
         if r <= 0:
             return
-        p = self.path(color, width)
+        p = self.path(color, width, dashed)
         rect = QRectF(-r, -r, 2 * r, 2 * r)
         p.arcMoveTo(rect, _qt_deg(th0))
         p.arcTo(rect, _qt_deg(th0), _qt_deg(th1) - _qt_deg(th0))
 
     def flush(self, scene: QGraphicsScene) -> None:
-        for (color, width), path in self.paths.items():
+        for (color, width, dashed), path in self.paths.items():
             pen = QPen(QColor(color), width)
             pen.setCapStyle(self.cap)
+            if dashed:
+                pen.setDashPattern([4.0, 3.0])
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin if self.cap == Qt.PenCapStyle.RoundCap
                              else Qt.PenJoinStyle.MiterJoin)
             item = QGraphicsPathItem(path)
@@ -212,8 +215,16 @@ class TreeRenderer:
         hidden: set[str] | frozenset[str] = frozenset(),
         names: dict[str, str] | None = None,
         highlights: list | None = None,
+        branch_looks: tuple[dict, dict] | None = None,
+        ranges: list | None = None,
     ) -> RenderResult:
+        """``branch_looks`` = (ramo que termina no nó, conector que sai do nó) → ``BranchLook``;
+        ``ranges`` = faixas de fundo por clado (``RangeBackground``) — ambos do iTOL."""
         self.scene.clear()
+        self._edge_looks, self._node_looks = branch_looks or ({}, {})
+        # faixas maiores primeiro: uma faixa dentro de outra fica por cima e continua visível
+        self._ranges = sorted((r for r in (ranges or []) if r.node is not None),
+                              key=lambda r: -len(r.node.leaves()))
         self.notes: list[str] = []
         self._context = context or {}
         tracks = list(columns or [])
@@ -260,6 +271,8 @@ class TreeRenderer:
         if layout.is_radial:
             self._render_circular(tree, style, res)
         elif layout == LayoutKind.UNROOTED:
+            if self._ranges:
+                self.notes.append("faixas “range” do iTOL não aparecem na árvore não enraizada")
             self._render_unrooted(tree, style, res)
         else:
             self._render_rectangular(tree, style, res)
@@ -292,6 +305,22 @@ class TreeRenderer:
                 if kids and kids[0] is not None and all(k == kids[0] for k in kids):
                     out[node] = kids[0]
         return out
+
+    def _edge_pen(self, node: Node) -> tuple[str, float, bool]:
+        """(cor, espessura, tracejado) do ramo que termina em ``node`` (estilo iTOL vence)."""
+        look = self._edge_looks.get(node)
+        if look is None:
+            return self._edge_color(node), self._width(node), False
+        return (look.color or self._edge_color(node), round(self._width(node) * look.width_factor, 3),
+                look.dashed)
+
+    def _node_pen(self, node: Node) -> tuple[str, float, bool]:
+        """(cor, espessura, tracejado) do conector/arco que sai de ``node``."""
+        look = self._node_looks.get(node)
+        if look is None:
+            return self._node_color(node), self._width(node), False
+        return (look.color or self._node_color(node), round(self._width(node) * look.width_factor, 3),
+                look.dashed)
 
     def _edge_color(self, node: Node) -> str:
         """Ramo que termina em ``node``: metadado do próprio nó (se ativo) ou regra dos clados."""
@@ -1253,12 +1282,14 @@ class TreeRenderer:
             if node.parent is not None:
                 pp = pt(node.parent)
                 start = pp if slanted else QPointF(pp.x(), p.y())   # diagonal: direto do pai
-                edges.seg(self._edge_color(node), self._width(node), start, p)
+                c, w, d = self._edge_pen(node)
+                edges.seg(c, w, start, p, d)
             if node in self._collapsed:
                 continue
             if node.children and not slanted:
                 top, bot = pt(node.children[0]), pt(node.children[-1])
-                edges.seg(self._node_color(node), self._width(node), QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()))
+                c, w, d = self._node_pen(node)
+                edges.seg(c, w, QPointF(p.x(), top.y()), QPointF(p.x(), bot.y()), d)
         edges.flush(self.scene)
         for node in self._broken(tree):
             pp = pt(node.parent)
@@ -1353,6 +1384,18 @@ class TreeRenderer:
                     path = QPainterPath()
                     path.addRect(QRectF(x0, y0, x - pad / 2 - x0, y1 - y0))
                     self._fill(path, rc.color, cs.background_alpha, TAG_CLADE_BG, -2)
+        if self._ranges:          # faixas "range" do iTOL (TREE_COLORS): como o fundo de clado
+            groups = (self._clade_bg_groups(lay, self._ranges) if self._merge
+                      else [(r.color, [r], set()) for r in self._ranges])
+            for color, group, lead_in in groups:
+                path = QPainterPath()
+                path.setFillRule(Qt.FillRule.WindingFill)
+                for rg in group:
+                    y0, y1 = y_range(rg.node)
+                    y0 -= SEAM_OVERLAP if id(rg) in lead_in else 0.0
+                    x0 = pt(rg.node).x() - pad / 2
+                    path.addRect(QRectF(x0, y0, x - pad / 2 - x0, y1 - y0))
+                self._fill(path, color, group[0].alpha, TAG_RANGE_BG, -2.5)
         if cs.show_names and visible:
             for rc in visible:
                 y0, y1 = y_range(rc.node)
@@ -1433,12 +1476,13 @@ class TreeRenderer:
             r, th = rad(node), lay.pos[node][1]
             res.node_points[node] = pt(r, th)
             if node.parent is not None:
-                edges.seg(self._edge_color(node), self._width(node), pt(rad(node.parent), th), pt(r, th))
+                c, w, d = self._edge_pen(node)
+                edges.seg(c, w, pt(rad(node.parent), th), pt(r, th), d)
             if node in self._collapsed:
                 continue
             if node.children:
-                edges.arc(self._node_color(node), self._width(node), r,
-                          lay.pos[node.children[0]][1], lay.pos[node.children[-1]][1])
+                c, w, d = self._node_pen(node)
+                edges.arc(c, w, r, lay.pos[node.children[0]][1], lay.pos[node.children[-1]][1], d)
         edges.flush(self.scene)
         for node in self._broken(tree):
             th = lay.pos[node][1]
@@ -1561,6 +1605,19 @@ class TreeRenderer:
                         th0 -= SEAM_OVERLAP / max(r0, 1.0)
                     path.addPath(annular_sector(r0, outer + pad / 2, th0, th1))
                 self._fill(path, color, cs.background_alpha, TAG_CLADE_BG, -2)
+        if self._ranges:          # faixas "range" do iTOL (TREE_COLORS): como o fundo de clado
+            groups = (self._clade_bg_groups(lay, self._ranges) if self._merge
+                      else [(r.color, [r], set()) for r in self._ranges])
+            for color, group, lead_in in groups:
+                path = QPainterPath()
+                path.setFillRule(Qt.FillRule.WindingFill)
+                for rg in group:
+                    th0, th1 = th_range(rg.node)
+                    r0 = max(rad(rg.node) - pad / 2, 0.0)
+                    if id(rg) in lead_in:
+                        th0 -= SEAM_OVERLAP / max(r0, 1.0)
+                    path.addPath(annular_sector(r0, outer + pad / 2, th0, th1))
+                self._fill(path, color, group[0].alpha, TAG_RANGE_BG, -2.5)
         if cs.show_names and visible:
             r_name = outer + pad * 2
             for rc in visible:
@@ -1625,7 +1682,8 @@ class TreeRenderer:
             p = pt(node)
             res.node_points[node] = p
             if node.parent is not None:
-                edges.seg(self._edge_color(node), self._width(node), pt(node.parent), p)
+                c, w, d = self._edge_pen(node)
+                edges.seg(c, w, pt(node.parent), p, d)
         edges.flush(self.scene)
         for node in self._broken(tree):
             pp, p = pt(node.parent), pt(node)

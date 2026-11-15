@@ -1,0 +1,11 @@
+DATASET_STYLE
+# Estilos de ramo e de rótulo. Separador: COMMA.
+SEPARATOR COMMA
+DATASET_LABEL,Estilos
+COLOR,#000000
+DATA
+# ID,TYPE,WHAT,COLOR,WIDTH_OR_SIZE_FACTOR,STYLE,BACKGROUND_COLOR
+Paraburkholderia_nodosa_A12|Paraburkholderia_atlantica_A17,branch,clade,#2e8b57,1.5,normal
+Paraburkholderia_mimosarum_A13,label,node,#2e8b57,1,bold-italic,#e6f4ea
+Caballeronia_glathei_DSM50014,branch,node,#8e44ad,2,dashed
+Paraburkholderia_terrae_B28,label,node,#8e44ad,1.3,bold

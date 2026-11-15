@@ -1,0 +1,53 @@
+DATASET_COLORSTRIP
+# Faixa de cor categórica. Separador: SPACE (aspas agrupam textos com espaço).
+SEPARATOR SPACE
+DATASET_LABEL Habitat
+COLOR #ff0000
+STRIP_WIDTH 18
+LEGEND_TITLE "Habitat (sintético)"
+LEGEND_SHAPES 1 1 1
+LEGEND_COLORS #4e79a7 #59a14f #e15759
+LEGEND_LABELS solo rizosfera clínico
+# o template oficial escreve esta opção com vírgula mesmo com SEPARATOR SPACE
+LABEL_ALIGN_TO_TREE,0
+DATA
+Paraburkholderia_xenovorans_A00 #4e79a7 solo
+Paraburkholderia_phymatum_A01 #4e79a7 solo
+Paraburkholderia_tropica_A02 #4e79a7 solo
+Paraburkholderia_unamae_A03 #4e79a7 solo
+Paraburkholderia_caribensis_A04 #4e79a7 solo
+Paraburkholderia_phytofirmans_A05 #4e79a7 solo
+Paraburkholderia_graminis_A06 #4e79a7 solo
+Paraburkholderia_kururiensis_A07 #4e79a7 solo
+Paraburkholderia_terrae_A08 #4e79a7 solo
+Paraburkholderia_hospita_A09 #4e79a7 solo
+Paraburkholderia_fungorum_A10 #4e79a7 solo
+Paraburkholderia_sabiae_A11 #4e79a7 solo
+Paraburkholderia_nodosa_A12 #4e79a7 solo
+Paraburkholderia_mimosarum_A13 #4e79a7 solo
+Paraburkholderia_diazotrophica_A14 #4e79a7 solo
+Paraburkholderia_sprentiae_A15 #4e79a7 solo
+Paraburkholderia_tuberum_A16 #4e79a7 solo
+Paraburkholderia_atlantica_A17 #4e79a7 solo
+Paraburkholderia_ferrariae_A18 #4e79a7 solo
+Paraburkholderia_silvatlantica_A19 #4e79a7 solo
+Paraburkholderia_xenovorans_B20 #59a14f rizosfera
+Paraburkholderia_phymatum_B21 #59a14f rizosfera
+Paraburkholderia_tropica_B22 #59a14f rizosfera
+Paraburkholderia_unamae_B23 #59a14f rizosfera
+Paraburkholderia_caribensis_B24 #59a14f rizosfera
+Paraburkholderia_phytofirmans_B25 #59a14f rizosfera
+Paraburkholderia_graminis_B26 #59a14f rizosfera
+Paraburkholderia_kururiensis_B27 #59a14f rizosfera
+Paraburkholderia_terrae_B28 #59a14f rizosfera
+Paraburkholderia_hospita_B29 #59a14f rizosfera
+Paraburkholderia_fungorum_B30 #59a14f rizosfera
+Paraburkholderia_sabiae_B31 #59a14f rizosfera
+Paraburkholderia_nodosa_B32 #59a14f rizosfera
+Paraburkholderia_mimosarum_B33 #59a14f rizosfera
+Paraburkholderia_diazotrophica_B34 #59a14f rizosfera
+Paraburkholderia_sprentiae_B35 #59a14f rizosfera
+Burkholderia_cepacia_ATCC25416 #e15759 clínico
+Burkholderia_cenocepacia_J2315 #e15759 clínico
+# folha que não existe: contada como ignorada
+Folha_inexistente_X1 #4e79a7 solo

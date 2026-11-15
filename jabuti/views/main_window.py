@@ -37,6 +37,7 @@ from jabuti.models.annotations import (
 )
 from jabuti.models.datatables import numeric_column
 from jabuti.models.document import apply_edits
+from jabuti.models.label_groups import LabelGroupSet
 from jabuti.models.colormaps import SCALES
 from jabuti.models.tracks import (
     CLADE_STRIP,
@@ -367,6 +368,13 @@ class MainWindow(QMainWindow):
             scale = "" if mx.scale == "linear" else f" — escala {SCALES[mx.scale]}"
             legends[f"matrix:{mx.id}"] = [LegendGroup(f"{title}{scale}", [("sem dado", md.missing_color)], "colorbar",
                                       list(cs.stops), [(f, fmt_value(round(v, 1 if abs(v) < 10 else 0))) for f, v in cs.ticks(3)])]
+        fx = self.itol_effects(style)
+        for ic in fx.columns:
+            blocks[ic.key] = [ic.column]
+            labels[ic.key] = ic.label
+            if ic.legend is not None:
+                legends[ic.key] = [ic.legend]
+        groups.extend(fx.legends)
         keys = order_keys(list(blocks), fig.track_order, fig.hidden_tracks)
         self.figure_panel.set_available_tracks(
             [(k, labels.get(k, k)) for k in order_keys(list(blocks), fig.track_order)])
@@ -504,8 +512,24 @@ class MainWindow(QMainWindow):
         if self.display_tree is None:
             return {}
         fp = self.figure_panel
-        return display_names(self.display_tree.leaf_names(), style.figure.names, fp.name_map,
+        mapping = {**self.itol_effects(style).names, **fp.name_map}    # a tabela de nomes vence o LABELS
+        return display_names(self.display_tree.leaf_names(), style.figure.names, mapping,
                              self.style_panel.edits.marked)
+
+    def itol_effects(self, style: RenderStyle):  # type: ignore[no-untyped-def]
+        """Anotações iTOL aplicadas à árvore desenhada (calculadas uma vez por desenho)."""
+        from jabuti.models.itol_apply import ItolEffects, apply_itol
+
+        tree = self.display_tree
+        entries = self.figure_panel.itol.entries
+        if tree is None or not entries:
+            return ItolEffects()
+        cache = getattr(self, "_itol_cache", None)
+        if cache is not None and cache[0] is tree:
+            return cache[1]
+        fx = apply_itol(entries, tree, self.style_panel.edits.hidden, style.metadata.missing_color)
+        self._itol_cache = (tree, fx)
+        return fx
 
     def clade_from_list(self, names: list, name: str, color: str) -> None:
         """Clado pelo ancestral comum dos nomes colados (avisa se não for monofilético)."""
@@ -621,12 +645,16 @@ class MainWindow(QMainWindow):
         edits = self.style_panel.edits
         try:
             self.display_tree = apply_edits(self.tree, edits)
+            self._itol_cache = None
+            itol = self.itol_effects(style)
             columns, groups, meta_colors = self.annotation_columns(style)
             context, ctx_group = self.context_tracks(style)
             if ctx_group is not None:
                 groups.append(ctx_group)
             label_groups = self.style_panel.label_groups
             groups.extend(self._label_legend(label_groups))
+            if itol.label_groups:       # estilos do iTOL por baixo dos grupos do usuário (os seus vencem)
+                label_groups = LabelGroupSet(itol.label_groups + label_groups.groups, label_groups.show_in_legend)
             lv = style.figure.support_levels
             if lv.enabled and lv.legend and self.display_tree.max_support_values():
                 from jabuti.models.support import level_labels, value_name
@@ -638,7 +666,8 @@ class MainWindow(QMainWindow):
             result = self.renderer.render(self.display_tree, style, self.style_panel.clade_set.clades,
                                           edits.collapsed, columns, meta_colors, context, label_groups,
                                           legend=groups, hidden=edits.hidden,
-                                          names=self.display_names(style), highlights=edits.highlights)
+                                          names=self.display_names(style), highlights=edits.highlights,
+                                          branch_looks=itol.branch_looks, ranges=itol.ranges)
         except Exception as exc:  # noqa: BLE001
             show_error(self, exc, "Erro ao desenhar")
             return
@@ -659,6 +688,8 @@ class MainWindow(QMainWindow):
         if self._render_notes:
             msg += " Obs.: " + "; ".join(self._render_notes) + "."
         self.statusBar().showMessage(msg)
+        # depois da mensagem acima: o resumo de uma importação iTOL recém-feita fica visível
+        self.figure_panel.itol.set_effects(itol if self.figure_panel.itol.entries else None)
 
     # ------------------------------------------------------------ presets
     def collect_preset(self, include_tree_state: bool = True) -> dict:
@@ -807,7 +838,19 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
+        from jabuti.parsers.itol import sniff_itol
+
         urls = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
-        if urls:
+        itol = [u for u in urls if sniff_itol(u)]
+        others = [u for u in urls if u not in itol]
+        if others:
             self.tabs.setCurrentIndex(0)
-            self.tree_tab.load(Path(urls[0]))
+            self.tree_tab.load(Path(others[0]))
+        if itol:
+            self.import_itol(itol, wait=False)
+
+    def import_itol(self, paths, wait: bool = True) -> bool:  # type: ignore[no-untyped-def]
+        """Anotações iTOL (botão do painel Figura ou arrastar e soltar)."""
+        self.figure_holder.set_collapsed(False)
+        self.figure_panel.sections["itol"].set_expanded(True)
+        return self.figure_panel.itol.import_files(paths, wait=wait)

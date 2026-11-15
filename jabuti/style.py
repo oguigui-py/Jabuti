@@ -286,6 +286,18 @@ class SupportLevels:
 
 
 @dataclass
+class ItolPref:
+    """Ajustes de um dataset do iTOL importado (o arquivo em si não vai para o preset)."""
+
+    key: str = ""                   # "itol:<DATASET_LABEL>"
+    visible: bool = True
+    title: str = ""                 # "" = DATASET_LABEL
+    orig_colors: list[str] = field(default_factory=list)    # cores do arquivo…
+    new_colors: list[str] = field(default_factory=list)     # …e as escolhidas no painel
+    entry_labels: list[str] = field(default_factory=list)   # rótulo da legenda de cada cor ("" = do arquivo)
+
+
+@dataclass
 class FigureConfig:
     """Opções do painel "Figura" (todas desligadas por padrão)."""
 
@@ -299,6 +311,7 @@ class FigureConfig:
     support_levels: SupportLevels = field(default_factory=SupportLevels)
     break_legend: bool = False                               # nota do ramo encurtado na legenda
     break_legend_text: str = "outgroup branch not to scale"
+    itol: list[ItolPref] = field(default_factory=list)       # anotações iTOL (ajustes, não dados)
 
 
 @dataclass

@@ -1,0 +1,8 @@
+LABELS
+# Nomes de exibição (o nome original continua nas buscas). Separador: COMMA, com aspas.
+SEPARATOR COMMA
+DATA
+Robbsia_andropogonis_LMG2129,"Robbsia andropogonis (grupo externo)"
+Caballeronia_glathei_DSM50014,Caballeronia glathei
+Burkholderia_cepacia_ATCC25416,"B. cepacia, ATCC 25416"
+Burkholderia_cenocepacia_J2315,B. cenocepacia J2315

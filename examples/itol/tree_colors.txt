@@ -1,0 +1,14 @@
+TREE_COLORS
+# Exemplo sintético (folhas de examples/paraburkholderia_40.treefile). Separador: TAB.
+SEPARATOR TAB
+DATA
+# ID	tipo	cor	rótulo/estilo	fator
+Paraburkholderia_xenovorans_A00|Paraburkholderia_hospita_A09	range	#d8ecf8	Grupo A
+Paraburkholderia_unamae_B23|Paraburkholderia_kururiensis_B27	range	#fde5cc	Grupo B
+Burkholderia_cepacia_ATCC25416|Burkholderia_cenocepacia_J2315	clade	#c0392b	normal	2
+Robbsia_andropogonis_LMG2129	branch	#7f8c8d	dashed	1
+Paraburkholderia_tropica_A02	label	#1f6fb2	bold	1.2
+Paraburkholderia_unamae_A03	label	#1f6fb2	italic
+Paraburkholderia_sabiae_A11	label_background	rgba(255,214,0,0.6)
+# folha que não existe: aparece em "Problemas na leitura"
+Paraburkholderia_inexistente_Z99	label	#ff0000	bold

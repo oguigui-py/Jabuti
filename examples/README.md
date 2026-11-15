@@ -17,3 +17,9 @@ de barras do painel Figura.
 
 `cazy_counts.tsv` — matriz **sintética** genomas × 31 famílias CAZy (contagens inventadas),
 para testar a matriz (heatmap externo) do painel Figura.
+
+`itol/*.txt` — anotações **sintéticas** no formato do iTOL, com as folhas de
+`paraburkholderia_40.treefile`: `tree_colors.txt` (TAB: faixas, ramos, rótulos), `labels.txt`
+(COMMA, com aspas), `colorstrip.txt` (SPACE, com legenda) e `styles.txt` (DATASET_STYLE). Todos têm
+comentários; `tree_colors.txt` e `colorstrip.txt` têm um ID de folha inexistente, que aparece em
+“Problemas na leitura”.

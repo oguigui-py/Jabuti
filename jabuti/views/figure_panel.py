@@ -53,6 +53,7 @@ from jabuti.style import (
 )
 from jabuti.views.widgets.swatches import SwatchStrip
 from jabuti.views.errors import show_error
+from jabuti.views.itol_panel import ItolPanel
 from jabuti.views.widgets.collapsible import CollapsibleSection
 from jabuti.views.widgets.leaf_mapping import LeafMappingTable, MappingRow
 from jabuti.views.widgets.swatches import ColorButton
@@ -135,6 +136,10 @@ class FigurePanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(4, 4, 4, 4)
         self._add_section(lay, "columns", "Colunas de dados", self._build_columns(), True)
+        self.itol = ItolPanel()
+        self.itol.changed.connect(self._emit)
+        self.itol.status_message.connect(self.status_message)
+        self._add_section(lay, "itol", "Anotações iTOL", self.itol, False)
         self._add_section(lay, "pruning", "Enraizamento e poda", self._build_pruning(), False)
         self._add_section(lay, "names", "Nomes e destaques", self._build_names(), False)
         self._add_section(lay, "support", "Suporte e resumo", self._build_support(), False)
@@ -1182,6 +1187,7 @@ class FigurePanel(QWidget):
         self.bar_color.palette_colors = self.palette
         self.list_color.palette_colors = self.palette
         self.st_color.palette_colors = self.palette
+        self.itol.palette = self.palette
 
     def set_layout(self, kind: LayoutKind) -> None:
         """Desativa (com dica) o que não se aplica ao layout."""
@@ -1271,6 +1277,7 @@ class FigurePanel(QWidget):
         self.table_loaded.emit(self._last_ok)
 
     def shutdown(self, timeout_ms: int = 5000) -> None:
+        self.itol.shutdown(timeout_ms)
         for loader in self._loaders:
             loader.cancel()
             loader.join(timeout_ms / 1000)
@@ -1937,6 +1944,7 @@ class FigurePanel(QWidget):
         fig.support_levels = SupportLevels(lv.enabled, lv.index, list(lv.cutoffs), list(lv.colors), lv.size, lv.legend)
         fig.break_legend = self.break_legend.isChecked()
         fig.break_legend_text = self.break_text.text().strip() or "outgroup branch not to scale"
+        fig.itol = self.itol.to_prefs()
         return style
 
     def load_style(self, style: RenderStyle) -> list[str]:
@@ -1980,6 +1988,7 @@ class FigurePanel(QWidget):
         self.refresh_scales()
         self.track_order = list(fig.track_order)
         self.hidden_tracks = list(fig.hidden_tracks)
+        self.itol.load_prefs(list(fig.itol))
         nr = fig.names
         was = self._filling
         self._filling = True

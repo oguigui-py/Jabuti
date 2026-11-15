@@ -150,6 +150,57 @@ Folhas ocultas e ramos encurtados vão para os presets, junto com clados e colap
   por padrão (DPI e compressão ajustáveis), igual ao PNG. Imagens acima de 30000 px por lado
   ou ~2 GB na memória são recusadas com mensagem pedindo DPI menor (ou SVG/PDF).
 
+### Anotações iTOL
+
+Arquivos de anotação no formato do [iTOL](https://itol.embl.de/help.cgi) entram pelo botão
+*Importar anotação iTOL…* (seção **Anotações iTOL** do painel Figura, vários arquivos de uma vez)
+ou arrastando os arquivos para a janela. Um arquivo cuja 1ª linha útil é um tipo do iTOL vira
+anotação; os outros continuam abrindo como árvore. A leitura roda em segundo plano.
+
+- **Formato** — 1ª linha útil = tipo; `SEPARATOR TAB|SPACE|COMMA`; opções do cabeçalho; `DATA`;
+  linhas de dados. Linhas com `#` são comentários; espaços extras e campos entre aspas são aceitos.
+- **IDs** — nome de folha; `A|B` (ou `A---B`) = ancestral comum das folhas; `CONTAINS==texto` =
+  cada folha cujo nome contém o texto. Os IDs são resolvidos na árvore desenhada, então seguem
+  reenraizamento, ladderize e poda.
+- **Problemas** — folhas ausentes, linhas malformadas e opções desconhecidas não interrompem a
+  leitura: são contadas na lista e descritas em *Problemas na leitura* (`arquivo:linha → motivo`),
+  com um resumo na barra de status. Um arquivo ilegível ou que não é do iTOL abre uma mensagem
+  de erro com arquivo e linha.
+- **Lista** — cada dataset (nome = `DATASET_LABEL` ou nome do arquivo) pode ser desligado sem ser
+  removido, ou removido (✕). Arrastar na lista muda a prioridade: em conflito vale o de baixo.
+  As faixas de cor entram na lista *Ordem das colunas*, como as outras colunas. Ao selecionar um
+  dataset dá para editar o título e, para cada cor do arquivo, a cor usada e o texto da legenda.
+- **Presets** — os arquivos são dados e não vão para o preset; o título, a visibilidade e as cores
+  editadas vão (pela chave `itol:<DATASET_LABEL>`) e voltam quando o mesmo dataset é importado.
+- **Prioridade** — os grupos de rótulos criados por você vencem os estilos de rótulo do iTOL, e a
+  tabela de nomes (CSV) vence o `LABELS`.
+
+| Tipo | O que vira no Jabuti |
+|---|---|
+| `TREE_COLORS` | `range` → faixa de fundo atrás do clado (com legenda pelos rótulos); `clade` → cor, espessura e tracejado do ramo e de tudo abaixo; `branch` → só aquele ramo; `label` → cor, negrito/itálico e tamanho do rótulo; `label_background` → fundo do rótulo |
+| `LABELS` | nomes de exibição das folhas |
+| `DATASET_COLORSTRIP` | faixa de cor (coluna ou anel), com `STRIP_WIDTH`, `SHOW_STRIP_LABELS`, legenda de `LEGEND_TITLE/COLORS/LABELS` (ou dos rótulos dos dados) e `COLOR_BRANCHES` |
+| `DATASET_STYLE` | `branch` / `label`, para `node` ou `clade`: cor, fator de espessura ou de tamanho, `dashed` ou estilo do texto e cor de fundo do rótulo |
+
+Ainda **ignorados** (aparecem na lista com aviso): `DATASET_SIMPLEBAR`, `DATASET_MULTIBAR`,
+`DATASET_HEATMAP`, `DATASET_BINARY`, `DATASET_SYMBOL`, `DATASET_TEXT`, `COLLAPSE` (próximas
+etapas) e `POPUP_INFO`, `DATASET_RANGE`, `DATASET_PIECHART`, `DATASET_ALIGNMENT`,
+`DATASET_CONNECTION`, entre outros.
+
+**Aproximações** em relação ao iTOL:
+- **Cores:** `#rgb`, `#rrggbb`, `rgb()` e `rgba()`. A opacidade do `rgba` vale nos fundos (faixas `range` e fundo de rótulo).
+- **IDs:**
+  - nomes de nós internos são procurados na árvore, mas `LABELS` e estilos de rótulo de nó interno são ignorados (o Jabuti não desenha nomes de nós internos);
+  - `label` do `TREE_COLORS` num nó interno vale para todas as folhas do clado;
+  - em `A|B`, folhas ocultas são desconsideradas;
+  - um nome que não bate exatamente é casado pelas regras tolerantes dos GFFs, e o relatório conta esses casos.
+- **Separadores:** com `SEPARATOR SPACE`, um texto com espaços pode vir entre aspas; sem aspas, os campos que sobram são juntados no último campo de texto (rótulo, legenda). As linhas do cabeçalho aceitam qualquer separador (o template oficial do colorstrip mistura vírgula e espaço).
+- **Faixas `range`:**
+  - são desenhadas como o fundo de clado (da base do clado até o fim das colunas), com a maior por baixo quando uma está dentro de outra;
+  - não aparecem na árvore não enraizada.
+- **Opções do iTOL sem efeito:** de posição e borda (ex.: `LEGEND_POSITION_X`, `BORDER_WIDTH`, `MARGIN`) são lidas e ignoradas.
+- **`STRIP_WIDTH`:** é usado como largura da coluna, em pontos.
+
 ## Personalização (painel **Estilo**, à direita)
 
 Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PNG.
