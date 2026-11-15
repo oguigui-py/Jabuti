@@ -14,7 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from jabuti.models.annotations import LeafColumn, LegendGroup
+from jabuti.models.annotations import LeafColumn, LegendGroup, ValueRamp
 from jabuti.models.clades import mrca
 from jabuti.models.label_groups import LabelGroup, LabelLook
 from jabuti.models.tree import Node, Tree
@@ -674,18 +674,22 @@ class _Builder:
 
         cell = ds.number("STRIP_WIDTH")
         cell = cell if cell and cell > 0 else None
+        ramp = ValueRamp(lo, hi, cmin, cmax, cmid, mid if cmid is not None else None)
         tracks = []
         for i in range(n):
             colors = {}
             texts = {}
+            values = {}
             for names, vals in rows:
                 if vals[i] is not None:
                     for name in names:
                         colors[name] = color(vals[i])
                         texts[name] = fmt_value(vals[i])
+                        values[name] = vals[i]
             tracks.append(LeafColumn(f"{entry.key}:{i}", labels[i], colors, nan,
                                      texts if ds.flag("SHOW_VALUES") else {}, "matrix", cell,
-                                     margin=max(ds.number("MARGIN", 0.0) or 0.0, 0.0) if i == 0 else 0.0))
+                                     margin=max(ds.number("MARGIN", 0.0) or 0.0, 0.0) if i == 0 else 0.0,
+                                     values=values, ramp=ramp))
         k = 21                                           # paradas amostradas (meio fora do centro)
         stops = [color(lo + (hi - lo) * j / (k - 1)) for j in range(k)]
         ticks = [(0.0, fmt_value(round(lo, 3))), (1.0, fmt_value(round(hi, 3)))]

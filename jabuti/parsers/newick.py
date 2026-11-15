@@ -135,3 +135,54 @@ def parse_newick_string(text: str, path: Path | None = None) -> Tree:
 def load_tree(path: str | Path) -> Tree:
     p = Path(path)
     return parse_newick_string(read_text(p, TreeParseError), p)
+
+
+# ------------------------------------------------------------- escrita
+_UNSAFE = re.compile(r"[\s()\[\]':;,]")
+
+
+def _quote(name: str) -> str:
+    """Nome Newick: aspas simples quando há espaço ou pontuação ('' escapa a aspa)."""
+    if not name:
+        return ""
+    return "'" + name.replace("'", "''") + "'" if _UNSAFE.search(name) else name
+
+
+def _num(v: float) -> str:
+    """Inteiro sem ".0"; senão a representação curta do float (sem perder precisão)."""
+    return str(int(v)) if float(v).is_integer() and abs(v) < 1e15 else repr(float(v))
+
+
+def write_newick(tree: Tree, lengths: dict | None = None) -> str:
+    """Árvore em Newick (iterativo). Suportes de nós internos como no IQ-TREE (``a/b``).
+
+    ``lengths`` substitui comprimentos por nó (ex.: o original de ramos encurtados)."""
+    lengths = lengths or {}
+    out: list[str] = []
+    stack: list[tuple[Node, bool]] = [(tree.root, False)]
+    while stack:
+        node, closing = stack.pop()
+        if closing:
+            out.append(")")
+            label = "/".join(_num(s) for s in node.supports) if node.supports else _quote(node.name)
+            out.append(label)
+        elif node.children:
+            out.append("(")
+            stack.append((node, True))
+            for i, child in enumerate(reversed(node.children)):
+                stack.append((child, False))
+                if i < len(node.children) - 1:
+                    stack.append((_COMMA, False))
+            continue
+        elif node is _COMMA:
+            out.append(",")
+            continue
+        else:
+            out.append(_quote(node.name))
+        length = lengths.get(node, node.length)
+        if node is not tree.root and length is not None:
+            out.append(":" + _num(length))
+    return "".join(out) + ";\n"
+
+
+_COMMA = Node("\x00,")

@@ -174,7 +174,7 @@ def matrix_columns(key: str, by_leaf: dict[str, dict[str, str]], features: list[
                    show_values: bool = False, width: float | None = None, missing: str = "#d9d9d9",
                    header_rotation: int = 90):  # type: ignore[no-untyped-def]
     """Colunas de células (uma por característica) e a escala de cor usada."""
-    from jabuti.models.annotations import LeafColumn
+    from jabuti.models.annotations import LeafColumn, ValueRamp
     from jabuti.models.colormaps import ColorScale
     from jabuti.models.datatables import numeric_column
 
@@ -183,9 +183,14 @@ def matrix_columns(key: str, by_leaf: dict[str, dict[str, str]], features: list[
     lo = vmin if vmin is not None else min(values, default=0.0)
     hi = vmax if vmax is not None else max(values, default=1.0)
     cs = ColorScale(colormap, lo, hi, scale)
+    mid = (lo + hi) / 2
+    exact = cs.scale == "linear" and len(cs.stops) <= 3
+    ramp = ValueRamp(lo, hi, cs.color(lo), cs.color(hi), cs.color(mid) if len(cs.stops) > 2 else None,
+                     mid if len(cs.stops) > 2 else None, exact)
     cols = []
     for f in features:
         colors = {leaf: cs.color(v) for leaf, v in data[f].items()}
         texts = {leaf: fmt_value(v) for leaf, v in data[f].items()} if show_values else {}
-        cols.append(LeafColumn(f"{key}:{f}", f, colors, missing, texts, "matrix", width, header_rotation))
+        cols.append(LeafColumn(f"{key}:{f}", f, colors, missing, texts, "matrix", width, header_rotation,
+                               values=dict(data[f]), ramp=ramp))
     return cols, cs

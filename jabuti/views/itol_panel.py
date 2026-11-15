@@ -52,6 +52,7 @@ class ItolPanel(QWidget):
     status_message = Signal(str)
     loaded = Signal(bool)              # terminou de ler (algum ok?)
     collapse_changed = Signal(object, bool)   # ItolEntry de COLLAPSE, aplicar (True) / desfazer (False)
+    export_requested = Signal()               # "Exportar para o iTOL…" (a janela monta e grava)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -73,7 +74,14 @@ class ItolPanel(QWidget):
         self.import_btn.setToolTip("Arquivos de anotação do iTOL (TREE_COLORS, LABELS, DATASET_COLORSTRIP, "
                                    "DATASET_STYLE…). Também dá para arrastar os arquivos para a janela.")
         self.import_btn.clicked.connect(self._choose)
-        v.addWidget(self.import_btn)
+        self.export_btn = QPushButton("Exportar para o iTOL…")
+        self.export_btn.setToolTip("Gera a árvore (Newick) e um arquivo por anotação, no formato do iTOL, "
+                                   "reproduzindo a figura atual. Mostra um resumo antes de gravar.")
+        self.export_btn.clicked.connect(self.export_requested)
+        row = QHBoxLayout()
+        row.addWidget(self.import_btn, 1)
+        row.addWidget(self.export_btn, 1)
+        v.addLayout(row)
         self.list = QListWidget()
         self.list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
         self.list.setDefaultDropAction(Qt.DropAction.MoveAction)

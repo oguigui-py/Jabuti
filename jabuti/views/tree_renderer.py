@@ -17,7 +17,8 @@ from PySide6.QtWidgets import (
 
 from jabuti.layout.circular import CircGeometry, circular_geometry, circular_layout
 from jabuti.layout.rectangular import rectangular_layout, visible_nodes
-from jabuti.models.clades import Clade, ResolvedClade, assign_nodes, resolve_clades
+from jabuti.models.color_rules import ColorRules, propagate_meta
+from jabuti.models.clades import Clade, ResolvedClade, resolve_clades
 from jabuti.models.annotations import ContextGene, LeafColumn, LegendGroup, context_extent
 from jabuti.models.document import TreeEdits, collapsed_nodes
 from jabuti.models.label_groups import LabelGroup, LabelGroupSet
@@ -283,7 +284,6 @@ class TreeRenderer:
             tracks = [t for t in tracks if t != CLADE_STRIP]
         self._tracks = tracks
         self._columns = [t for t in tracks if isinstance(t, LeafColumn)]
-        self._meta_node = self._propagate_meta(tree, meta_colors or {})
         self.style = style
         bg = style.background
         self.scene.setBackgroundBrush(QBrush(QColor(bg)) if bg else QBrush(Qt.BrushStyle.NoBrush))
@@ -310,9 +310,11 @@ class TreeRenderer:
         self._groups = label_groups.effective(tree.leaf_names()) if label_groups is not None else {}
         res.label_groups = dict(self._groups)
         res.clades = resolve_clades(tree, clades or [], style.palette_colors(), hidden)
-        self._assign = assign_nodes(tree, res.clades)
-        self._has_clades = bool(self._assign)
-        self._prepare_widths(tree)
+        self._rules = ColorRules(tree, style, res.clades, meta_colors, (self._edge_looks, self._node_looks),
+                                 self._groups)
+        self._assign = self._rules.assign
+        self._has_clades = self._rules.has_clades
+        self._width_by_support = self._rules.width_by_support
         self._collapsed_names = {
             id(rc.node): rc.clade.name for rc in res.clades if rc.valid and rc.node in self._collapsed
         }
@@ -341,93 +343,41 @@ class TreeRenderer:
 
     @staticmethod
     def _propagate_meta(tree: Tree, leaf_colors: dict[str, str]) -> dict[Node, str]:
-        """Cor de metadado por nó: a da folha, ou a comum a todos os descendentes."""
-        out: dict[Node, str] = {}
-        if not leaf_colors:
-            return out
-        for node in tree.root.traverse_postorder():
-            if node.is_leaf:
-                if node.name in leaf_colors:
-                    out[node] = leaf_colors[node.name]
-            else:
-                kids = [out.get(c) for c in node.children]
-                if kids and kids[0] is not None and all(k == kids[0] for k in kids):
-                    out[node] = kids[0]
-        return out
+        return propagate_meta(tree, leaf_colors)
 
     def _edge_pen(self, node: Node) -> tuple[str, float, bool]:
-        """(cor, espessura, tracejado) do ramo que termina em ``node`` (estilo iTOL vence)."""
-        look = self._edge_looks.get(node)
-        if look is None:
-            return self._edge_color(node), self._width(node), False
-        return (look.color or self._edge_color(node), round(self._width(node) * look.width_factor, 3),
-                look.dashed)
+        return self._rules.edge_pen(node)
 
     def _node_pen(self, node: Node) -> tuple[str, float, bool]:
-        """(cor, espessura, tracejado) do conector/arco que sai de ``node``."""
-        look = self._node_looks.get(node)
-        if look is None:
-            return self._node_color(node), self._width(node), False
-        return (look.color or self._node_color(node), round(self._width(node) * look.width_factor, 3),
-                look.dashed)
+        return self._rules.node_pen(node)
 
     def _edge_color(self, node: Node) -> str:
-        """Ramo que termina em ``node``: metadado do próprio nó (se ativo) ou regra dos clados."""
-        md = self.style.metadata
-        if md.color_branches and node in self._meta_node:
-            return self._meta_node[node]
-        return self._branch_color(node.parent)
+        return self._rules.edge_color(node)
 
     def _node_color(self, node: Node) -> str:
-        """Conector/arco que sai de ``node``."""
-        md = self.style.metadata
-        if md.color_branches and node in self._meta_node:
-            return self._meta_node[node]
-        return self._branch_color(node)
+        return self._rules.node_color(node)
 
     def _branch_color(self, owner: Node | None) -> str:
-        """Cor de um segmento pertencente a ``owner`` (o nó pai do ramo, ou o nó do arco)."""
-        cs = self.style.clades
-        if self._has_clades and cs.color_branches:
-            rc = self._clade_of(owner)
-            return rc.color if rc else cs.neutral_color
-        return self.style.branch.color
+        return self._rules.branch_color(owner)
 
     def _label_color(self, leaf: Node) -> str:
-        md = self.style.metadata
-        if md.color_labels and leaf in self._meta_node:
-            return self._meta_node[leaf]
-        cs = self.style.clades
-        if self._has_clades and cs.color_labels:
-            rc = self._clade_of(leaf)
-            return rc.color if rc else cs.neutral_color
-        return self.style.label.color
+        return self._rules.label_color(leaf)
 
     def _label_spec(self, leaf: Node) -> _LabelSpec:
-        """Grupo de rótulo > metadados > clado > padrão (campos vazios do grupo herdam)."""
-        g = self._groups.get(leaf.name)
-        look = g.look if g is not None else None
+        """Grupo de rótulo > metadados > clado > padrão (``ColorRules.label_paint``)."""
+        paint = self._rules.label_paint(leaf)
         font, fm = self._leaf_font, self._leaf_fm
-        if look is not None and (look.bold is not None or look.italic is not None or look.size_scale != 1.0):
+        lab = self.style.label
+        if paint.bold != lab.bold or paint.italic != lab.italic or paint.size_scale != 1.0:
             font = QFont(self._leaf_font)
-            if look.bold is not None:
-                font.setBold(look.bold)
-            if look.italic is not None:
-                font.setItalic(look.italic)
-            font.setPointSizeF(max(self.style.label.size * look.size_scale, 1.0))
+            font.setBold(paint.bold)
+            font.setItalic(paint.italic)
+            font.setPointSizeF(max(lab.size * paint.size_scale, 1.0))
             fm = QFontMetricsF(font)
-        color = look.text_color if look is not None and look.text_color else self._label_color(leaf)
-        spec = _LabelSpec(font, color, fm.horizontalAdvance(self._shown(leaf)))
-        cs = self.style.clades
-        if look is not None and look.background:
-            spec.bg, spec.bg_alpha = look.background, look.background_alpha
-        elif cs.label_background and self._has_clades:
-            rc = self._clade_of(leaf)
-            if rc is not None:
-                spec.bg, spec.bg_alpha = rc.color, cs.label_background_alpha
-        if spec.bg:
-            spec.pad = look.padding if look is not None else 2.0
-            spec.radius = look.radius if look is not None else 3.0
+        spec = _LabelSpec(font, paint.color, fm.horizontalAdvance(self._shown(leaf)))
+        if paint.background:
+            spec.bg, spec.bg_alpha = paint.background, paint.background_alpha
+            spec.pad, spec.radius = paint.padding, paint.radius
         return spec
 
     def _shown(self, leaf: Node) -> str:
@@ -472,22 +422,9 @@ class TreeRenderer:
         res.label_backgrounds[leaf.name] = bg
         return bg
 
-    def _prepare_widths(self, tree: Tree) -> None:
-        b = self.style.branch
-        self._width_by_support = b.width_by_support and tree.max_support_values() > 0
-        idx = self.style.support.index
-        vals = [support_value(n.supports, idx) for n in tree.root.traverse_preorder() if n.supports]
-        self._support_max = max(vals, default=0.0) or 1.0
-
     def _width(self, node: Node | None) -> float:
         """Espessura do ramo que termina em ``node`` (e do conector/arco que sai dele)."""
-        b = self.style.branch
-        if not self._width_by_support:
-            return b.width
-        if node is None or not node.supports:
-            return b.min_width
-        frac = max(0.0, min(support_value(node.supports, self.style.support.index) / self._support_max, 1.0))
-        return round(b.min_width + (b.max_width - b.min_width) * frac, 2)
+        return self._rules.width(node)
 
     def _visible_clades(self, res: RenderResult) -> list[ResolvedClade]:
         return [rc for rc in res.clades
@@ -935,7 +872,7 @@ class TreeRenderer:
         if track.color_mode == "metadata":
             if len(names) == 1:
                 return track.colors.get(names[0], track.color)
-            return self._meta_node.get(node, track.color)
+            return self._rules.meta_node.get(node, track.color)
         return track.color
 
     def _flush_bars(self, by_color: dict[str, QPainterPath], track: BarTrack) -> None:

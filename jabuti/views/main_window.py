@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import os
@@ -36,7 +37,7 @@ from jabuti.models.annotations import (
     presence_legend,
 )
 from jabuti.models.datatables import numeric_column
-from jabuti.models.document import apply_edits
+from jabuti.models.document import apply_edits, collapsed_nodes
 from jabuti.models.label_groups import LabelGroupSet
 from jabuti.models.colormaps import SCALES
 from jabuti.models.tracks import (
@@ -186,6 +187,7 @@ class MainWindow(QMainWindow):
         self.figure_panel.changed.connect(self._live_timer.start)
         self.figure_panel.status_message.connect(lambda m: self.statusBar().showMessage(m, 8000))
         self.figure_panel.itol.collapse_changed.connect(self._itol_collapse)
+        self.figure_panel.itol.export_requested.connect(self.export_itol)
         self.figure_panel.root_group_requested.connect(self.root_on_selection)
         self.figure_panel.hidden_changed.connect(self.canvas.clear_selection)
         self.figure_panel.clade_from_list_requested.connect(self.clade_from_list)
@@ -242,6 +244,9 @@ class MainWindow(QMainWindow):
             act = QAction(f"Exportar {fmt.upper()}…", self)
             act.triggered.connect(lambda _=False, f=fmt: self.export(f))
             m.addAction(act)
+        act = QAction("Exportar para o iTOL…", self)
+        act.triggered.connect(lambda: self.export_itol())
+        m.addAction(act)
         find = QAction("Buscar folha", self)
         find.setShortcut(QKeySequence.StandardKey.Find)
         find.triggered.connect(lambda: (self.search_box.setFocus(), self.search_box.selectAll()))
@@ -306,6 +311,7 @@ class MainWindow(QMainWindow):
         blocks: dict[str, list] = {}
         labels: dict[str, str] = {}
         legends: dict[str, list] = {}     # legenda de cada trilha (some quando a trilha é ocultada)
+        export_legends: dict[str, list] = {}   # legendas só para a exportação iTOL
         if style.clades.outer_strip:
             blocks[CLADE_STRIP] = [CLADE_STRIP]
             labels[CLADE_STRIP] = "Faixa de clados"
@@ -318,6 +324,8 @@ class MainWindow(QMainWindow):
                 if col_name != md.color_by or not meta_colors:
                     legend.title = f"Faixa: {col_name}"
                     legends[col.key] = [legend]
+                export_legends[col.key] = [LegendGroup(col_name, list(legend.entries), legend.kind,
+                                                       list(legend.stops), list(legend.ticks))]
         hm = style.heatmap
         if self.gff_tab.queries and self.gff_tab.genomes:
             blocks[GENE_BLOCK] = presence_columns(self.gff_tab.matrix(), hm.present_color, hm.absent_color,
@@ -381,6 +389,10 @@ class MainWindow(QMainWindow):
             [(k, labels.get(k, k)) for k in order_keys(list(blocks), fig.track_order)])
         for k in keys:
             groups.extend(legends.get(k, []))
+        from jabuti.exporters.itol_export import TrackBlock
+
+        self._export_blocks = [TrackBlock(k, labels.get(k, k), list(blocks[k]),
+                                          export_legends.get(k) or legends.get(k, [])) for k in keys]
         columns = [t for k in keys for t in blocks[k]]
         rings = [t for t in columns if t != CLADE_STRIP]
         if LayoutKind(style.layout) == LayoutKind.UNROOTED:
@@ -695,6 +707,7 @@ class MainWindow(QMainWindow):
             show_error(self, exc, "Erro ao desenhar")
             return
         self._render_notes += [n for n in result.notes if n not in self._render_notes]
+        self._snapshot = self._make_snapshot(style, result, meta_colors, label_groups, itol, context)
         from jabuti.models.support import tree_summary
 
         self.figure_panel.set_summary(tree_summary(self.display_tree, len(edits.hidden & set(self.tree.leaf_names()))))
@@ -713,6 +726,36 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(msg)
         # depois da mensagem acima: o resumo de uma importação iTOL recém-feita fica visível
         self.figure_panel.itol.set_effects(itol if self.figure_panel.itol.entries else None)
+
+    def _make_snapshot(self, style, result, meta_colors, label_groups, itol, context):  # type: ignore[no-untyped-def]
+        """O que acabou de ser desenhado, para a exportação iTOL."""
+        from jabuti.exporters.itol_export import FigureSnapshot
+
+        edits = self.style_panel.edits
+        tree = self.display_tree
+        original: dict = {}
+        if tree.broken:
+            full = apply_edits(self.tree, replace(edits, shortened=[]))
+            by_leaves = {frozenset(l.name for l in n.leaves()): n.length for n in full.root.traverse_preorder()}
+            for n in tree.broken:
+                length = by_leaves.get(frozenset(l.name for l in n.leaves()))
+                if length is not None:
+                    original[n] = length
+        extras = []
+        if context:
+            extras.append("contexto gênico (setas dos vizinhos) não tem equivalente no iTOL")
+        if edits.highlights:
+            extras.append(f"{len(edits.highlights)} faixa(s) de destaque de linha não têm equivalente no iTOL")
+        if style.figure.support_levels.enabled:
+            extras.append("cores por nível de suporte não vão (o valor do suporte está no Newick)")
+        name = self.tree_tab.path.stem if self.tree_tab.path else "arvore"
+        return FigureSnapshot(
+            tree=tree, style=style, clades=list(result.clades),
+            collapsed=list(collapsed_nodes(tree, edits)), blocks=list(getattr(self, "_export_blocks", [])),
+            meta_colors=dict(meta_colors), groups=label_groups.effective(tree.leaf_names()),
+            names=self.display_names(style), branch_looks=itol.branch_looks, ranges=list(itol.ranges),
+            marks=list(itol.marks), original_lengths=original,
+            hidden_count=len(edits.hidden & set(self.tree.leaf_names())), extras=extras, tree_name=name)
 
     # ------------------------------------------------------------ presets
     def collect_preset(self, include_tree_state: bool = True) -> dict:
@@ -849,6 +892,64 @@ class MainWindow(QMainWindow):
             show_error(self, exc, "Erro ao exportar")
             return
         self.statusBar().showMessage(f"Exportado: {path}")
+
+    def export_itol(self, dest: str | None = None, as_zip: bool | None = None) -> Path | None:
+        """Resumo do que será gerado + avisos; depois grava a pasta ou o .zip.
+
+        ``dest``/``as_zip`` pulam os diálogos (testes)."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from jabuti.exporters.itol_export import plan_export, write_export
+
+        if self.tree is None:
+            show_error(self, Exception("Abra uma árvore primeiro."), "Exportar para o iTOL")
+            return None
+        self.generate()                                      # exporta exatamente o que está na tela
+        snap = getattr(self, "_snapshot", None)
+        if snap is None:
+            return None
+        try:
+            plan = plan_export(snap)
+        except Exception as exc:  # noqa: BLE001
+            show_error(self, exc, "Exportar para o iTOL")
+            return None
+        if dest is None:
+            box = QMessageBox(QMessageBox.Icon.Information, "Exportar para o iTOL",
+                              f"Serão gerados {len(plan.files)} arquivo(s) + LEIAME.txt:", parent=self)
+            info = plan.summary()
+            if plan.warnings:
+                info += "\n\nSem equivalente ou aproximado no iTOL:\n" + "\n".join(f"⚠ {w}" for w in plan.warnings)
+            box.setInformativeText(info)
+            folder = box.addButton("Salvar pasta…", QMessageBox.ButtonRole.AcceptRole)
+            zipped = box.addButton("Salvar .zip…", QMessageBox.ButtonRole.AcceptRole)
+            box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
+            box.exec()
+            clicked = box.clickedButton()
+            if clicked not in (folder, zipped):
+                return None
+            as_zip = clicked is zipped
+            base = f"{snap.tree_name}_itol"
+            if as_zip:
+                dest, _ = QFileDialog.getSaveFileName(self, "Salvar .zip para o iTOL", f"{base}.zip", "Zip (*.zip)")
+            else:
+                parent = QFileDialog.getExistingDirectory(self, "Pasta onde criar a exportação")
+                dest = str(Path(parent) / base) if parent else ""
+            if not dest:
+                return None
+            target = Path(dest)
+            if not as_zip and target.exists() and any(target.iterdir()):
+                answer = QMessageBox.question(self, "Exportar para o iTOL",
+                                              f"A pasta “{target.name}” já existe e tem arquivos. Sobrescrever?")
+                if answer != QMessageBox.StandardButton.Yes:
+                    return None
+        try:
+            out = write_export(plan, dest, bool(as_zip))
+        except OSError as exc:
+            show_error(self, Exception(f"Não foi possível gravar em {dest}:\n{exc.strerror or exc}"),
+                       "Exportar para o iTOL")
+            return None
+        self.statusBar().showMessage(f"Exportado para o iTOL: {out} ({len(plan.files)} arquivo(s)).", 12000)
+        return out
 
     def closeEvent(self, event) -> None:  # type: ignore[no-untyped-def]  # noqa: N802
         self.gff_tab.shutdown()  # não deixa thread de leitura viva ao fechar

@@ -14,6 +14,21 @@ MIXED_COLOR = "#b0b0b0"   # clado colapsado com valores diferentes
 
 
 @dataclass
+class ValueRamp:
+    """Escala valor → cor de uma coluna numérica, em termos do iTOL (mín/meio/máx).
+
+    ``exact`` = False quando o mapa de cores do Jabuti tem mais paradas ou escala não linear."""
+
+    vmin: float
+    vmax: float
+    cmin: str
+    cmax: str
+    cmid: str | None = None
+    vmid: float | None = None
+    exact: bool = True
+
+
+@dataclass
 class LeafColumn:
     key: str
     header: str
@@ -33,6 +48,9 @@ class LeafColumn:
     # kind "text": cor e estilo por folha (bold, italic, fator de tamanho)
     text_colors: dict[str, str] = field(default_factory=dict)
     text_styles: dict[str, tuple[bool, bool, float]] = field(default_factory=dict)
+    # valores numéricos por folha (matriz, heatmap, genes) e a escala de cor (para exportar)
+    values: dict[str, float] = field(default_factory=dict)
+    ramp: ValueRamp | None = None
 
     @property
     def always_header(self) -> bool:
@@ -93,7 +111,8 @@ def presence_columns(
     for title, counts in matrix.items():
         colors = {leaf: (present if n > 0 else absent) for leaf, n in counts.items()}
         texts = {leaf: str(n) for leaf, n in counts.items() if show_counts and n > 1}
-        cols.append(LeafColumn(f"gene:{title}", title, colors, missing, texts, "genes"))
+        cols.append(LeafColumn(f"gene:{title}", title, colors, missing, texts, "genes",
+                               values={leaf: float(n) for leaf, n in counts.items()}))
     return cols
 
 

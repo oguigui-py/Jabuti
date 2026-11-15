@@ -239,6 +239,42 @@ outro `DATASET_*`.
   - se você expandir um clado à mão, desligar o dataset depois não o colapsa de novo.
 - **IDs de nó interno nas colunas:** um ID `A|B` em barras, heatmap ou presença/ausência vale para todas as folhas do clado.
 
+### Exportar para o iTOL
+
+*Exportar para o iTOL…* (seção **Anotações iTOL** do painel Figura, ou menu **Arquivo**) gera a
+mesma figura em arquivos que o iTOL lê. Antes de gravar, um resumo mostra os arquivos e avisa do
+que não tem equivalente; depois você escolhe **pasta** ou **.zip**. No iTOL: envie `arvore.nwk`
+(*Upload*) e arraste os demais `.txt` sobre a árvore aberta.
+
+- **`arvore.nwk`** — o estado atual: raiz, ladderize, rotações e folhas ocultas removidas; suportes
+  como no arquivo original (`a/b`); ramos encurtados ("//") saem com o comprimento original.
+- **Um arquivo por anotação**, sempre com `SEPARATOR TAB`, nos templates oficiais:
+
+| Na figura do Jabuti | Arquivo iTOL |
+|---|---|
+| fundos de clado, faixas `range` importadas | `TREE_COLORS` `range` (com o nome do clado) |
+| cor, tracejado e espessura relativa dos ramos (clados, metadados, estilos iTOL) | `TREE_COLORS` `clade`/`branch` |
+| cor e fundo dos rótulos | `TREE_COLORS` `label`/`label_background` |
+| negrito, itálico e tamanho dos rótulos | `DATASET_STYLE` `label node` |
+| nomes exibidos (regras, tabela de nomes, `LABELS`, prefixo ★) | `LABELS` |
+| faixas de metadados, faixa de clados, colorstrips | `DATASET_COLORSTRIP` (com legenda) |
+| barras | `DATASET_SIMPLEBAR` (`WIDTH`, `DATASET_SCALE`) |
+| barras empilhadas | `DATASET_MULTIBAR` (campos, cores e legenda) |
+| matrizes e heatmaps | `DATASET_HEATMAP` (`COLOR_MIN/MID/MAX`, `USER_MIN/MID/MAX_VALUE`) |
+| heatmap de genes, presença/ausência | `DATASET_BINARY` (`1`/`0`/`-1`) |
+| colunas de símbolos, símbolos sobre ramos | `DATASET_SYMBOL` |
+| colunas de texto, textos sobre ramos | `DATASET_TEXT` |
+| clados colapsados | `COLLAPSE` |
+
+- **`LEIAME.txt`** — lista os arquivos e o que **não** foi exportado: layout e ângulos, fonte e
+  espessura base, legenda da figura e sua posição, barra de escala, linhas-guia, símbolos nas pontas,
+  cores por nível de suporte, faixas de destaque de linha, contexto gênico, folhas ocultas e a marca "//".
+- O que veio de datasets iTOL importados sai na versão atual (cores, títulos e ordem editados).
+- **Aproximações:** a cor por clado/metadado das barras vira uma cor única; o mínimo das barras
+  não vai (o iTOL parte do 0); mapas de cor com mais de 3 cores ou escala log/raiz viram um gradiente
+  mín/meio/máx linear; o heatmap de genes vira presença/ausência (sem nº de cópias nem a cor de
+  "ausente"); séries sem dado nas empilhadas saem como 0.
+
 ## Personalização (painel **Estilo**, à direita)
 
 Seções recolhíveis; tudo atualiza o desenho na hora e sai igual no SVG/PDF/PNG.
