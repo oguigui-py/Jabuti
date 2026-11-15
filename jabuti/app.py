@@ -94,6 +94,12 @@ def run(tree: str | None = None, itol: list[str] | None = None, splash: bool = T
     app.setApplicationName("Jabuti")
     app.setOrganizationName("Jabuti")
     app.setApplicationVersion(__version__)
+    try:
+        from jabuti.resources import app_icon
+
+        app.setWindowIcon(app_icon())        # janelas, Dock (macOS) e barra de tarefas
+    except Exception:  # noqa: BLE001
+        pass
     setup_logging()
     get_logger().info("Jabuti %s iniciado", __version__)
     install_excepthook()

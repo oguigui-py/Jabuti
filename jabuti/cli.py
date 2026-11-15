@@ -9,16 +9,17 @@ import argparse
 import sys
 
 from jabuti import __version__
+from jabuti.credits import CREDIT_AUTHOR, CREDIT_LAB
 
 DESCRIPTION = ("Jabuti — visualizador offline de árvores filogenéticas de procariotos "
                "(Newick/.treefile, GFF3, metadados, anotações do iTOL).")
-EPILOG = """exemplos:
+EPILOG = f"""exemplos:
   python -m jabuti
   python -m jabuti examples/paraburkholderia_40.treefile
   python -m jabuti meu_projeto.jabuti
   python -m jabuti arvore.treefile --itol cores.txt faixas.txt
 
-Produced by Laboratório de Genômica Eco-evolutiva Microbiana · Designed by Guilherme Gonçalves"""
+{CREDIT_LAB} · {CREDIT_AUTHOR}"""
 
 
 class _Formatter(argparse.RawDescriptionHelpFormatter):

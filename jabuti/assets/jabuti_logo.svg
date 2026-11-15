@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+<title>Jabuti</title>
+<g fill="#0f3d24">
+<rect x="272" y="610" width="92" height="118" rx="40"/>
+<rect x="596" y="610" width="92" height="118" rx="40"/>
+<path d="M200 622 Q150 640 118 672 Q158 676 204 664 Z"/>
+</g>
+<g fill="#0f3d24">
+<path d="M780 640 C 792 590, 818 548, 846 534 C 880 518, 928 540, 934 580 C 938 610, 916 634, 884 640 Z"/>
+</g>
+<circle cx="889" cy="566" r="12" fill="#f7f6f1"/>
+<circle cx="893" cy="567" r="5.5" fill="#0f3d24"/>
+<path d="M190 650 C 190 430, 360 290, 500 290 C 640 290, 810 430, 810 650 Z" fill="#e6efe3" stroke="#0f3d24" stroke-width="26" stroke-linejoin="round"/>
+<line x1="170" y1="652" x2="830" y2="652" stroke="#0f3d24" stroke-width="26" stroke-linecap="round"/>
+<g stroke="#0f3d24" stroke-width="15" stroke-linecap="round" stroke-linejoin="round" fill="none">
+<line x1="351.4" y1="427.2" x2="410.9" y2="427.2"/>
+<line x1="351.4" y1="427.2" x2="351.4" y2="394.2"/>
+<line x1="410.9" y1="427.2" x2="410.9" y2="363.5"/>
+<line x1="292.0" y1="477.4" x2="381.1" y2="477.4"/>
+<line x1="292.0" y1="477.4" x2="292.0" y2="444.4"/>
+<line x1="381.1" y1="477.4" x2="381.1" y2="427.2"/>
+<line x1="470.3" y1="381.0" x2="529.7" y2="381.0"/>
+<line x1="470.3" y1="381.0" x2="470.3" y2="348.0"/>
+<line x1="529.7" y1="381.0" x2="529.7" y2="348.0"/>
+<line x1="648.6" y1="477.4" x2="708.0" y2="477.4"/>
+<line x1="648.6" y1="477.4" x2="648.6" y2="394.2"/>
+<line x1="708.0" y1="477.4" x2="708.0" y2="444.4"/>
+<line x1="589.1" y1="510.4" x2="678.3" y2="510.4"/>
+<line x1="589.1" y1="510.4" x2="589.1" y2="363.5"/>
+<line x1="678.3" y1="510.4" x2="678.3" y2="477.4"/>
+<line x1="500.0" y1="543.4" x2="633.7" y2="543.4"/>
+<line x1="500.0" y1="543.4" x2="500.0" y2="381.0"/>
+<line x1="633.7" y1="543.4" x2="633.7" y2="510.4"/>
+<line x1="336.6" y1="576.4" x2="566.9" y2="576.4"/>
+<line x1="336.6" y1="576.4" x2="336.6" y2="477.4"/>
+<line x1="566.9" y1="576.4" x2="566.9" y2="543.4"/>
+<line x1="451.7" y1="650.0" x2="451.7" y2="576.4"/>
+</g>
+<circle cx="292.0" cy="444.4" r="19" fill="#2e6fb7" stroke="#ffffff" stroke-width="5"/>
+<circle cx="351.4" cy="394.2" r="19" fill="#2e6fb7" stroke="#ffffff" stroke-width="5"/>
+<circle cx="410.9" cy="363.5" r="19" fill="#2e6fb7" stroke="#ffffff" stroke-width="5"/>
+<circle cx="470.3" cy="348.0" r="19" fill="#29a19c" stroke="#ffffff" stroke-width="5"/>
+<circle cx="529.7" cy="348.0" r="19" fill="#29a19c" stroke="#ffffff" stroke-width="5"/>
+<circle cx="589.1" cy="363.5" r="19" fill="#e4572e" stroke="#ffffff" stroke-width="5"/>
+<circle cx="648.6" cy="394.2" r="19" fill="#e4572e" stroke="#ffffff" stroke-width="5"/>
+<circle cx="708.0" cy="444.4" r="19" fill="#f3a712" stroke="#ffffff" stroke-width="5"/>
+</svg>

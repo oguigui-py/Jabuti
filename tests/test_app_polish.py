@@ -29,7 +29,7 @@ def test_cli_version_and_help():
     h = _run("--help")
     assert h.returncode == 0
     for needle in ("uso: jabuti", "ÁRVORE", "--itol", "--no-splash", "mostra a versão",
-                   "Produced by Laboratório de Genômica Eco-evolutiva Microbiana", "Designed by Guilherme Gonçalves"):
+                   "Produzido pelo Laboratório de Genômica Eco-evolutiva Microbiana", "Desenvolvido por Guilherme Gonçalves"):
         assert needle in h.stdout, needle
     bad = _run("--nao-existe")
     assert bad.returncode == 2 and "uso: jabuti" in bad.stderr
@@ -177,8 +177,8 @@ def test_about_text_and_readme(window, monkeypatch):
     from PySide6.QtGui import QDesktopServices
 
     text = window.about_text()
-    for needle in (f"Jabuti {__version__}", "Produced by Laboratório de Genômica Eco-evolutiva Microbiana",
-                   "Designed by Guilherme Gonçalves", "README", "jabuti.log"):
+    for needle in (f"Jabuti {__version__}", "Produzido pelo Laboratório de Genômica Eco-evolutiva Microbiana",
+                   "Desenvolvido por Guilherme Gonçalves", "README", "jabuti.log"):
         assert needle in text
     opened = []
     monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.append(url.toString()) or True)

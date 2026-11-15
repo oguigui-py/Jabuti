@@ -131,3 +131,101 @@ def test_main_window_title_and_brand(qtbot):
     assert label.text() == "Jabuti" and label.font().bold()
     pos = label.mapTo(w, QPoint(0, 0))
     assert pos.x() < 40 and pos.y() < 80     # canto superior esquerdo
+
+
+# ------------------------------------------------------------------ logo do Jabuti
+def test_jabuti_logo_has_alpha_and_transparent_background():
+    from PySide6.QtGui import QImage
+
+    p = resources.asset_path(resources.JABUTI_LOGO)
+    img = QImage(str(p))
+    assert p.parent.name == "assets" and not img.isNull() and img.hasAlphaChannel()
+    assert (img.width(), img.height()) == (2048, 2048)
+    w, h = img.width(), img.height()
+    for x, y in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w // 2, 5)):
+        assert img.pixelColor(x, y).alpha() == 0          # sem fundo branco
+    icon = QImage(str(resources.asset_path(resources.JABUTI_ICON)))
+    assert (icon.width(), icon.height()) == (1024, 1024)
+    assert resources.asset_path(resources.JABUTI_LOGO_SVG).read_text(encoding="utf-8").lstrip().startswith("<svg")
+
+
+@pytest.mark.parametrize("dpr", [1.0, 2.0])
+def test_trim_is_in_memory_and_respects_dpr(qtbot, dpr):
+    import hashlib
+
+    p = resources.asset_path(resources.JABUTI_LOGO)
+    before = hashlib.sha1(p.read_bytes()).hexdigest()
+    pm = resources.load_pixmap(resources.JABUTI_LOGO, 300, dpr, trim=True)
+    assert pm.width() == round(300 * dpr) and pm.devicePixelRatio() == dpr
+    assert 1.7 < pm.width() / pm.height() < 1.9                # recortado (o original é quadrado)
+    full = resources.load_pixmap(resources.JABUTI_LOGO, 300, dpr)
+    assert full.width() == full.height()
+    assert hashlib.sha1(p.read_bytes()).hexdigest() == before  # arquivo intacto
+
+
+def test_splash_shows_jabuti_logo_name_and_ptbr_credits(qtbot):
+    from jabuti.views import splash
+
+    assert splash.APP_NAME == "Jabuti"
+    assert splash.CREDIT_1 == "Produzido pelo Laboratório de Genômica Eco-evolutiva Microbiana"
+    assert splash.CREDIT_2 == "Desenvolvido por Guilherme Gonçalves"
+    s = splash.SplashScreen(10_000)
+    qtbot.addWidget(s)
+    s._prepare_layers()
+    assert not s.logo.isNull() and s.logo.toImage().hasAlphaChannel()
+    lay = s._layout
+    assert lay["name_y"] > lay["top"] + lay["logo_h"] - 1 and lay["credits_y"] > lay["name_y"]
+    assert lay["credits_y"] < splash.MARGIN + splash.CARD_H - 40       # cabe no cartão
+    # a árvore animada fica na faixa da esquerda (fora do halo da logo)
+    assert max(b.x1 for b in s._branches) <= splash.CARD_W * splash.TREE_ZONE + 0.5
+
+
+def test_window_and_app_icon(qtbot):
+    from jabuti.views.main_window import MainWindow
+
+    w = MainWindow()
+    qtbot.addWidget(w)
+    assert not w.windowIcon().isNull()
+    icon = resources.app_icon()
+    assert not icon.isNull() and icon.actualSize(__import__("PySide6.QtCore", fromlist=["x"]).QSize(64, 64)).width() == 64
+
+
+def test_about_dialog_logos_and_credits(qtbot):
+    from jabuti.views.main_window import MainWindow
+
+    w = MainWindow()
+    qtbot.addWidget(w)
+    d = w.about_dialog()
+    qtbot.addWidget(d)
+    text = d.text()
+    assert "Produzido pelo Laboratório de Genômica Eco-evolutiva Microbiana" in text
+    assert "Desenvolvido por Guilherme Gonçalves" in text and "Jabuti" in text and "Versão" in text
+    assert not d.logo.pixmap().isNull() and not d.lgem.pixmap().isNull()
+    assert d.lgem.pixmap().height() / d.lgem.pixmap().devicePixelRatio() < 50       # pequena
+    assert d.minimumHeight() >= d.layout().totalHeightForWidth(d.width()) - 1
+
+
+def test_no_english_credits_anywhere_in_the_interface():
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    for f in (root / "jabuti").rglob("*.py"):
+        text = f.read_text(encoding="utf-8")
+        assert "Produced by" not in text and "Designed by" not in text, f
+    help_text = subprocess.run([sys.executable, "-m", "jabuti", "--help"], capture_output=True, text=True,
+                               cwd=root, timeout=60).stdout
+    assert "Produzido pelo Laboratório" in help_text and "Desenvolvido por Guilherme" in help_text
+    assert "Produced" not in help_text and "Designed" not in help_text
+
+
+def test_assets_are_packaged():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    toml = (root / "pyproject.toml").read_text(encoding="utf-8")
+    assert '"assets/*.png"' in toml and '"assets/*.svg"' in toml
+    assert {"jabuti_logo.png", "jabuti_logo.svg", "jabuti_icone_1024.png", "logo_lgem.png"} <= \
+        {p.name for p in (root / "jabuti" / "assets").iterdir()}
+    stray = [p for p in root.rglob("jabuti_logo*") if "assets" not in p.parts and ".venv" not in p.parts]
+    assert not stray, stray

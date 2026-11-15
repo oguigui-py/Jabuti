@@ -105,6 +105,12 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Jabuti")
+        try:
+            from jabuti.resources import app_icon
+
+            self.setWindowIcon(app_icon())
+        except Exception:  # noqa: BLE001 — sem ícone o app continua
+            pass
         self.resize(1300, 850)
         self.setAcceptDrops(True)
         self.tree: Tree | None = None
@@ -438,30 +444,22 @@ class MainWindow(QMainWindow):
     def about_text(self) -> str:
         from jabuti.logs import log_path
 
+        from jabuti.credits import CREDIT_AUTHOR, CREDIT_LAB, TAGLINE
+
         return (f"<h2>Jabuti {__version__}</h2>"
-                "<p>Visualizador offline de árvores filogenéticas de procariotos.</p>"
-                "<p>Produced by Laboratório de Genômica Eco-evolutiva Microbiana<br>"
-                "Designed by Guilherme Gonçalves</p>"
+                f"<p>{TAGLINE}</p>"
+                f"<p>{CREDIT_LAB}<br>{CREDIT_AUTHOR}</p>"
                 f"<p><a href=\"{readme_url()}\">Manual (README)</a></p>"
                 f"<p><small>Configuração: {config_dir()}<br>Log de erros: {log_path()}</small></p>")
 
+    def about_dialog(self):  # type: ignore[no-untyped-def]
+        from jabuti.logs import log_path
+        from jabuti.views.about import AboutDialog
+
+        return AboutDialog(readme_url(), str(config_dir()), str(log_path()), self)
+
     def show_about(self) -> None:
-        from PySide6.QtWidgets import QMessageBox
-
-        from jabuti.resources import load_logo_pixmap
-
-        box = QMessageBox(self)
-        box.setWindowTitle("Sobre o Jabuti")
-        box.setTextFormat(Qt.TextFormat.RichText)
-        box.setText(self.about_text())
-        box.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-        try:
-            pm = load_logo_pixmap(96, self.devicePixelRatioF())
-            if not pm.isNull():
-                box.setIconPixmap(pm)
-        except Exception:  # noqa: BLE001
-            pass
-        box.exec()
+        self.about_dialog().exec()
 
     def open_readme(self) -> bool:
         from PySide6.QtCore import QUrl

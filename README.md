@@ -463,9 +463,10 @@ python -m pyflakes jabuti tests scripts            # verificação estática
 python scripts/bench.py 500 1000 2000 --export     # tempos com árvores grandes
 ```
 
-Ao abrir, uma tela de abertura (logo do LGEM sobre um fundo animado discreto)
-aparece por ~3 s enquanto a janela principal é montada; clique ou qualquer tecla
-pula. Para desativar: `python -m jabuti --no-splash` ou `JABUTI_NO_SPLASH=1` (os
+Ao abrir, uma tela de abertura aparece por ~3 s enquanto a janela principal é montada:
+a logo do Jabuti, o nome e os créditos (“Produzido pelo Laboratório de Genômica
+Eco-evolutiva Microbiana”, “Desenvolvido por Guilherme Gonçalves”) sobre um fundo animado
+discreto. Clique ou qualquer tecla pula. Para desativar: `python -m jabuti --no-splash` ou `JABUTI_NO_SPLASH=1` (os
 testes e o modo `offscreen` já a desativam).
 
 ## Menus e atalhos
@@ -533,6 +534,10 @@ SVG/PDF.
 
 ## Empacotamento (preparação)
 
+- Assets em `jabuti/assets/`: `jabuti_logo.png` (logo, fundo transparente), `jabuti_logo.svg`,
+  `jabuti_icone_1024.png` (ícone da janela e do aplicativo) e `logo_lgem.png` (no *Sobre*).
+  Os arquivos nunca são alterados: são escalados só na exibição, respeitando a densidade da
+  tela (retina).
 - Sem caminhos absolutos no código; assets (imagens) só por `jabuti.resources.asset_path`,
   que funciona rodando do código ou empacotado com PyInstaller (no spec:
   `datas=[("jabuti/assets", "jabuti/assets"), ("README.md", ".")]`; sem o README empacotado,

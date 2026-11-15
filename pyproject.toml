@@ -23,7 +23,7 @@ include = ["jabuti*"]
 
 [tool.setuptools.package-data]
 # PyInstaller: incluir também datas=[("jabuti/assets", "jabuti/assets")]
-jabuti = ["assets/*.png"]
+jabuti = ["assets/*.png", "assets/*.svg"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

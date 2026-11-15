@@ -1,9 +1,11 @@
-"""Tela de abertura: logo do LGEM sobre um fundo animado e discreto.
+"""Tela de abertura: logo do Jabuti, o nome e os créditos sobre um fundo animado e discreto.
 
 O fundo (ramos de árvore filogenética crescendo, dupla hélice ondulando e
 pontos flutuando) é desenhado com QPainter a ~30 fps. As partes fixas (sombra,
 cartão, logo e textos) são pré-renderizadas uma vez, então cada quadro só
-redesenha linhas finas — pouca CPU.
+redesenha linhas finas — pouca CPU. A logo também tem uma árvore: um halo opaco na cor
+do cartão fica atrás dela e do nome, e a árvore animada só cresce na faixa da esquerda,
+esmaecendo antes do halo, para o fundo não competir com o desenho.
 """
 
 from __future__ import annotations
@@ -29,22 +31,27 @@ from PySide6.QtGui import (
     QGuiApplication,
     QPainter,
     QPainterPath,
+    QBrush,
+    QLinearGradient,
     QPen,
     QPixmap,
     QRadialGradient,
 )
 from PySide6.QtWidgets import QWidget
 
-from jabuti.resources import BRAND_GREEN, load_logo_pixmap
+from jabuti.credits import CREDIT_AUTHOR, CREDIT_LAB
+from jabuti.resources import JABUTI_GREEN, JABUTI_LOGO, load_pixmap
 
 CARD_W, CARD_H = 600, 400
 MARGIN = 22                 # área transparente ao redor do cartão (sombra)
 RADIUS = 18
 CARD_COLOR = QColor("#f7f6f1")
 MOTIF = QColor("#5f7f6e")   # verde-acinzentado do fundo animado
-LOGO_FRACTION = 0.60
-CREDIT_1 = "Produced by Laboratório de Genômica Eco-evolutiva Microbiana"
-CREDIT_2 = "Designed by Guilherme Gonçalves"
+LOGO_FRACTION = 0.50        # largura da logo (recortada) em relação ao cartão
+APP_NAME = "Jabuti"
+CREDIT_1 = CREDIT_LAB
+CREDIT_2 = CREDIT_AUTHOR
+TREE_ZONE = 0.30            # a árvore animada ocupa só esta fração da largura, à esquerda
 
 
 @dataclass
@@ -78,6 +85,12 @@ def _grow_tree(seed: int = 7) -> list[_Branch]:
             node(b.x1, y + sign * spread / 2, spread * rng.uniform(0.48, 0.58), depth + 1, nxt)
 
     node(18.0, CARD_H * 0.47, CARD_H * 0.52, 0, 0.0)
+    # comprime na horizontal para caber na faixa da esquerda (fora do halo da logo)
+    right = max(b.x1 for b in out)
+    k = (CARD_W * TREE_ZONE - 18.0) / max(right - 18.0, 1.0)
+    for b in out:
+        b.x0 = 18.0 + (b.x0 - 18.0) * k
+        b.x1 = 18.0 + (b.x1 - 18.0) * k
     return out
 
 
@@ -200,46 +213,73 @@ class SplashScreen(QWidget):
         p.end()
         self._base = base
 
-        # brilho atrás da logo, logo e créditos
+        # halo opaco atrás da logo e do nome, logo, nome e créditos
         front = blank()
         p = QPainter(front)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         logo_w = CARD_W * LOGO_FRACTION
-        self.logo = load_logo_pixmap(logo_w, dpr)
+        self.logo = load_pixmap(JABUTI_LOGO, logo_w, dpr, trim=True)
         logo_h = self.logo.height() / self.logo.devicePixelRatio() if not self.logo.isNull() else 0
-        f1, f2 = QFont(self.font()), QFont(self.font())
+        fn, f1, f2 = QFont(self.font()), QFont(self.font()), QFont(self.font())
+        fn.setPointSizeF(30)
+        fn.setWeight(QFont.Weight.DemiBold)
+        fn.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 103)
         f1.setPointSizeF(11.5)
-        f2.setPointSizeF(10)
-        h1 = QFontMetrics(f1).height()
-        h2 = QFontMetrics(f2).height()
-        block = logo_h + 22 + h1 + 6 + h2
-        top = MARGIN + (CARD_H - block) / 2 - 6
+        f2.setPointSizeF(10.5)
+        hn, h1, h2 = QFontMetrics(fn).height(), QFontMetrics(f1).height(), QFontMetrics(f2).height()
+        gap_name, gap_credits = 8, 16
+        block = logo_h + gap_name + hn + gap_credits + h1 + 4 + h2
+        top = MARGIN + (CARD_H - block) / 2
         cx = MARGIN + CARD_W / 2
 
-        glow = QRadialGradient(QPointF(cx, MARGIN + CARD_H * 0.47), CARD_W * 0.42)
-        clear = QColor(CARD_COLOR)
-        glow.setColorAt(0.0, clear)
-        clear.setAlpha(225)
-        glow.setColorAt(0.55, clear)
-        clear.setAlpha(0)
-        glow.setColorAt(1.0, clear)
+        # elipse opaca (cor do cartão) sobre logo + nome, com borda suave: o fundo some ali
+        ecy = top + (logo_h + gap_name + hn) / 2
+        rx, ry = logo_w / 2 + 70, (logo_h + gap_name + hn) / 2 + 48
+        glow = QRadialGradient(QPointF(0, 0), 1.0)
+        solid = QColor(CARD_COLOR)
+        glow.setColorAt(0.0, solid)
+        glow.setColorAt(0.72, solid)
+        fade = QColor(CARD_COLOR)
+        fade.setAlpha(0)
+        glow.setColorAt(1.0, fade)
         p.setClipPath(self._card)
-        p.fillRect(QRectF(MARGIN, MARGIN, CARD_W, CARD_H), glow)
+        p.save()
+        p.translate(cx, ecy)
+        p.scale(rx, ry)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(glow))
+        p.drawEllipse(QPointF(0, 0), 1.0, 1.0)
+        p.restore()
+        # faixa clara e suave atrás dos créditos (a hélice passa embaixo)
+        band = QLinearGradient(MARGIN, 0, MARGIN + CARD_W, 0)
+        c0 = QColor(CARD_COLOR)
+        c0.setAlpha(0)
+        c1 = QColor(CARD_COLOR)
+        c1.setAlpha(235)
+        band.setColorAt(0.0, c0)
+        band.setColorAt(0.2, c1)
+        band.setColorAt(0.8, c1)
+        band.setColorAt(1.0, c0)
+        y_credits = top + logo_h + gap_name + hn + gap_credits
+        p.fillRect(QRectF(MARGIN, y_credits - 6, CARD_W, h1 + 4 + h2 + 12), band)
         p.setClipping(False)
 
         if not self.logo.isNull():
             p.drawPixmap(QPointF(cx - logo_w / 2, top), self.logo)
-        y = top + logo_h + 22
+        y = top + logo_h + gap_name
+        p.setFont(fn)
+        p.setPen(QColor(JABUTI_GREEN))
+        p.drawText(QRectF(MARGIN, y, CARD_W, hn), Qt.AlignmentFlag.AlignCenter, APP_NAME)
         p.setFont(f1)
-        p.setPen(QColor(BRAND_GREEN))
-        p.drawText(QRectF(MARGIN, y, CARD_W, h1), Qt.AlignmentFlag.AlignCenter, CREDIT_1)
+        p.drawText(QRectF(MARGIN, y_credits, CARD_W, h1), Qt.AlignmentFlag.AlignCenter, CREDIT_1)
         p.setFont(f2)
-        p.setPen(QColor("#7d8a82"))
-        p.drawText(QRectF(MARGIN, y + h1 + 6, CARD_W, h2), Qt.AlignmentFlag.AlignCenter, CREDIT_2)
+        p.setPen(QColor("#5f6b64"))
+        p.drawText(QRectF(MARGIN, y_credits + h1 + 4, CARD_W, h2), Qt.AlignmentFlag.AlignCenter, CREDIT_2)
         p.end()
         self._front = front
+        self._layout = {"top": top, "logo_w": logo_w, "logo_h": logo_h, "name_y": y, "credits_y": y_credits}
 
     # ------------------------------------------------------------ quadro
     def elapsed(self) -> float:
@@ -288,7 +328,17 @@ class SplashScreen(QWidget):
                 f = min((t - b.t1) / 0.12, 1.0) * b.fork
                 path.moveTo(b.x1, y - f)
                 path.lineTo(b.x1, y + f)
-        p.setPen(self._pen(0.20, 1.1))
+        grad = QLinearGradient(0, 0, CARD_W * TREE_ZONE, 0)     # esmaece até sumir antes do halo
+        c = QColor(MOTIF)
+        c.setAlphaF(0.20)
+        grad.setColorAt(0.0, c)
+        grad.setColorAt(0.6, c)
+        c = QColor(MOTIF)
+        c.setAlphaF(0.0)
+        grad.setColorAt(1.0, c)
+        pen = QPen(QBrush(grad), 1.1)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawPath(path)
 
