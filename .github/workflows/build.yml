@@ -60,7 +60,7 @@ jobs:
         timeout-minutes: 20               # a suíte leva ~1 min; travou = falha logo, não em 40 min
         run: |
           python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
-          python -m pytest -q -o faulthandler_timeout=120
+          python -m pytest -q -rs -o faulthandler_timeout=120     # -rs: motivo de cada teste pulado
 
   windows:
     name: Windows (Jabuti.exe)
@@ -133,7 +133,7 @@ jobs:
         timeout-minutes: 20               # a suíte leva ~1 min; travou = falha logo, não em 40 min
         run: |
           python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
-          python -m pytest -q -o faulthandler_timeout=120
+          python -m pytest -q -rs -o faulthandler_timeout=120     # -rs: motivo de cada teste pulado
 
   release:
     name: Release (só em tag v*)
