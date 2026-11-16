@@ -441,18 +441,33 @@ class TreeRenderer:
         self.scene.addItem(item)
         return item
 
+    @staticmethod
+    def _bg_local_rect(item: QGraphicsSimpleTextItem, spec: _LabelSpec, height: float,
+                       length: float | None) -> QRectF:
+        """Retângulo do fundo nas coordenadas do texto. ``length`` = comprimento total do
+        fundo a partir do começo do rótulo (todos os fundos terminam no mesmo x/raio);
+        ``None`` = só o texto mais a margem. Texto invertido (metade esquerda do círculo):
+        o começo do rótulo fica do lado direito do texto, e o fundo cresce para a esquerda."""
+        br = item.boundingRect()
+        h = br.height()
+        own = br.width() + 2 * spec.pad
+        w = own if length is None else max(length, own)
+        x0 = br.width() + spec.pad - w if item.transformOriginPoint().x() > 0 else -spec.pad
+        return QRectF(x0, h / 2 - height / 2, w, height)
+
     def _label_background(self, leaf: Node, item: QGraphicsSimpleTextItem, spec: _LabelSpec,
-                          max_h: float, res: RenderResult) -> QGraphicsPathItem | None:
+                          max_h: float, res: RenderResult, length: float | None = None) -> QGraphicsPathItem | None:
         """Fundo (marca-texto) atrás de um rótulo já posicionado: mesma origem de
         transformação, rotação e posição do texto, então gira junto no circular.
-        A altura fica limitada a ``max_h`` para não invadir as folhas vizinhas."""
+        A altura fica limitada a ``max_h`` para não invadir as folhas vizinhas; ``length``
+        estende o fundo até o fim comum (ver ``_bg_local_rect``)."""
         if not spec.bg:
             return None
         br = item.boundingRect()
         h = br.height()
         full = h + 2 * spec.pad
         height = min(full, max_h) if max_h > 0 else full
-        rect = QRectF(-spec.pad, h / 2 - height / 2, br.width() + 2 * spec.pad, height)
+        rect = self._bg_local_rect(item, spec, height, length)
         r = max(min(spec.radius, height / 2, rect.width() / 2), 0.0)
         path = QPainterPath()
         path.addRoundedRect(rect, r, r)
@@ -732,14 +747,17 @@ class TreeRenderer:
 
         return blocks(self._tip_order(lay), key, self._touching(lay))
 
-    def _merged_label_bgs_rect(self, lay, pending: dict, sy: float, res: RenderResult) -> None:  # type: ignore[no-untyped-def]
-        """Fundos de rótulos vizinhos de mesma cor num caminho só (em "escada"): entre as
-        folhas o fundo vai até o meio do espaço; nas pontas, margem e cantos como antes."""
+    def _merged_label_bgs_rect(self, lay, pending: dict, sy: float, res: RenderResult,  # type: ignore[no-untyped-def]
+                               right: float) -> None:
+        """Fundos de rótulos vizinhos de mesma cor num caminho só: entre as folhas o fundo
+        vai até o meio do espaço; nas pontas, margem e cantos como antes. Todos terminam no
+        mesmo x (``right``): a borda direita é reta, sem degraus."""
         for block in self._label_blocks(lay, pending):
             n = len(block.tips)
             if n == 1 and not block.before and not block.after:
                 item, spec = pending[block.tips[0]]
-                self._label_background(block.tips[0], item, spec, sy - 1, res)
+                self._label_background(block.tips[0], item, spec, sy - 1, res,
+                                       right - (item.pos().x() - spec.pad))
                 continue
             path = QPainterPath()
             path.setFillRule(Qt.FillRule.WindingFill)
@@ -750,7 +768,7 @@ class TreeRenderer:
                 height = min(h + 2 * spec.pad, sy - 1)
                 yc = item.pos().y() + h / 2
                 x0 = item.pos().x() - spec.pad
-                w = br.width() + 2 * spec.pad
+                w = max(right - x0, br.width() + 2 * spec.pad)
                 s0, s1 = lay.span[leaf][0] * sy, lay.span[leaf][1] * sy
                 top_kind = self._side(i, n, block.before, True)
                 bot_kind = self._side(i, n, block.after, False)
@@ -768,14 +786,16 @@ class TreeRenderer:
                     path.addRect(QRectF(x0, top, w, bot - top))
             self._block_item(path, pending[block.tips[0]][1], [l.name for l in block.tips], res)
 
-    def _merged_label_bgs_circ(self, lay, pending: dict, res: RenderResult) -> None:  # type: ignore[no-untyped-def]
+    def _merged_label_bgs_circ(self, lay, pending: dict, res: RenderResult,  # type: ignore[no-untyped-def]
+                               r_out: float) -> None:
         """Circular/leque: entre folhas vizinhas o fundo é um setor com bordas radiais no
-        ângulo médio; nas pontas do bloco, o retângulo arredondado girado de sempre."""
+        ângulo médio; nas pontas do bloco, o retângulo arredondado girado de sempre. Todos
+        vão até o mesmo raio ``r_out``: a borda externa é um arco contínuo."""
         for block in self._label_blocks(lay, pending):
             n = len(block.tips)
             if n == 1 and not block.before and not block.after:
-                item, spec, _start, max_h = pending[block.tips[0]]
-                self._label_background(block.tips[0], item, spec, max_h, res)
+                item, spec, start, max_h = pending[block.tips[0]]
+                self._label_background(block.tips[0], item, spec, max_h, res, r_out - start)
                 continue
             path = QPainterPath()
             path.setFillRule(Qt.FillRule.WindingFill)
@@ -783,7 +803,7 @@ class TreeRenderer:
                 item, spec, start, max_h = pending[leaf]
                 th = lay.pos[leaf][1]
                 a, b = lay.span[leaf]
-                r_in, r_out = start, start + spec.width + 2 * spec.pad
+                r_in = start
                 lo_kind = self._side(i, n, block.before, True)
                 hi_kind = self._side(i, n, block.after, False)
                 lo = {"inner": a, "neighbor": a - SEAM_OVERLAP / max(r_in, 1.0), "outer": th}[lo_kind]
@@ -793,7 +813,7 @@ class TreeRenderer:
                     h = br.height()
                     height = min(h + 2 * spec.pad, max_h)
                     local = QPainterPath()
-                    rect = QRectF(-spec.pad, h / 2 - height / 2, br.width() + 2 * spec.pad, height)
+                    rect = self._bg_local_rect(item, spec, height, r_out - start)
                     r = max(min(spec.radius, height / 2, rect.width() / 2), 0.0)
                     local.addRoundedRect(rect, r, r)
                     path.addPath(item.sceneTransform().map(local))
@@ -1484,6 +1504,7 @@ class TreeRenderer:
 
         tree_right = lay.max_x * sx
         label_right = tree_right
+        text_end = tree_right             # maior fim de texto (folhas e colapsados)
         for node, far in lay.collapsed.items():
             p = pt(node)
             y0, y1 = lay.span[node][0] * sy + sy * 0.15, lay.span[node][1] * sy - sy * 0.15
@@ -1498,6 +1519,7 @@ class TreeRenderer:
                 t.setData(1, TAG_COLLAPSED)
                 t.setPos(far * sx + pad, p.y() - t.boundingRect().height() / 2)
                 label_right = max(label_right, t.sceneBoundingRect().right())
+                text_end = max(text_end, t.sceneBoundingRect().right())
         label_bgs: dict[Node, tuple] = {}
         for leaf in lay.leaf_order:
             p = pt(leaf)
@@ -1510,15 +1532,18 @@ class TreeRenderer:
             item.setPos(p.x() + pad + self._marker / 2 + spec.pad, p.y() - h / 2)
             res.leaf_items.setdefault(leaf.name, []).append(item)
             label_right = max(label_right, item.sceneBoundingRect().right())
-            if self._merge and spec.bg:
+            text_end = max(text_end, item.pos().x() + item.boundingRect().width() + spec.pad)
+            if spec.bg:
                 label_bgs[leaf] = (item, spec)
-                label_right = max(label_right, item.pos().x() + item.boundingRect().width() + spec.pad)
-                continue
-            bg = self._label_background(leaf, item, spec, sy - 1, res)
-            if bg is not None:
-                label_right = max(label_right, bg.sceneBoundingRect().right())
         if label_bgs:
-            self._merged_label_bgs_rect(lay, label_bgs, sy, res)
+            # todos os fundos terminam no mesmo x: o maior fim de texto + folga
+            bg_right = text_end + max(cs.label_background_gap, 0.0)
+            label_right = max(label_right, bg_right)
+            if self._merge:
+                self._merged_label_bgs_rect(lay, label_bgs, sy, res, bg_right)
+            else:
+                for leaf, (item, spec) in label_bgs.items():
+                    self._label_background(leaf, item, spec, sy - 1, res, bg_right - (item.pos().x() - spec.pad))
 
         visible = self._visible_clades(res)
 
@@ -1632,6 +1657,7 @@ class TreeRenderer:
             max_label_w = max((sp.extent for sp in specs.values()), default=0.0)
             max_label_w = max([max_label_w, *(self._fm.horizontalAdvance(self._collapsed_label(n))
                                                 for n in lay.collapsed)])
+        bg_gap = max(cs.label_background_gap, 0.0) if any(sp.bg for sp in specs.values()) else 0.0
 
         geom = circular_geometry(
             lay,
@@ -1641,7 +1667,8 @@ class TreeRenderer:
             branch_scale=style.branch_scale,
             align_tips=style.align_tips,
             ring_widths=tuple(ring_widths),
-            inner_extent=0.0 if style.align_tips else max_label_w + pad,
+            # sem alinhar, os anéis vêm depois dos rótulos (e do fim comum dos fundos)
+            inner_extent=0.0 if style.align_tips else max_label_w + pad + bg_gap,
             marker=self._marker,
         )
         self.geometry = geom
@@ -1712,6 +1739,7 @@ class TreeRenderer:
                 self.scene.addItem(item)
 
         circ_bgs: dict[Node, tuple] = {}
+        text_end = 0.0                    # maior raio de fim de texto (folhas e colapsados)
         for leaf in lay.leaf_order:
             th = lay.pos[leaf][1]
             res.leaf_points[leaf.name] = pt(geom.leaf_end_radius(lay, leaf), th)
@@ -1722,16 +1750,12 @@ class TreeRenderer:
             item = self._leaf_text(leaf, spec)
             self._rotate_radial(item, pt(start + spec.pad, th), th)
             res.leaf_items.setdefault(leaf.name, []).append(item)
+            text_end = max(text_end, start + spec.extent)
             if spec.bg:
                 # corda entre folhas vizinhas na borda interna do fundo
                 a, b = lay.span[leaf]
                 chord = 2 * start * math.sin(max(b - a, 0.0) / 2)
-                if self._merge:
-                    circ_bgs[leaf] = (item, spec, start, max(chord - 1, 2.0))
-                else:
-                    self._label_background(leaf, item, spec, max(chord - 1, 2.0), res)
-        if circ_bgs:
-            self._merged_label_bgs_circ(lay, circ_bgs, res)
+                circ_bgs[leaf] = (item, spec, start, max(chord - 1, 2.0))
 
         if style.label.show:
             for node, far in lay.collapsed.items():
@@ -1740,10 +1764,22 @@ class TreeRenderer:
                 t = self._text(self._collapsed_label(node), color=self._branch_color(node))
                 t.setData(1, TAG_COLLAPSED)
                 self._rotate_radial(t, pt(start, th), th)
+                text_end = max(text_end, start + t.boundingRect().width())
+
+        # todos os fundos dos nomes vão até o mesmo raio: o maior fim de texto + folga
+        bg_outer = text_end + bg_gap
+        if circ_bgs:
+            if self._merge:
+                self._merged_label_bgs_circ(lay, circ_bgs, res, bg_outer)
+            else:
+                for leaf, (item, spec, start, max_h) in circ_bgs.items():
+                    self._label_background(leaf, item, spec, max_h, res, bg_outer - start)
 
         # raio externo ocupado pelos rótulos (ou anéis)
         label_outer = (geom.label_radius if geom.align_tips
                        else geom.tip_ring + self._marker / 2 + pad) + max_label_w
+        if circ_bgs:
+            label_outer = max(label_outer, bg_outer)
         outer = max(label_outer, geom.rings_end)
 
         def th_range(node: Node) -> tuple[float, float]:

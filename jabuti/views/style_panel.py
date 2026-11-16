@@ -318,6 +318,17 @@ class StylePanel(QWidget):
         lbg = QHBoxLayout()
         lbg.addWidget(QLabel("Opacidade do fundo dos rótulos:"))
         lbg.addWidget(self.label_bg_alpha)
+        self.label_bg_gap = QDoubleSpinBox()
+        self.label_bg_gap.setRange(0.0, 40.0)
+        self.label_bg_gap.setSingleStep(1.0)
+        self.label_bg_gap.setDecimals(1)
+        self.label_bg_gap.setValue(4.0)
+        self.label_bg_gap.setSuffix(" pt")
+        self.label_bg_gap.setToolTip("Todos os fundos dos nomes terminam juntos, no fim do nome mais longo "
+                                     "mais esta folga (borda reta no retangular, arco contínuo no circular)")
+        self.label_bg_gap.valueChanged.connect(self._emit)
+        lbg.addWidget(QLabel("Folga:"))
+        lbg.addWidget(self.label_bg_gap)
         lbg.addStretch(1)
         v.addLayout(lbg)
 
@@ -732,6 +743,7 @@ class StylePanel(QWidget):
             self.opt_branches.setChecked(cs.color_branches)
             self.set_label_mode(cs.label_mode)
             self.label_bg_alpha.setValue(round(cs.label_background_alpha * 100))
+            self.label_bg_gap.setValue(cs.label_background_gap)
             self.opt_background.setChecked(cs.background)
             self.opt_strip.setChecked(cs.outer_strip)
             self.opt_names.setChecked(cs.show_names)
@@ -1102,6 +1114,7 @@ class StylePanel(QWidget):
         cs.color_branches = self.opt_branches.isChecked()
         cs.label_mode = self.label_mode()
         cs.label_background_alpha = self.label_bg_alpha.value() / 100
+        cs.label_background_gap = self.label_bg_gap.value()
         cs.background = self.opt_background.isChecked()
         cs.outer_strip = self.opt_strip.isChecked()
         cs.show_names = self.opt_names.isChecked()

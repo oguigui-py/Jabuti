@@ -151,6 +151,7 @@ class CladeStyle:
     # letras, "none" = sem cor de clado (só aparece em arquivos antigos com as duas opções desligadas)
     label_mode: str = "background"
     label_background_alpha: float = 0.35
+    label_background_gap: float = 4.0   # folga (pt) entre o fim do nome mais longo e a borda comum dos fundos
     background: bool = False       # cunha/retângulo translúcido atrás do clado
     background_alpha: float = 0.18
     outer_strip: bool = False      # faixa de cor no anel externo / coluna
