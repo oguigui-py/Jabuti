@@ -6,14 +6,14 @@ pago). Por isso o sistema avisa na primeira vez que o app é aberto. O app não 
 de internet e não envia nada para fora do computador.
 
 
-macOS (Apple Silicon: M1, M2, M3, M4…)
----------------------------------------
+macOS 14 (Sonoma) ou mais novo, em Mac com chip Apple (M1, M2, M3, M4…)
+-----------------------------------------------------------------------
 
 1. Descompacte o Jabuti-macOS.zip (duplo clique) ou abra o Jabuti-macOS.dmg.
 2. Arraste o Jabuti.app para a pasta Aplicativos (ou para onde preferir).
 3. Abra uma vez de um destes jeitos:
 
-   a) macOS 14 (Sonoma) ou anterior:
+   a) macOS 14 (Sonoma):
       clique com o botão direito (ou Control + clique) no Jabuti.app > Abrir,
       e confirme em "Abrir" no aviso.
 

@@ -101,6 +101,7 @@ if MAC:
             "CFBundleShortVersionString": __version__,
             "CFBundleVersion": __version__,
             "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "14.0",              # o Qt 6.12 (PySide6) exige macOS 14+
             "NSRequiresAquaSystemAppearance": False,      # acompanha o modo escuro
             "LSApplicationCategoryType": "public.app-category.education",
             "NSHumanReadableCopyright": "Laboratório de Genômica Eco-evolutiva Microbiana",

@@ -162,3 +162,23 @@ def test_open_paths_logs_what_was_opened(qtbot, monkeypatch, tmp_path):
         logger.removeHandler(handler)
         logger.setLevel(old)
     assert any("tree=t.treefile" in r.getMessage() for r in records)
+
+
+def test_github_workflow():
+    text = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
+    for needle in ("workflow_dispatch", 'tags: ["v*"]', "macos-latest", "windows-latest", 'PYTHON_VERSION: "3.12"',
+                   "requirements-dev.txt", "QT_QPA_PLATFORM: offscreen", "python -m pytest -q",
+                   "scripts/build_macos.sh", "Jabuti-macOS.zip", "Jabuti-Windows.zip", "Jabuti.exe",
+                   "--autoteste", "actions/upload-artifact", "softprops/action-gh-release",
+                   "startsWith(github.ref, 'refs/tags/v')", "contents: write", "ExtractAssociatedIcon"):
+        assert needle in text, needle
+    assert "\t" not in text                                       # YAML não aceita tabulação
+
+
+def test_windows_app_id_never_raises(monkeypatch):
+    from jabuti.app import set_windows_app_id
+
+    if not sys.platform.startswith("win"):
+        assert set_windows_app_id() is False
+    monkeypatch.setattr("ctypes.windll", None, raising=False)
+    assert set_windows_app_id() is False

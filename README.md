@@ -591,4 +591,8 @@ dist/Jabuti.app/Contents/MacOS/Jabuti --autoteste /tmp/teste   # Windows: dist\J
   `dist/Jabuti-macOS.zip` (com `ditto`, que preserva o bundle) e `dist/Jabuti-macOS.dmg`.
   O app gerado é para Macs com chip Apple (arm64) e não é assinado: como abrir pela primeira
   vez (Gatekeeper / SmartScreen) em `packaging/LEIAME_INSTALACAO.txt`.
+- GitHub Actions (`.github/workflows/build.yml`): em *Actions → Build → Run workflow*, ou ao
+  enviar uma tag `v*`, gera `Jabuti-macOS.zip` e `Jabuti-Windows.zip` (pasta `Jabuti/` com
+  `Jabuti.exe`) em Python 3.12, depois de rodar os testes e o autoteste de cada executável;
+  na tag, anexa os dois a uma Release.
 - Versões fixadas em `requirements.txt` / `requirements-dev.txt`.

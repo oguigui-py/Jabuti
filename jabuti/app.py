@@ -116,6 +116,20 @@ class FileOpenFilter(QObject):
         return False
 
 
+WINDOWS_APP_ID = "br.ufv.lgem.jabuti"
+
+
+def set_windows_app_id() -> bool:
+    """Windows: identidade própria na barra de tarefas (agrupa as janelas e usa o ícone do
+    Jabuti, não o do python.exe). Nunca levanta exceção."""
+    try:
+        import ctypes
+
+        return ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID) == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def run(tree: str | None = None, itol: list[str] | None = None, splash: bool = True) -> int:
     """Abre a janela (com a abertura animada, salvo ``splash=False``) e roda o laço do Qt."""
     from PySide6.QtWidgets import QApplication
@@ -130,6 +144,8 @@ def run(tree: str | None = None, itol: list[str] | None = None, splash: bool = T
     mac_dev = sys.platform == "darwin" and not getattr(sys, "frozen", False)
     if mac_dev:
         macos.set_app_name("Jabuti")          # menu superior: "Jabuti" em vez de "Python"
+    if sys.platform == "win32":
+        set_windows_app_id()
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("Jabuti")
     app.setOrganizationName("Jabuti")

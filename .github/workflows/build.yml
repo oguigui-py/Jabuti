@@ -1,0 +1,146 @@
+# Gera os executáveis do Jabuti: Jabuti-macOS.zip (Jabuti.app) e Jabuti-Windows.zip (pasta com
+# Jabuti.exe). Roda à mão (Actions > Build > Run workflow) ou ao enviar uma tag "v*"; na tag,
+# os dois arquivos também vão para uma Release do GitHub.
+name: Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  QT_QPA_PLATFORM: offscreen          # testes e autoteste sem tela
+  JABUTI_NO_SPLASH: "1"
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  macos:
+    name: macOS (Jabuti.app)
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Dependências (requirements.txt + testes + PyInstaller)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Testes
+        run: |
+          python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
+          python -m pytest -q
+
+      - name: Gerar Jabuti.app, autoteste, .zip e .dmg
+        run: PYTHON=python scripts/build_macos.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jabuti-macOS
+          path: dist/Jabuti-macOS.zip
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jabuti-macOS-dmg
+          path: dist/Jabuti-macOS.dmg
+          if-no-files-found: ignore      # o hdiutil às vezes falha nos runners; o .zip basta
+
+  windows:
+    name: Windows (Jabuti.exe)
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Dependências (requirements.txt + testes + PyInstaller)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Testes
+        run: |
+          python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
+          python -m pytest -q
+
+      - name: Gerar a pasta Jabuti\ com Jabuti.exe (onedir)
+        run: python -m PyInstaller --noconfirm --clean packaging/jabuti.spec
+
+      - name: Ícone .ico aplicado ao Jabuti.exe
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $exe = Resolve-Path dist\Jabuti\Jabuti.exe
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          if ($null -eq $icon) { throw "Jabuti.exe sem ícone" }
+          $bmp = $icon.ToBitmap()
+          # o ícone padrão do PyInstaller é azul/amarelo; o do Jabuti tem fundo claro (off-white)
+          $c = $bmp.GetPixel([int]($bmp.Width / 2), 2)
+          Write-Host "pixel do topo do ícone: R=$($c.R) G=$($c.G) B=$($c.B) A=$($c.A)"
+          if ($c.R -lt 200 -or $c.G -lt 200 -or $c.B -lt 190) { throw "o ícone do Jabuti.exe não parece ser o jabuti.ico" }
+
+      - name: Autoteste do Jabuti.exe (pasta com acento)
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "teste ação Jabuti"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          # o .exe é de janela (sem console): espera terminar e lê o relatório
+          $p = Start-Process -FilePath dist\Jabuti\Jabuti.exe -ArgumentList @("--autoteste", "`"$out`"") -Wait -PassThru
+          Get-Content -Encoding utf8 (Join-Path $out "autoteste.txt")
+          if ($p.ExitCode -ne 0) { throw "autoteste falhou (código $($p.ExitCode))" }
+
+      - name: Jabuti-Windows.zip
+        run: |
+          Copy-Item packaging\LEIAME_INSTALACAO.txt dist\Jabuti\
+          Compress-Archive -Path dist\Jabuti -DestinationPath dist\Jabuti-Windows.zip -Force
+          "{0:N1} MB" -f ((Get-Item dist\Jabuti-Windows.zip).Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jabuti-Windows
+          path: dist/Jabuti-Windows.zip
+          if-no-files-found: error
+
+  release:
+    name: Release (só em tag v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Jabuti ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            artifacts/Jabuti-macOS.zip
+            artifacts/Jabuti-macOS.dmg
+            artifacts/Jabuti-Windows.zip
+          fail_on_unmatched_files: false
