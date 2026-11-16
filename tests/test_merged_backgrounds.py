@@ -261,14 +261,18 @@ def window(qtbot, monkeypatch):
 
 
 def test_gui_click_on_shared_block_picks_nearest_leaf(window):
+    from PySide6.QtCore import QPointF
+
     names = window.tree.leaf_names()[2:6]
     window.style_panel.label_panel.create_group(names, "selection")
     window.render_live()
     res = window.canvas.result
     assert len({id(res.label_backgrounds[n]) for n in names}) == 1
     target = res.leaf_items[names[2]][0].sceneBoundingRect()
-    pt = target.bottomRight()
-    pt.setX(target.right() + 0.5)                               # no fundo, à direita do texto
+    leaf_y = res.leaf_points[names[2]].y()
+    # no fundo compartilhado, à direita do texto e na altura da folha (não na borda do texto:
+    # sem fontes a caixa do texto tem altura zero e a borda cai na divisa entre duas folhas)
+    pt = QPointF(target.right() + 0.5, leaf_y)
     view = window.canvas.mapFromScene(pt)
     assert window.canvas.leaf_at(view) == names[2]
     window.canvas.set_selection([names[1]])
@@ -286,3 +290,26 @@ def test_gui_option_toggles(window):
     window.render_live()
     assert len(tagged(window.canvas.tree_scene, "label-background")) == 4
     assert window.collect_preset()["style"]["merge_backgrounds"] is False
+
+
+def test_click_in_shared_block_beside_short_name_next_to_long_name(qtbot):
+    """Clique logo à direita de um nome curto, com um nome bem mais longo na linha vizinha:
+    escolhe a folha da linha clicada (antes, o centro do nome longo ficava mais perto)."""
+    from PySide6.QtCore import QPointF
+
+    from jabuti.parsers.newick import parse_newick_string
+    from jabuti.views.canvas import TreeCanvas
+    from jabuti.views.tree_renderer import TreeRenderer
+
+    long_name = "Nome_muito_muito_muito_comprido_de_especie_" + "x" * 30
+    tree = parse_newick_string(f"(({long_name}:1,Curto:1):1,Outro:2);")
+    canvas = TreeCanvas()
+    qtbot.addWidget(canvas)
+    gs = groups(({long_name, "Curto"}, "#ffd43b", 0.6))
+    res = TreeRenderer(canvas.tree_scene).render(tree, RenderStyle(), label_groups=gs)
+    canvas.result = res
+    assert res.label_backgrounds["Curto"] is res.label_backgrounds[long_name]
+    short = res.leaf_items["Curto"][0].sceneBoundingRect()
+    pt = QPointF(short.right() + 3 * short.width(), res.leaf_points["Curto"].y())   # no fundo, linha do Curto
+    assert res.label_backgrounds["Curto"].contains(res.label_backgrounds["Curto"].mapFromScene(pt))
+    assert canvas.leaf_at(canvas.mapFromScene(pt)) == "Curto"

@@ -54,7 +54,10 @@ def test_italic_by_default_and_bold(draw):
 def test_font_family_applied(draw):
     from PySide6.QtGui import QFontDatabase
 
-    family = QFontDatabase.families()[0]
+    families = QFontDatabase.families()
+    if not families:
+        pytest.skip("o sistema não tem nenhuma fonte instalada visível ao Qt")
+    family = families[-1]
     _, res, _ = draw(RenderStyle(label=LabelStyle(family=family)))
     assert res.leaf_items["A"][0].font().family() == family
 

@@ -63,8 +63,18 @@ def utf8_stdio() -> None:
                 pass
 
 
+def offscreen_fonts() -> None:
+    """Windows + ``QT_QPA_PLATFORM=offscreen`` (autoteste sem tela): o Qt só procura fontes
+    em ``QT_QPA_FONTDIR``; sem isso não há nenhuma família e o texto sai sem métricas."""
+    import os
+
+    if sys.platform == "win32" and os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+        os.environ.setdefault("QT_QPA_FONTDIR", os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"))
+
+
 def main(argv: list[str] | None = None) -> int:
     utf8_stdio()
+    offscreen_fonts()
     argv = sys.argv[1:] if argv is None else argv
     # macOS antigo passa "-psn_0_…" ao abrir pelo Finder: não é argumento do Jabuti
     argv = [a for a in argv if not a.startswith("-psn_")]

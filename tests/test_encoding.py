@@ -81,3 +81,18 @@ def test_cli_output_is_utf8_even_with_cp1252_default(args):
     assert "Jabuti" in text
     if args == ["--help"]:
         assert "uso:" in text and "Laboratório de Genômica Eco-evolutiva Microbiana" in text
+
+
+def test_offscreen_font_dir_on_windows(monkeypatch):
+    from jabuti import cli
+
+    monkeypatch.delenv("QT_QPA_FONTDIR", raising=False)
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("WINDIR", r"C:\Windows")
+    cli.offscreen_fonts()
+    assert os.environ["QT_QPA_FONTDIR"].endswith("Fonts")
+    monkeypatch.delenv("QT_QPA_FONTDIR")
+    monkeypatch.setenv("QT_QPA_PLATFORM", "windows")                 # plataforma normal: nada muda
+    cli.offscreen_fonts()
+    assert "QT_QPA_FONTDIR" not in os.environ

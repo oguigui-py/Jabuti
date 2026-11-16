@@ -118,10 +118,16 @@ class TreeCanvas(QGraphicsView):
         bg = self.result.label_backgrounds
         hits = [name for name, item in bg.items() if item.contains(item.mapFromScene(scene_pt))]
         if hits:
-            # fundo compartilhado por várias folhas (bloco): a folha cujo rótulo está mais perto
-            def dist(name: str) -> float:
-                c = self.result.leaf_items[name][0].sceneBoundingRect().center()
-                return (c.x() - scene_pt.x()) ** 2 + (c.y() - scene_pt.y()) ** 2
+            # fundo compartilhado por várias folhas (bloco): a folha da linha clicada. Primeiro
+            # a distância perpendicular ao texto (a linha; no circular, a direção tangencial),
+            # depois ao longo dele. Medir até o centro do texto falhava com nomes de tamanhos
+            # muito diferentes: o centro de um nome longo na linha vizinha ficava mais perto.
+            def dist(name: str) -> tuple[float, float]:
+                it = self.result.leaf_items[name][0]
+                p, r = it.mapFromScene(scene_pt), it.boundingRect()
+                across = abs(p.y() - r.center().y())
+                along = max(r.left() - p.x(), 0.0, p.x() - r.right())
+                return across, along
 
             return min(hits, key=dist)
         scale = self.transform().m11() or 1.0

@@ -1,7 +1,7 @@
 """Assinatura de cenas para o teste de regressão "tudo desligado = mesmo desenho".
 
 ``python tests/scene_baseline.py`` regrava ``tests/data/scene_baseline.json`` (só faça isso
-quando uma mudança visual for intencional). A assinatura depende das fontes do sistema;
+quando uma mudança visual for intencional). A geometria depende das fontes do sistema;
 o teste é pulado se a métrica de referência for diferente da gravada.
 """
 
@@ -35,7 +35,9 @@ def signature(scene) -> list:  # type: ignore[no-untyped-def]
         row = [type(it).__name__, str(it.data(1) or ""),
                round(r.x()), round(r.y()), round(r.width()), round(r.height()), round(it.zValue(), 1)]
         if isinstance(it, QGraphicsSimpleTextItem):
-            row.append(it.text())
+            # negrito/itálico entram na assinatura: não dependem das fontes do sistema (sem
+            # fontes, como no Windows offscreen, o negrito não muda a geometria)
+            row += [it.text(), it.font().bold(), it.font().italic()]
         if isinstance(it, QAbstractGraphicsShapeItem):
             row += [it.brush().color().name(QColorName.HexArgb), it.pen().color().name(QColorName.HexArgb),
                     round(it.pen().widthF(), 2), int(it.pen().style().value)]

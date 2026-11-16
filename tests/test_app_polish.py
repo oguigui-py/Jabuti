@@ -262,7 +262,11 @@ def test_tooltips_applied(window):
 
 
 def test_figure_panel_sections_fit_without_clipping(window):
+    from PySide6.QtGui import QFontDatabase
     from PySide6.QtWidgets import QApplication
+
+    if not QFontDatabase.families():
+        pytest.skip("sem fontes no sistema: o Qt desenha caixas de 16 px por letra e nada cabe")
 
     window.resize(1500, 900)
     window.show()

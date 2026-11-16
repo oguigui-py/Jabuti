@@ -1,11 +1,19 @@
 from pathlib import Path
 
 import os
+import sys
 
 import pytest
 
 # a abertura animada só atrasaria os testes
 os.environ.setdefault("JABUTI_NO_SPLASH", "1")
+
+# Windows + plataforma offscreen: o Qt procura fontes em QT_QPA_FONTDIR (por padrão uma pasta
+# dentro do PySide6, vazia) e o banco de fontes fica sem nenhuma família — métricas de texto,
+# negrito e cliques divergem. Aponta para as fontes do Windows (sem efeito na plataforma
+# "windows", que lê as fontes do sistema direto).
+if sys.platform == "win32" and os.environ.get("QT_QPA_PLATFORM", "offscreen") == "offscreen":
+    os.environ.setdefault("QT_QPA_FONTDIR", os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"))
 
 DATA = Path(__file__).parent / "data"
 
