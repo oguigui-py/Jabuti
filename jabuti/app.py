@@ -125,7 +125,10 @@ def run(tree: str | None = None, itol: list[str] | None = None, splash: bool = T
 
     from jabuti import macos
 
-    if sys.platform == "darwin":
+    # rodando como "python -m jabuti" no macOS, o processo é o Python: troca nome e ícone do
+    # Dock pelo AppKit. No Jabuti.app empacotado, o Info.plist e o .icns já cuidam disso.
+    mac_dev = sys.platform == "darwin" and not getattr(sys, "frozen", False)
+    if mac_dev:
         macos.set_app_name("Jabuti")          # menu superior: "Jabuti" em vez de "Python"
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("Jabuti")
@@ -137,7 +140,7 @@ def run(tree: str | None = None, itol: list[str] | None = None, splash: bool = T
         app.setWindowIcon(app_icon())        # janelas e barra de tarefas (Windows/Linux)
     except Exception:  # noqa: BLE001
         pass
-    if sys.platform == "darwin":                # o Dock ignora o setWindowIcon: AppKit direto
+    if mac_dev:                                 # o Dock ignora o setWindowIcon: AppKit direto
         from jabuti.resources import JABUTI_ICON, assets_dir
 
         macos.set_dock_icon(assets_dir() / JABUTI_ICON)

@@ -35,6 +35,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--itol", nargs="+", metavar="ARQ", default=[],
                    help="anotações do iTOL a importar depois de abrir a árvore")
     p.add_argument("--no-splash", action="store_true", help="abre direto, sem a tela de abertura")
+    p.add_argument("--autoteste", metavar="PASTA",
+                   help="confere o executável (assets, plugins do Qt, exportar, projeto) e grava o relatório em PASTA")
     p.add_argument("-V", "--version", action="version", version=f"Jabuti {__version__}",
                    help="mostra a versão e sai")
     p.usage = "jabuti [-h] [-V] [--no-splash] [ÁRVORE] [--itol ARQ …]"
@@ -48,6 +50,10 @@ def main(argv: list[str] | None = None) -> int:
     # macOS antigo passa "-psn_0_…" ao abrir pelo Finder: não é argumento do Jabuti
     argv = [a for a in argv if not a.startswith("-psn_")]
     args = build_parser().parse_args(argv)
+    if args.autoteste:
+        from jabuti.selftest import run_selftest
+
+        return run_selftest(args.autoteste)
     from jabuti.app import run
 
     return run(args.tree, args.itol, splash=not args.no_splash)

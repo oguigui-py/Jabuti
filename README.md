@@ -9,7 +9,7 @@ alinhadas no anel externo, estilo iTOL), leque, diagonal e não enraizado, colun
 (barras, barras empilhadas, matriz), clados coloridos, estilos de linha, rótulos e símbolos, edição da árvore
 (ladderize, girar, colapsar), presets JSON, zoom/pan, busca de folhas, exportação SVG / PDF / PNG / TIFF,
 anotações do iTOL (importar e exportar), arquivos recentes e log de erros.
-**Próxima fase:** builds `.app` / `.exe` (PyInstaller).
+**Executáveis:** `Jabuti.app` (macOS) e `Jabuti.exe` (Windows), gerados com PyInstaller (ver *Empacotamento*).
 
 ## GFF3 e heatmap de genes (aba **GFF**)
 
@@ -504,9 +504,8 @@ Cmd no macOS, Ctrl no Windows/Linux.
 | Menu | Ação | Atalho |
 |---|---|---|
 | Arquivo | Abrir árvore… | Cmd/Ctrl+O |
-| | Abrir recente ▸ (até 10; *Limpar lista*) | |
 | | Abrir projeto… | Cmd/Ctrl+Shift+O |
-| | Projetos recentes ▸ | |
+| | Abrir recentes ▸ (árvores e projetos, até 10; *Limpar lista*) | |
 | | Salvar projeto / Salvar projeto como… | Cmd/Ctrl+S / Cmd/Ctrl+Shift+S |
 | | Salvar projeto com cópia dos dados… (`.zip`) | |
 | | Importar anotação iTOL… | Cmd/Ctrl+Shift+I |
@@ -527,7 +526,11 @@ Cmd no macOS, Ctrl no Windows/Linux.
 | | Abrir o README (manual) | F1 / Cmd+? |
 | | Mostrar pasta do log de erros | |
 
-Também dá para arrastar árvores e arquivos do iTOL para a janela.
+Também dá para arrastar arquivos para a janela: árvore ou projeto substituem a figura
+(perguntando antes se há alterações não salvas); GFF3, metadados e anotações do iTOL entram
+na figura atual. O tipo vem da extensão e, nos `.txt`/`.tsv`/`.csv`, do conteúdo. No app
+instalado, duplo clique ou *Abrir com* em `.jabuti`, `.nwk`, `.newick`, `.treefile`, `.tree`
+e `.tre` abre no Jabuti (com o app aberto, substitui a figura atual).
 
 ## Formatos
 
@@ -561,16 +564,27 @@ lento é o PNG/TIFF de figuras enormes, porque o custo é o número de pixels (e
 circular a 150 dpi ≈ 30 s). Acima de 30.000 px por lado o Jabuti recusa e sugere DPI menor ou
 SVG/PDF.
 
-## Empacotamento (preparação)
+## Empacotamento
 
 - Assets em `jabuti/assets/`: `jabuti_logo.png` (logo, fundo transparente), `jabuti_logo.svg`,
   `jabuti_icone_1024.png` (ícone da janela e do aplicativo) e `logo_lgem.png` (no *Sobre*).
   Os arquivos nunca são alterados: são escalados só na exibição, respeitando a densidade da
-  tela (retina).
-- Sem caminhos absolutos no código; assets (imagens) só por `jabuti.resources.asset_path`,
-  que funciona rodando do código ou empacotado com PyInstaller (no spec:
-  `datas=[("jabuti/assets", "jabuti/assets"), ("README.md", ".")]`; sem o README empacotado,
-  *Ajuda → Abrir o README* abre a página do repositório).
-- Ponto de entrada: `jabuti.cli:main` (o mesmo de `python -m jabuti`).
-- Versões fixadas em `requirements.txt` / `requirements-dev.txt`.
+  tela (retina). Sem caminhos absolutos no código: assets só por `jabuti.resources.asset_path`,
+  que funciona rodando do código ou empacotado (`sys._MEIPASS`).
+- Ícones do executável em `packaging/` (`jabuti.icns` e `jabuti.ico`), gerados a partir do
+  PNG de 1024 px por `python scripts/make_icons.py` (o `.icns` precisa do `iconutil` do macOS).
+- `packaging/jabuti.spec` (PyInstaller): `Jabuti.app` no macOS (bundle `br.ufv.lgem.jabuti`,
+  versão de `jabuti.__version__`, tipos de arquivo registrados) e a pasta `Jabuti/` com
+  `Jabuti.exe` no Windows (onedir, sem console). Inclui assets, README e `examples/`; deixa de
+  fora os módulos do Qt que o Jabuti não usa.
 
+```bash
+python -m venv build-env && build-env/bin/pip install -r requirements.txt pyinstaller==6.22.3
+build-env/bin/pyinstaller --noconfirm --clean packaging/jabuti.spec
+dist/Jabuti.app/Contents/MacOS/Jabuti --autoteste /tmp/teste   # Windows: dist\Jabuti\Jabuti.exe --autoteste C:\teste
+```
+
+- `--autoteste PASTA` confere o executável: assets, README e exemplos empacotados, plugins do
+  Qt (SVG, TIFF), abrir árvore, detectar clados, exportar nos 4 formatos e salvar/abrir um
+  `.jabuti`, numa pasta com acento. Grava `autoteste.txt` e sai com código 0 (tudo certo) ou 1.
+- Versões fixadas em `requirements.txt` / `requirements-dev.txt`.
