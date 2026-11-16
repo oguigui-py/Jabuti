@@ -57,9 +57,10 @@ jobs:
 
       - name: Testes
         if: ${{ !cancelled() }}            # roda mesmo se o empacotamento falhar
+        timeout-minutes: 20               # a suíte leva ~1 min; travou = falha logo, não em 40 min
         run: |
           python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
-          python -m pytest -q
+          python -m pytest -q -o faulthandler_timeout=120
 
   windows:
     name: Windows (Jabuti.exe)
@@ -129,9 +130,10 @@ jobs:
 
       - name: Testes
         if: ${{ !cancelled() }}            # roda mesmo se o empacotamento falhar
+        timeout-minutes: 20               # a suíte leva ~1 min; travou = falha logo, não em 40 min
         run: |
           python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
-          python -m pytest -q
+          python -m pytest -q -o faulthandler_timeout=120
 
   release:
     name: Release (só em tag v*)
