@@ -18,6 +18,38 @@ if sys.platform == "win32" and os.environ.get("QT_QPA_PLATFORM", "offscreen") ==
 DATA = Path(__file__).parent / "data"
 
 
+@pytest.fixture(autouse=True)
+def no_modal_dialogs(monkeypatch):
+    """Nenhum teste pode ficar parado num diálogo modal esperando um clique.
+
+    * ``prompts_enabled`` desligado: a pergunta "salvar alterações?" ao fechar a janela
+      dependia da plataforma e, na "windows" do CI, travava a suíte inteira no fim de um teste.
+    * Diálogo modal não interceptado pelo teste vira erro com o título, em vez de travar.
+      Testes que esperam um diálogo continuam substituindo ``exec`` com monkeypatch.
+    """
+    from PySide6.QtWidgets import QColorDialog, QDialog, QFileDialog, QInputDialog, QMessageBox
+
+    import jabuti.views.main_window as mw
+
+    monkeypatch.setattr(mw, "prompts_enabled", lambda: False)
+
+    def blocked(kind):  # type: ignore[no-untyped-def]
+        def fail(*args, **kwargs):  # type: ignore[no-untyped-def]
+            title = ""
+            if args and hasattr(args[0], "windowTitle"):
+                title = " — ".join(t for t in (args[0].windowTitle(), getattr(args[0], "text", lambda: "")()) if t)
+            elif len(args) > 1 and isinstance(args[1], str):
+                title = args[1]
+            raise AssertionError(f"diálogo modal não interceptado no teste ({kind}): {title!r}")
+        return fail
+
+    for cls, names in ((QDialog, ("exec",)), (QMessageBox, ("exec", "question", "warning", "information", "critical")),
+                       (QFileDialog, ("getOpenFileName", "getOpenFileNames", "getSaveFileName", "getExistingDirectory")),
+                       (QColorDialog, ("getColor",)), (QInputDialog, ("getText", "getItem", "getInt", "getDouble"))):
+        for name in names:
+            monkeypatch.setattr(cls, name, blocked(f"{cls.__name__}.{name}"))
+
+
 @pytest.fixture
 def data_dir() -> Path:
     return DATA

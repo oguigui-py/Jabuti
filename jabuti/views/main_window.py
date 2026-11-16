@@ -92,6 +92,14 @@ def readme_url() -> str:
     return QUrl.fromLocalFile(str(p)).toString() if p is not None else README_URL
 
 
+def prompts_enabled() -> bool:
+    """Perguntas modais (ex.: salvar ao fechar) só com tela de verdade. Os testes desligam
+    isto em todas as plataformas (``tests/conftest.py``), inclusive na "windows" do CI."""
+    from PySide6.QtGui import QGuiApplication
+
+    return QGuiApplication.platformName() not in ("offscreen", "minimal")
+
+
 def _scroll(w: QWidget) -> QScrollArea:
     area = QScrollArea()
     area.setWidget(w)
@@ -223,8 +231,6 @@ class MainWindow(QMainWindow):
         self.tree_tab.tree_changed.connect(self.on_tree_changed)
         self.viz_tab.generate_requested.connect(self.generate)
         self.viz_tab.export_requested.connect(self.export)
-        from PySide6.QtGui import QGuiApplication
-
         from jabuti.views.project_io import ProjectController
 
         self.project = ProjectController(self)
@@ -232,8 +238,8 @@ class MainWindow(QMainWindow):
 
         self.undo = UndoController(self)
         self._undo_tree_path = None
-        # perguntar ao fechar com alterações (desligado sem tela real: testes e modo offscreen)
-        self.ask_on_close = QGuiApplication.platformName() not in ("offscreen", "minimal")
+        # perguntar ao fechar com alterações (desligado sem tela real: modo offscreen)
+        self.ask_on_close = prompts_enabled()
         self._build_menu()
         apply_tooltips(self)
         self.project.update_title()
