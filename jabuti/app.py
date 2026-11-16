@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 
-from PySide6.QtCore import QObject, QTimer
+from PySide6.QtCore import QEvent, QObject, QTimer
 
 from jabuti import __version__
 
@@ -24,7 +24,7 @@ class Launcher(QObject):
     def __init__(self, args: list[str], use_splash: bool, splash_ms: int | None = None,
                  itol: list[str] | None = None) -> None:
         super().__init__()
-        self.path = args[1] if len(args) > 1 else None
+        self.paths: list[str] = [a for a in args[1:2] if a]   # árvore/projeto da linha de comando
         self.itol = list(itol or [])
         self.use_splash = use_splash
         self.splash_ms = splash_ms
@@ -61,26 +61,59 @@ class Launcher(QObject):
         win.activateWindow()
         if self.splash is not None:
             self.splash.raise_()          # o fade-out continua por cima
-        if self.path:
+        if self.paths:
             if self.use_splash:
                 QTimer.singleShot(0, self._open_files)
             else:
                 self._open_files()
 
+    @property
+    def path(self) -> str | None:
+        return self.paths[0] if self.paths else None
+
     def _open_files(self) -> None:
         win = self.build()
-        from jabuti.views.project_io import project_from_argument
-
-        if project_from_argument(self.path):
-            win.open_project(self.path)
+        paths, self.paths = self.paths, []
+        if not paths:
             return
-        if win.open_tree(self.path) and self.itol:
+        # na abertura não há o que salvar: abre direto (sem perguntar)
+        if win.open_paths(paths, ask=False) and self.itol:
             win.import_itol(self.itol, wait=False)
+            self.itol = []
+
+    def open_file(self, path: str) -> None:
+        """Arquivo entregue pelo sistema (duplo clique / "Abrir com" no macOS).
+
+        Antes da janela aparecer, entra na fila e abre junto com ela; com o app já
+        aberto, substitui a figura atual (perguntando se há alterações não salvas)."""
+        if self.window is not None and self.window.isVisible():
+            self.window.open_paths([path])
+            self.window.raise_()
+            self.window.activateWindow()
+        else:
+            self.paths.append(path)
 
     def _splash_gone(self) -> None:
         self.splash = None
         if self.window is not None:
             self.window.activateWindow()
+
+
+class FileOpenFilter(QObject):
+    """Recebe o ``QFileOpenEvent`` do macOS (duplo clique em .jabuti/.nwk…, "Abrir com",
+    arrastar para o ícone do Dock) e repassa ao ``Launcher``."""
+
+    def __init__(self, launcher: Launcher) -> None:
+        super().__init__()
+        self.launcher = launcher
+
+    def eventFilter(self, obj, event) -> bool:  # type: ignore[no-untyped-def]  # noqa: N802
+        if event.type() == QEvent.Type.FileOpen:
+            path = event.file() or event.url().toLocalFile()
+            if path:
+                self.launcher.open_file(path)
+                return True
+        return False
 
 
 def run(tree: str | None = None, itol: list[str] | None = None, splash: bool = True) -> int:
@@ -112,6 +145,8 @@ def run(tree: str | None = None, itol: list[str] | None = None, splash: bool = T
     get_logger().info("Jabuti %s iniciado", __version__)
     install_excepthook()
     launcher = Launcher(["jabuti", tree] if tree else ["jabuti"], splash and splash_enabled(app), itol=itol)
+    file_open = FileOpenFilter(launcher)
+    app.installEventFilter(file_open)
     launcher.start()
     return app.exec()
 

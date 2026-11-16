@@ -76,26 +76,36 @@ def pick_dir(parent: QWidget | None, title: str, kind: str) -> str:
 
 
 # ------------------------------------------------------------------ recentes
-def recent_files(kind: str = "trees") -> list[str]:
-    """Arquivos abertos recentemente (mais novo primeiro): ``kind`` = "trees" ou "projects".
-
-    Os que sumiram do disco saem da lista."""
+def recent_files(kind: str = "files") -> list[str]:
+    """Arquivos abertos recentemente (mais novo primeiro). ``kind``: "files" (todos: o menu
+    Abrir recentes), "trees" ou "projects". Os que sumiram do disco saem da lista."""
     key = f"recent/{kind}"
-    raw = settings().value(key, [], list) or []
+    st = settings()
+    if kind == "files" and not st.contains(key):       # configuração antiga: junta as duas listas
+        merged: list[str] = []
+        for sub in ("trees", "projects"):
+            raw = st.value(f"recent/{sub}", [], list) or []
+            merged += [p for p in ([raw] if isinstance(raw, str) else raw) if p and p not in merged]
+        st.setValue(key, merged[:MAX_RECENT])
+    raw = st.value(key, [], list) or []
     if isinstance(raw, str):
         raw = [raw]
     alive = [p for p in raw if p and Path(p).is_file()]
     if alive != raw:
-        settings().setValue(key, alive)
+        st.setValue(key, alive)
     return alive
 
 
 def add_recent(path: str | Path, kind: str = "trees") -> list[str]:
+    """Registra no tipo (``trees``/``projects``) e na lista geral do menu."""
     p = str(Path(path).resolve())
-    items = [p, *[x for x in recent_files(kind) if x != p]][:MAX_RECENT]
-    settings().setValue(f"recent/{kind}", items)
-    return items
+    for k in dict.fromkeys((kind, "files")):
+        items = [p, *[x for x in recent_files(k) if x != p]][:MAX_RECENT]
+        settings().setValue(f"recent/{k}", items)
+    return recent_files(kind)
 
 
-def clear_recent(kind: str = "trees") -> None:
-    settings().setValue(f"recent/{kind}", [])
+def clear_recent(kind: str = "files") -> None:
+    """Limpa uma lista; ``files`` (o menu) limpa todas."""
+    for k in (("files", "trees", "projects") if kind == "files" else (kind,)):
+        settings().setValue(f"recent/{k}", [])

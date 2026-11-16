@@ -44,7 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(sys.argv[1:] if argv is None else argv)
+    argv = sys.argv[1:] if argv is None else argv
+    # macOS antigo passa "-psn_0_…" ao abrir pelo Finder: não é argumento do Jabuti
+    argv = [a for a in argv if not a.startswith("-psn_")]
+    args = build_parser().parse_args(argv)
     from jabuti.app import run
 
     return run(args.tree, args.itol, splash=not args.no_splash)

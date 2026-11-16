@@ -417,7 +417,7 @@ class ProjectController(QObject):
     # etapas: devolvem True quando esperam um sinal de fim de leitura
     def _load_tree(self) -> bool:
         w = self.win
-        if not w.tree_tab.load(self._found[("tree", 0)]):
+        if not w.tree_tab.load(self._found[("tree", 0)], remember=False):
             raise ProjectError("Não foi possível abrir a árvore do projeto.")
         note = w.tree_tab.apply_rooting_spec(self._data["tree"].get("rooting") or {})
         if note:

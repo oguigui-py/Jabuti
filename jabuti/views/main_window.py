@@ -292,15 +292,13 @@ class MainWindow(QMainWindow):
         m = bar.addMenu("&Arquivo")
         act["open"] = self._action(m, "Abrir árvore…", self.tree_tab._choose_file, SK.Open,
                                    "Abre uma árvore Newick (.nwk, .treefile, .tre…)")
-        self.recent_menu = m.addMenu("Abrir recente")
+        act["open_project"] = self._action(m, "Abrir projeto…", self.project.choose_and_open, "Ctrl+Shift+O",
+                                           "Abre um projeto do Jabuti (.jabuti, ou .zip com cópia dos dados)")
+        self.recent_menu = m.addMenu("Abrir recentes")
+        self.recent_menu.setToolTipsVisible(True)
         self.recent_menu.aboutToShow.connect(self._fill_recent_menu)
         self._fill_recent_menu()
         m.addSeparator()
-        act["open_project"] = self._action(m, "Abrir projeto…", self.project.choose_and_open, "Ctrl+Shift+O",
-                                           "Abre um projeto do Jabuti (.jabuti, ou .zip com cópia dos dados)")
-        self.recent_projects_menu = m.addMenu("Projetos recentes")
-        self.recent_projects_menu.aboutToShow.connect(self._fill_recent_projects_menu)
-        self._fill_recent_projects_menu()
         act["save_project"] = self._action(m, "Salvar projeto", self.project.save, SK.Save,
                                            "Salva a figura inteira (dados, edições e estilo) num .jabuti")
         act["save_project_as"] = self._action(m, "Salvar projeto como…", self.project.save_as, SK.SaveAs)
@@ -398,6 +396,7 @@ class MainWindow(QMainWindow):
         self.gff_tab._choose_files()
 
     def _fill_recent_menu(self) -> None:
+        """Árvores e projetos abertos por último (até 10; os que sumiram do disco saem)."""
         from jabuti.settings import clear_recent, recent_files
 
         menu = self.recent_menu
@@ -410,7 +409,7 @@ class MainWindow(QMainWindow):
             a = menu.addAction(Path(p).name)
             a.setToolTip(p)
             a.setStatusTip(p)
-            a.triggered.connect(lambda _=False, path=p: self.open_tree(path))
+            a.triggered.connect(lambda _=False, path=p: self.open_paths([path]))
         if not items:
             menu.addAction("(nenhum arquivo recente)").setEnabled(False)
         menu.addSeparator()
@@ -418,26 +417,37 @@ class MainWindow(QMainWindow):
         clear.setEnabled(bool(items))
         clear.triggered.connect(lambda: (clear_recent(), self._fill_recent_menu()))
 
-    def _fill_recent_projects_menu(self) -> None:
-        from jabuti.settings import clear_recent, recent_files
+    def open_paths(self, paths, ask: bool = True, wait: bool = False) -> bool:  # type: ignore[no-untyped-def]
+        """Abre arquivos de qualquer tipo (duplo clique, "Abrir com", arrastar, recentes,
+        linha de comando), conforme a extensão/conteúdo: projeto ou árvore substituem a
+        figura atual (perguntando antes se há alterações não salvas, com ``ask``);
+        GFF, metadados e anotações iTOL entram na figura atual."""
+        from jabuti.file_types import group
 
-        menu = self.recent_projects_menu
-        menu.clear()
-        try:
-            items = recent_files("projects")
-        except Exception:  # noqa: BLE001
-            items = []
-        for p in items:
-            a = menu.addAction(Path(p).name)
-            a.setToolTip(p)
-            a.setStatusTip(p)
-            a.triggered.connect(lambda _=False, path=p: self.open_project(path))
-        if not items:
-            menu.addAction("(nenhum projeto recente)").setEnabled(False)
-        menu.addSeparator()
-        clear = menu.addAction("Limpar lista")
-        clear.setEnabled(bool(items))
-        clear.triggered.connect(lambda: (clear_recent("projects"), self._fill_recent_projects_menu()))
+        groups = group(paths)
+        if "project" in groups:                        # um projeto já traz tudo
+            if ask:
+                return self.open_project(groups["project"][0], wait=wait)
+            return self.project.open(groups["project"][0], wait=wait)
+        ok = False
+        if "tree" in groups:
+            if ask and not self.maybe_save():
+                return False
+            ok = self.open_tree(groups["tree"][0])
+            if not ok:
+                return False
+        if "gff" in groups:
+            self.tabs.setCurrentIndex(1)
+            ok = self.gff_tab.load_files(groups["gff"], wait=wait) > 0 or not wait or ok
+        if "metadata" in groups:
+            self.tabs.setCurrentIndex(2)
+            ok = self.metadata_tab.load(groups["metadata"][0]) or ok
+        if "itol" in groups:
+            ok = self.import_itol(groups["itol"], wait=wait) or ok
+        if "unknown" in groups and not ok:
+            names = ", ".join(Path(p).name for p in groups["unknown"][:3])
+            self.statusBar().showMessage(f"Tipo de arquivo não reconhecido: {names}", 6000)
+        return ok
 
     def open_project(self, path: str | Path, wait: bool = False) -> bool:
         """Abre um projeto (.jabuti ou .zip com cópia dos dados), substituindo a sessão atual."""
@@ -1289,22 +1299,10 @@ class MainWindow(QMainWindow):
             event.acceptProposedAction()
 
     def dropEvent(self, event: QDropEvent) -> None:  # noqa: N802
-        from jabuti.parsers.itol import sniff_itol
-
-        from jabuti.views.project_io import project_from_argument
-
         urls = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
-        projects = [u for u in urls if project_from_argument(u)]
-        if projects:
-            self.open_project(projects[0])
-            return
-        itol = [u for u in urls if sniff_itol(u)]
-        others = [u for u in urls if u not in itol]
-        if others:
-            self.tabs.setCurrentIndex(0)
-            self.tree_tab.load(Path(others[0]))
-        if itol:
-            self.import_itol(itol, wait=False)
+        if urls:
+            event.acceptProposedAction()
+            self.open_paths(urls)
 
     def import_itol(self, paths, wait: bool = True) -> bool:  # type: ignore[no-untyped-def]
         """Anotações iTOL (botão do painel Figura ou arrastar e soltar)."""

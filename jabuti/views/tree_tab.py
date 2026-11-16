@@ -78,7 +78,8 @@ class TreeTab(QWidget):
         if path:
             self.load(path)
 
-    def load(self, path: str | Path) -> bool:
+    def load(self, path: str | Path, remember: bool = True) -> bool:
+        """Abre a árvore; ``remember=False`` não a põe nos recentes (árvore de um projeto)."""
         try:
             tree = load_tree(path)
         except Exception as exc:  # noqa: BLE001
@@ -87,7 +88,8 @@ class TreeTab(QWidget):
         self.original = tree
         self.path = Path(path)
         try:
-            add_recent(self.path)
+            if remember:
+                add_recent(self.path)
         except Exception:  # noqa: BLE001 — preferência não pode impedir a abertura
             pass
         self.file_label.setText(f"<b>{self.path.name}</b>")
