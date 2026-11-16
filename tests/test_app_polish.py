@@ -126,7 +126,7 @@ def test_open_adds_recent_and_menu_reopens(window, tmp_path):
     from jabuti import settings
 
     copy = tmp_path / "minha.treefile"
-    copy.write_text(Path(TREE).read_text(), encoding="utf-8")
+    copy.write_text(Path(TREE).read_text(encoding="utf-8"), encoding="utf-8")
     assert window.open_tree(copy)
     assert settings.recent_files()[0] == str(copy.resolve())
     window._fill_recent_menu()
