@@ -9,6 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 N_FILES = 100
 GENES_PER_FILE = 3000   # ~6 mil linhas (gene + CDS) por arquivo, ~0,6 MB
+MAX_GAP = 0.25          # maior pausa aceitável do loop de eventos (s)
+MAX_GAP_CI = 1.0        # em servidor de CI (variável CI definida), mais lento e compartilhado
 
 
 def write_big_gff(path, idx: int, genes: int = GENES_PER_FILE) -> None:
@@ -76,7 +78,10 @@ def test_loading_does_not_block_event_loop(qtbot, tab, big_gffs):
     during = [t for t in ticks if t - t0 < elapsed]
     gaps = [b - a for a, b in zip(during, during[1:])]
     assert len(during) > 20
-    assert max(gaps) < 0.25, f"maior pausa do loop de eventos: {max(gaps):.3f}s"  # medido: ~0,05 s
+    # medido: ~0,05 s no Mac; servidores de CI compartilhados chegam a ~0,35 s. Um travamento de
+    # verdade (ler na thread da interface) dura vários segundos, então 1 s no CI ainda pega.
+    limit = MAX_GAP_CI if os.environ.get("CI") else MAX_GAP
+    assert max(gaps) < limit, f"maior pausa do loop de eventos: {max(gaps):.3f}s (limite {limit} s)"
     assert len(set(progress_seen)) > 10                                 # progresso incremental
     assert not tab.is_loading() and tab.add_btn.isEnabled() and not tab.cancel_btn.isVisibleTo(tab)
 
