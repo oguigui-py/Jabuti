@@ -130,7 +130,7 @@ def test_newer_version_warns(tmp_path):
 
 def test_invalid_json_is_error(tmp_path):
     p = tmp_path / "bad.json"
-    p.write_text('{"style": {,}')
+    p.write_text('{"style": {,}', encoding="utf-8")
     with pytest.raises(PresetError) as exc:
         load_preset(p)
     assert "JSON inválido" in exc.value.user_message() and "bad.json" in exc.value.user_message()
@@ -138,6 +138,6 @@ def test_invalid_json_is_error(tmp_path):
 
 def test_non_object_json_is_error(tmp_path):
     p = tmp_path / "list.json"
-    p.write_text("[1, 2]")
+    p.write_text("[1, 2]", encoding="utf-8")
     with pytest.raises(PresetError):
         load_preset(p)

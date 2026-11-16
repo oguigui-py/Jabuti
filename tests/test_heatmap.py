@@ -143,7 +143,7 @@ def test_export_with_heatmap(draw, tmp_path, fmt):
     scene, _, _ = draw(RenderStyle(layout=LayoutKind.CIRCULAR), cols())
     out = getattr(export, f"export_{fmt}")(scene, tmp_path / f"h.{fmt}")
     if fmt == "svg":
-        assert P in out.read_text().lower()
+        assert P in out.read_text(encoding="utf-8").lower()
 
 
 # ---------------------------------------------------------------- aba GFF

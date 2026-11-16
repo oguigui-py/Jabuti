@@ -144,7 +144,7 @@ def test_export_with_clades(render, tmp_path, fmt):
     scene, _ = render(clades, LayoutKind.CIRCULAR, background=True, outer_strip=True, show_names=True)
     out = getattr(export, f"export_{fmt}")(scene, tmp_path / f"c.{fmt}")
     if fmt == "svg":
-        text = out.read_text().lower()
+        text = out.read_text(encoding="utf-8").lower()
         assert PALETTES["Tableau 10"][0] in text and "fill-opacity" in text
 
 

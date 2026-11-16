@@ -45,7 +45,26 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def utf8_stdio() -> None:
+    """Saída do terminal em UTF-8 (``--help`` e ``--version`` têm acentos): no Windows o
+    padrão é cp1252, que quebra ou troca caracteres. No executável de janela (sem console)
+    ``sys.stdout`` é ``None``: a saída vai para o nada em vez de derrubar o programa."""
+    import os
+
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name)
+        if stream is None:
+            setattr(sys, name, open(os.devnull, "w", encoding="utf-8"))
+            continue
+        if (getattr(stream, "encoding", "") or "").lower().replace("_", "-") not in ("utf-8", "utf8"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (AttributeError, ValueError, OSError):
+                pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    utf8_stdio()
     argv = sys.argv[1:] if argv is None else argv
     # macOS antigo passa "-psn_0_…" ao abrir pelo Finder: não é argumento do Jabuti
     argv = [a for a in argv if not a.startswith("-psn_")]

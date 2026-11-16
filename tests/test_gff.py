@@ -54,7 +54,7 @@ def test_errors(data_dir, fname, fragment):
 
 def test_empty_file(tmp_path):
     p = tmp_path / "e.gff3"
-    p.write_text("##gff-version 3\n")
+    p.write_text("##gff-version 3\n", encoding="utf-8")
     with pytest.raises(GffParseError, match="Nenhuma feature"):
         parse_gff3(p)
 

@@ -237,7 +237,7 @@ def test_export_contains_backgrounds(render, tmp_path, fmt):
     out = getattr(export, f"export_{fmt}")(scene, tmp_path / f"t.{fmt}")
     assert out.stat().st_size > 0
     if fmt == "svg":
-        text = out.read_text().lower()
+        text = out.read_text(encoding="utf-8").lower()
         assert 'fill="#00cc66"' in text and 'fill-opacity="0.5' in text
 
 
@@ -345,7 +345,7 @@ def test_gui_selection_survives_rerender_not_exported(window, tmp_path):
     sel_items = [i for i in window.canvas.tree_scene.items() if i.data(0) == "selection"]
     assert len(sel_items) == 3
     out = export_svg(window.canvas.tree_scene, tmp_path / "x.svg")
-    assert "#1971c2" not in out.read_text().lower()
+    assert "#1971c2" not in out.read_text(encoding="utf-8").lower()
 
 
 def test_gui_pattern_count_and_group(window):

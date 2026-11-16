@@ -23,7 +23,7 @@ def write_big_gff(path, idx: int, genes: int = GENES_PER_FILE) -> None:
         lines.append(f"contig_1\tsyn\tCDS\t{pos}\t{end}\t.\t{strand}\t0\tID=c{g};Parent=g{g};"
                      f"product=synthetic protein {g % 700}")
         pos = end + 200
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 @pytest.fixture(scope="module")

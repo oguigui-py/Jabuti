@@ -149,7 +149,7 @@ def test_bad_preset_file_shows_error(make_window, monkeypatch, tmp_path):
     from PySide6.QtWidgets import QFileDialog
 
     bad = tmp_path / "bad.json"
-    bad.write_text("{ nada")
+    bad.write_text("{ nada", encoding="utf-8")
     win = make_window()
     monkeypatch.setattr(QFileDialog, "getOpenFileName", lambda *a, **k: (str(bad), ""))
     win.on_preset_action("load")

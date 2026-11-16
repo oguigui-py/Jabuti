@@ -35,7 +35,7 @@ def test_refs_relative_first_then_absolute(tmp_path):
     base = tmp_path / "proj"
     (base / "dados").mkdir(parents=True)
     f = base / "dados" / "a.nwk"
-    f.write_text("(a,b);")
+    f.write_text("(a,b);", encoding="utf-8")
     ref = file_ref(f, base)
     assert ref["rel"] == "dados/a.nwk" and ref["abs"] == str(f) and ref["name"] == "a.nwk"
     moved = tmp_path / "movido"
@@ -51,15 +51,15 @@ def test_versions_old_migrates_new_refuses(tmp_path):
     assert data["version"] == PROJECT_VERSION and data["tree"]["file"] == {"rel": "t.nwk"} and "view" in data
     assert notes and "formato 0" in notes[0]
     new = tmp_path / "novo.jabuti"
-    new.write_text(json.dumps({"format": "jabuti-project", "version": PROJECT_VERSION + 1, "tree": {"file": "x"}}))
+    new.write_text(json.dumps({"format": "jabuti-project", "version": PROJECT_VERSION + 1, "tree": {"file": "x"}}), encoding="utf-8")
     with pytest.raises(ProjectError, match="versão mais nova"):
         read_project(new)
     other = tmp_path / "outro.jabuti"
-    other.write_text('{"app": "jabuti", "version": 1}')
+    other.write_text('{"app": "jabuti", "version": 1}', encoding="utf-8")
     with pytest.raises(ProjectError, match="não é um projeto"):
         read_project(other)
     bad = tmp_path / "ruim.jabuti"
-    bad.write_text("{nada")
+    bad.write_text("{nada", encoding="utf-8")
     with pytest.raises(ProjectError, match="inválido"):
         read_project(bad)
 
@@ -237,7 +237,7 @@ def test_missing_tree_cannot_be_ignored(make_window, tmp_path, monkeypatch):
 
 def test_newer_version_warns_without_breaking(make_window, tmp_path):
     p = tmp_path / "futuro.jabuti"
-    p.write_text(json.dumps({"format": "jabuti-project", "version": 99, "tree": {"file": {"rel": "x.nwk"}}}))
+    p.write_text(json.dumps({"format": "jabuti-project", "version": 99, "tree": {"file": {"rel": "x.nwk"}}}), encoding="utf-8")
     w = make_window()
     assert not w.open_project(p, wait=True)
     assert any("versão mais nova" in m for m in w.shown) and w.tree is None
@@ -353,7 +353,7 @@ def test_menu_actions_and_shortcuts(make_window):
 def test_no_project_files_tracked_in_repo():
     import subprocess
 
-    out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, cwd=Path(__file__).parent.parent)
+    out = subprocess.run(["git", "ls-files"], capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=Path(__file__).parent.parent)
     tracked = out.stdout.splitlines()
     assert not [f for f in tracked if f.endswith((".jabuti", ".jabuti.zip"))]
     ignore = (Path(__file__).parent.parent / ".gitignore").read_text(encoding="utf-8")
@@ -366,7 +366,7 @@ def test_missing_dialog_buttons(qtbot, tmp_path, monkeypatch):
     from jabuti.views import project_io
 
     target = tmp_path / "achado.tsv"
-    target.write_text("a\tb\n")
+    target.write_text("a\tb\n", encoding="utf-8")
     monkeypatch.setattr(project_io, "open_file", lambda *a, **k: str(target))
     missing = [("tree", 0, {"name": "t.nwk"}), ("tables", 0, {"name": "x.tsv", "abs": "/outro/x.tsv"}),
                ("gff", 0, {"name": "g.gff3"})]

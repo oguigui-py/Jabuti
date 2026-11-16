@@ -213,7 +213,7 @@ def test_no_english_credits_anywhere_in_the_interface():
     for f in (root / "jabuti").rglob("*.py"):
         text = f.read_text(encoding="utf-8")
         assert "Produced by" not in text and "Designed by" not in text, f
-    help_text = subprocess.run([sys.executable, "-m", "jabuti", "--help"], capture_output=True, text=True,
+    help_text = subprocess.run([sys.executable, "-m", "jabuti", "--help"], capture_output=True, text=True, encoding="utf-8", errors="replace",
                                cwd=root, timeout=60).stdout
     assert "Produzido pelo Laboratório" in help_text and "Desenvolvido por Guilherme" in help_text
     assert "Produced" not in help_text and "Designed" not in help_text

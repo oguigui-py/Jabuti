@@ -189,7 +189,7 @@ def test_option_in_ui_presets_project_and_exports(qtbot, tmp_path, monkeypatch):
     w.render_live()
     assert label_overlaps(w.canvas.result) > 0
     path = w.project._write(tmp_path / "p.jabuti")
-    assert json.loads(path.read_text())["view"]["style"]["unrooted"]["avoid_overlap"] is False
+    assert json.loads(path.read_text(encoding="utf-8"))["view"]["style"]["unrooted"]["avoid_overlap"] is False
     w2 = MainWindow()
     qtbot.addWidget(w2)
     assert w2.open_project(path, wait=True) and not w2.viz_tab.avoid_overlap.isChecked()

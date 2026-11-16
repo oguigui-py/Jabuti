@@ -163,19 +163,19 @@ def test_existing_files_overwrite_skip_or_cancel(window, tmp_path):
 
     (tmp_path / "lote").mkdir()
     old = tmp_path / "lote" / "arvore_retangular_atual.svg"
-    old.write_text("antigo")
+    old.write_text("antigo", encoding="utf-8")
     req = _request(tmp_path, [R, C], ["svg"])
     r = BatchRunner(window, req, show_progress=False)
     r.confirm_overwrite = lambda existing: None
-    assert r.run() is None and old.read_text() == "antigo"
+    assert r.run() is None and old.read_text(encoding="utf-8") == "antigo"
     r = BatchRunner(window, req, show_progress=False)
     r.confirm_overwrite = lambda existing: "skip"
     rep = r.run()
-    assert old.read_text() == "antigo" and rep.skipped == [("arvore_retangular_atual.svg", "já existia (pulado)")]
+    assert old.read_text(encoding="utf-8") == "antigo" and rep.skipped == [("arvore_retangular_atual.svg", "já existia (pulado)")]
     assert [p.name for p in rep.generated] == ["arvore_circular_atual.svg"]
     r = BatchRunner(window, req, show_progress=False)
     r.confirm_overwrite = lambda existing: "overwrite"
-    assert len(r.run().generated) == 2 and "<svg" in old.read_text()
+    assert len(r.run().generated) == 2 and "<svg" in old.read_text(encoding="utf-8")
 
 
 def test_preset_changes_only_visual(window, tmp_path):
@@ -185,8 +185,8 @@ def test_preset_changes_only_visual(window, tmp_path):
     before = _state(window)
     report = window.batch_export(_request(tmp_path, [R], ["svg"], presets=[("atual", None), ("verde", preset)]),
                                  show_progress=False)
-    a = (tmp_path / "lote" / "arvore_retangular_atual.svg").read_text()
-    b = (tmp_path / "lote" / "arvore_retangular_verde.svg").read_text()
+    a = (tmp_path / "lote" / "arvore_retangular_atual.svg").read_text(encoding="utf-8")
+    b = (tmp_path / "lote" / "arvore_retangular_verde.svg").read_text(encoding="utf-8")
     assert len(report.generated) == 2
     assert "#c0ffee" in b.lower() and "#c0ffee" not in a.lower()
     # as colunas do projeto continuam no desenho do preset (hidden_tracks do preset não vale)

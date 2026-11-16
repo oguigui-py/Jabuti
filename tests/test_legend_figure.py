@@ -101,7 +101,7 @@ def test_export_includes_legend(render, tmp_path, fmt):
     out = getattr(export, f"export_{fmt}")(scene, tmp_path / f"t.{fmt}")
     assert out.stat().st_size > 0
     if fmt == "svg":
-        text = out.read_text()
+        text = out.read_text(encoding="utf-8")
         assert "rizosfera" in text and "#edc948" in text.lower()
 
 

@@ -39,7 +39,7 @@ def svg_for(scene_for, tmp_path, **guide):
 
     style = RenderStyle(layout=LayoutKind.CIRCULAR, guide=GuideStyle(color=GUIDE_HEX, **guide))
     name = "_".join(f"{k}{v}" for k, v in guide.items())
-    return export_svg(scene_for(style), tmp_path / f"{name}.svg").read_text()
+    return export_svg(scene_for(style), tmp_path / f"{name}.svg").read_text(encoding="utf-8")
 
 
 def dasharray(group: str) -> str | None:
@@ -83,7 +83,7 @@ def test_branch_cap_round_in_svg(scene_for, tmp_path):
     from jabuti.views.export import export_svg
 
     style = RenderStyle(branch=BranchStyle(cap="round", color="#aa1100", width=2.5))
-    txt = export_svg(scene_for(style), tmp_path / "cap.svg").read_text()
+    txt = export_svg(scene_for(style), tmp_path / "cap.svg").read_text(encoding="utf-8")
     groups = [g for g in re.findall(r"<g [^>]*>", txt) if "#aa1100" in g and "stroke-width" in g]
     assert any('stroke-linecap="round"' in g and 'stroke-width="2.5"' in g for g in groups)
 

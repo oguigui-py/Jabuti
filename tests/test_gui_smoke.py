@@ -39,7 +39,7 @@ def test_load_generate_export(window, data_dir, tmp_path, layout):
     assert window.canvas.search("tropica") == ["Paraburkholderia tropica Ppe8"]
 
     svg = export_svg(window.canvas.tree_scene, tmp_path / "t.svg")
-    text = svg.read_text()
+    text = svg.read_text(encoding="utf-8")
     assert "<svg" in text and "Paraburkholderia" in text
     assert "ffe066" not in text.lower()  # destaque da busca não é exportado
     assert export_pdf(window.canvas.tree_scene, tmp_path / "t.pdf").read_bytes()[:4] == b"%PDF"

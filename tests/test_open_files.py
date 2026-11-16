@@ -228,10 +228,10 @@ def test_recent_limit_and_old_settings_migrate(tmp_path):
     paths = []
     for i in range(3):
         p = tmp_path / f"p{i}.jabuti"
-        p.write_text("{}")
+        p.write_text("{}", encoding="utf-8")
         paths.append(str(p.resolve()))
     t = tmp_path / "t.nwk"
-    t.write_text("(a,b);")
+    t.write_text("(a,b);", encoding="utf-8")
     st = settings.settings()
     st.setValue("recent/trees", [str(t.resolve())])           # configuração de versões anteriores
     st.setValue("recent/projects", paths)
@@ -239,7 +239,7 @@ def test_recent_limit_and_old_settings_migrate(tmp_path):
     assert settings.recent_files() == [str(t.resolve()), *paths]
     for i in range(15):
         p = tmp_path / f"a{i}.nwk"
-        p.write_text("(a,b);")
+        p.write_text("(a,b);", encoding="utf-8")
         settings.add_recent(p)
     assert len(settings.recent_files()) == settings.MAX_RECENT == 10
     assert settings.recent_files()[0].endswith("a14.nwk")

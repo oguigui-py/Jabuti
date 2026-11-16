@@ -85,7 +85,7 @@ def test_background_color_in_scene_and_svg(draw, tmp_path):
 
     scene, _ = draw(RenderStyle(background="#fbf7ee"))
     assert scene.backgroundBrush().color().name() == "#fbf7ee"
-    assert "#fbf7ee" in export_svg(scene, tmp_path / "b.svg").read_text().lower()
+    assert "#fbf7ee" in export_svg(scene, tmp_path / "b.svg").read_text(encoding="utf-8").lower()
 
 
 @pytest.mark.parametrize("bg, alpha", [(None, 0), ("#ffffff", 255)])
@@ -103,7 +103,7 @@ def test_transparent_svg_has_no_background(draw, tmp_path):
     from jabuti.views.export import export_svg
 
     scene, _ = draw(RenderStyle(background=None))
-    txt = export_svg(scene, tmp_path / "t.svg").read_text().lower()
+    txt = export_svg(scene, tmp_path / "t.svg").read_text(encoding="utf-8").lower()
     assert 'fill="#ffffff"' not in txt
 
 
@@ -115,7 +115,7 @@ def window(qtbot, monkeypatch, tmp_path):
 
     monkeypatch.setattr(errors.QMessageBox, "exec", lambda self: 0)
     f = tmp_path / "t.nwk"
-    f.write_text(T)
+    f.write_text(T, encoding="utf-8")
     win = MainWindow()
     qtbot.addWidget(win)
     win.tree_tab.load(f)

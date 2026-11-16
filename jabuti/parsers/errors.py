@@ -39,9 +39,26 @@ def read_text(path: str | Path, error_cls: type[JabutiParseError] = JabutiParseE
         raw = p.read_bytes()
     except OSError as exc:
         raise error_cls(f"Não foi possível ler o arquivo: {exc.strerror or exc}", p) from exc
-    for enc in ("utf-8-sig", "latin-1"):
+    return decode_text(raw, p)
+
+
+# arquivos do usuário: UTF-8 (com ou sem BOM); senão, os dois mais comuns em planilhas e
+# editores do Windows. latin-1 aceita qualquer byte, então a leitura nunca quebra.
+TEXT_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
+
+
+def decode_text(raw: bytes, path: str | Path | None = None) -> str:
+    """Bytes de um arquivo de texto do usuário → texto. Tenta UTF-8 (BOM opcional) e cai
+    para cp1252/latin-1 sem quebrar, registrando no log quando não era UTF-8."""
+    for enc in TEXT_ENCODINGS:
         try:
-            return raw.decode(enc)
+            text = raw.decode(enc)
         except UnicodeDecodeError:
             continue
-    raise error_cls("Codificação de texto não reconhecida.", p)  # pragma: no cover
+        if enc != "utf-8-sig":
+            from jabuti.logs import get_logger
+
+            name = Path(path).name if path is not None else "(texto)"
+            get_logger("leitura").warning("%s não está em UTF-8: lido como %s", name, enc)
+        return text
+    raise AssertionError("latin-1 decodifica qualquer sequência de bytes")  # pragma: no cover

@@ -159,7 +159,7 @@ def test_gui_color_by_and_strips(window):
 
 def test_gui_partial_match_report(window, tmp_path):
     p = tmp_path / "m.tsv"
-    p.write_text("strain\thab\nA00\tsoil\nA01\tnodule\nZZZ\tsoil\n")
+    p.write_text("strain\thab\nA00\tsoil\nA01\tnodule\nZZZ\tsoil\n", encoding="utf-8")
     mt = window.metadata_tab
     mt.load(p)
     assert mt.key_column() == "strain"
@@ -169,7 +169,7 @@ def test_gui_partial_match_report(window, tmp_path):
 
 def test_gui_bad_metadata_shows_error(window, tmp_path):
     p = tmp_path / "bad.tsv"
-    p.write_text("uma_coluna\nvalor\n")
+    p.write_text("uma_coluna\nvalor\n", encoding="utf-8")
     assert not window.metadata_tab.load(p)
     assert window.shown and "pelo menos 2 colunas" in window.shown[-1]
 

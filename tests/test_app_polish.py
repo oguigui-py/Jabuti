@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 # ------------------------------------------------------------------ linha de comando
 def _run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run([sys.executable, "-m", "jabuti", *args], capture_output=True, text=True, cwd=ROOT,
+    return subprocess.run([sys.executable, "-m", "jabuti", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=ROOT,
                           timeout=60)
 
 
@@ -38,7 +38,7 @@ def test_cli_version_and_help():
 def test_cli_version_does_not_load_qt():
     code = ("import sys\nfrom jabuti.cli import main\ntry:\n    main(['--version'])\nexcept SystemExit:\n    pass\n"
             "print('QT' if any(m.startswith('PySide6') for m in sys.modules) else 'SEM-QT')")
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT, timeout=60)
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8", errors="replace", cwd=ROOT, timeout=60)
     assert out.stdout.strip().endswith("SEM-QT")
 
 
@@ -72,14 +72,14 @@ def test_settings_dirs_and_recent(tmp_path, isolated_config):
     assert settings.last_dir("tree") == ""
     f = tmp_path / "a" / "x.nwk"
     f.parent.mkdir()
-    f.write_text("(a,b);")
+    f.write_text("(a,b);", encoding="utf-8")
     settings.remember_dir("tree", f)
     assert settings.last_dir("tree") == str(f.parent)
     assert settings.last_dir("gff") == str(f.parent)          # sem pasta própria: a última usada
     files = []
     for i in range(12):
         p = tmp_path / f"t{i}.nwk"
-        p.write_text("(a,b);")
+        p.write_text("(a,b);", encoding="utf-8")
         files.append(p)
         settings.add_recent(p)
     rec = settings.recent_files()
@@ -126,7 +126,7 @@ def test_open_adds_recent_and_menu_reopens(window, tmp_path):
     from jabuti import settings
 
     copy = tmp_path / "minha.treefile"
-    copy.write_text(Path(TREE).read_text())
+    copy.write_text(Path(TREE).read_text(), encoding="utf-8")
     assert window.open_tree(copy)
     assert settings.recent_files()[0] == str(copy.resolve())
     window._fill_recent_menu()

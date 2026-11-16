@@ -164,7 +164,7 @@ def test_svg_export_keeps_italic_and_symbols(draw, tmp_path):
     scene, _, _ = draw(RenderStyle(layout=LayoutKind.CIRCULAR,
                                    symbols=SymbolStyle(shape="diamond", color="#0a0b0c"),
                                    support=SupportStyle(mode="symbols", color="#0d0e0f")))
-    txt = export_svg(scene, tmp_path / "s.svg").read_text().lower()
+    txt = export_svg(scene, tmp_path / "s.svg").read_text(encoding="utf-8").lower()
     assert 'font-style="italic"' in txt
     assert "#0a0b0c" in txt and "#0d0e0f" in txt
 

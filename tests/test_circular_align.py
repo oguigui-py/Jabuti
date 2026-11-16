@@ -141,5 +141,5 @@ def test_export_includes_guides(rendered, tmp_path, fmt):
     out = getattr(export, f"export_{fmt}")(scene, tmp_path / f"t.{fmt}")
     assert out.stat().st_size > 0
     if fmt == "svg":
-        text = out.read_text()
+        text = out.read_text(encoding="utf-8")
         assert "stroke-dasharray" in text and "#a0a0a0" in text.lower()

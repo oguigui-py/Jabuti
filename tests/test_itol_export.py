@@ -154,7 +154,7 @@ def test_roundtrip_edited_itol_colors_and_titles(window, qtbot, tmp_path):
     entry.title = "Habitat editado"
     window.figure_panel.itol.changed.emit()
     out = window.export_itol(str(tmp_path / "exp"), as_zip=False)
-    text = next(p for p in out.glob("*faixa*")).read_text()
+    text = next(p for p in out.glob("*faixa*")).read_text(encoding="utf-8")
     assert "DATASET_LABEL\tHabitat editado" in text and "#123456" in text and orig not in text.split("DATA\n")[1]
 
 
@@ -197,7 +197,7 @@ def test_roundtrip_jabuti_features(window, qtbot, tmp_path):
     window.render_live()
 
     out = window.export_itol(str(tmp_path / "exp"), as_zip=False)
-    plan_warnings = (out / README_FILE).read_text()
+    plan_warnings = (out / README_FILE).read_text(encoding="utf-8")
     assert "encurtado" in plan_warnings and "oculta" in plan_warnings
     a = window._snapshot
     from jabuti.parsers.newick import load_tree
@@ -217,7 +217,7 @@ def test_roundtrip_jabuti_features(window, qtbot, tmp_path):
     assert len(ca["heat"]) == 4 and ca["heat"] == cb["heat"]
     assert ca["binary"] and ca["binary"] == cb["binary"]
     # a faixa de clados e os fundos de clado viram COLORSTRIP e "range"
-    colors = (out / "01_tree_colors.txt").read_text()
+    colors = (out / "01_tree_colors.txt").read_text(encoding="utf-8")
     assert "\trange\t" in colors and "\tlabel_background\t" in colors
     assert len(b.ranges) == sum(1 for rc in a.clades if rc.valid and rc.clade.visible)
 
@@ -280,7 +280,7 @@ def test_generated_files_follow_official_templates(window, tmp_path):
     out = window.export_itol(str(tmp_path / "exp"), as_zip=False)
     kinds = set()
     for p in sorted(out.glob("[0-9]*.txt")):
-        kinds.add(check_template(p.read_text()))
+        kinds.add(check_template(p.read_text(encoding="utf-8")))
         ds = parse_itol(p)
         assert ds.supported and ds.warnings == [], (p.name, ds.warnings)
     assert {"TREE_COLORS", "LABELS", "COLLAPSE", "DATASET_COLORSTRIP", "DATASET_SIMPLEBAR",
@@ -345,7 +345,7 @@ def test_readme_lists_files_and_not_exported(window, tmp_path):
     window.import_itol(ITOL_EXAMPLES, wait=True)
     plan = plan_export((window.generate(), window._snapshot)[1])
     out = write_export(plan, tmp_path / "e")
-    readme = (out / README_FILE).read_text()
+    readme = (out / README_FILE).read_text(encoding="utf-8")
     for f in plan.files:
         assert f.name in readme
     assert "O QUE NÃO FOI EXPORTADO" in readme and "layout" in readme and "legenda" in readme

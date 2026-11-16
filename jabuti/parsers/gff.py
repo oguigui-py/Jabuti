@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import unquote
 
-from jabuti.parsers.errors import JabutiParseError
+from jabuti.parsers.errors import JabutiParseError, decode_text
 
 # tipos que representam genes "pesquisáveis" (evita contar gene + CDS duas vezes)
 GENE_TYPES = {"CDS", "tRNA", "rRNA", "tmRNA", "ncRNA", "misc_RNA", "RNase_P_RNA", "SRP_RNA"}
@@ -131,12 +131,7 @@ def _read_lines(path: Path) -> list[str]:
             raw = gzip.decompress(raw)
     except (OSError, EOFError) as exc:
         raise GffParseError(f"Não foi possível ler o arquivo: {exc}", path) from exc
-    for enc in ("utf-8-sig", "latin-1"):
-        try:
-            return raw.decode(enc).splitlines()
-        except UnicodeDecodeError:
-            continue
-    raise GffParseError("Codificação de texto não reconhecida.", path)  # pragma: no cover
+    return decode_text(raw, path).splitlines()
 
 
 def file_signature(path: str | Path) -> tuple[int, int]:
