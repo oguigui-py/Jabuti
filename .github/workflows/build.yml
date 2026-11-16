@@ -25,9 +25,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -43,13 +43,13 @@ jobs:
       - name: Gerar Jabuti.app, autoteste, .zip e .dmg
         run: PYTHON=python scripts/build_macos.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Jabuti-macOS
           path: dist/Jabuti-macOS.zip
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Jabuti-macOS-dmg
           path: dist/Jabuti-macOS.dmg
@@ -74,9 +74,9 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -99,7 +99,7 @@ jobs:
           Compress-Archive -Path dist\Jabuti -DestinationPath dist\Jabuti-Windows.zip -Force
           "{0:N1} MB" -f ((Get-Item dist\Jabuti-Windows.zip).Length / 1MB)
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: Jabuti-Windows
           path: dist/Jabuti-Windows.zip
@@ -143,12 +143,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: Jabuti ${{ github.ref_name }}
           generate_release_notes: true
