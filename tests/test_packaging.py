@@ -124,3 +124,41 @@ def test_frozen_app_leaves_dock_to_info_plist(monkeypatch, frozen):
     with pytest.raises(Stop):
         app_mod.run(splash=False)
     assert calls == ([] if frozen else ["nome", "dock"])
+
+
+def test_install_guide_and_build_script():
+    guide = (PKG / "LEIAME_INSTALACAO.txt").read_text(encoding="utf-8")
+    for needle in ("botão direito", "Abrir Mesmo Assim", "xattr -dr com.apple.quarantine", "SmartScreen",
+                   "Executar assim mesmo", "--autoteste"):
+        assert needle in guide, needle
+    script = ROOT / "scripts" / "build_macos.sh"
+    text = script.read_text(encoding="utf-8")
+    assert os.access(script, os.X_OK)
+    assert "ditto -c -k --keepParent dist/Jabuti.app dist/Jabuti-macOS.zip" in text and "hdiutil create" in text
+    assert "--autoteste" in text
+
+
+def test_open_paths_logs_what_was_opened(qtbot, monkeypatch, tmp_path):
+    import logging
+    import shutil
+
+    from jabuti.views import errors
+    from jabuti.views.main_window import MainWindow
+
+    monkeypatch.setattr(errors.QMessageBox, "exec", lambda self: 0)
+    shutil.copy("examples/paraburkholderia_40.treefile", tmp_path / "t.treefile")
+    w = MainWindow()
+    qtbot.addWidget(w)
+    records = []
+    handler = logging.Handler()
+    handler.emit = records.append
+    logger = logging.getLogger("jabuti.abrir")
+    logger.addHandler(handler)
+    old = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        assert w.open_paths([tmp_path / "t.treefile"], ask=False)
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(old)
+    assert any("tree=t.treefile" in r.getMessage() for r in records)

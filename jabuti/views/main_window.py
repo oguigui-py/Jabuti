@@ -423,8 +423,11 @@ class MainWindow(QMainWindow):
         figura atual (perguntando antes se há alterações não salvas, com ``ask``);
         GFF, metadados e anotações iTOL entram na figura atual."""
         from jabuti.file_types import group
+        from jabuti.logs import get_logger
 
         groups = group(paths)
+        get_logger("abrir").info("abrir arquivos: %s",
+                                 "; ".join(f"{k}={Path(p).name}" for k, ps in groups.items() for p in ps))
         if "project" in groups:                        # um projeto já traz tudo
             if ask:
                 return self.open_project(groups["project"][0], wait=wait)

@@ -587,4 +587,8 @@ dist/Jabuti.app/Contents/MacOS/Jabuti --autoteste /tmp/teste   # Windows: dist\J
 - `--autoteste PASTA` confere o executável: assets, README e exemplos empacotados, plugins do
   Qt (SVG, TIFF), abrir árvore, detectar clados, exportar nos 4 formatos e salvar/abrir um
   `.jabuti`, numa pasta com acento. Grava `autoteste.txt` e sai com código 0 (tudo certo) ou 1.
+- `scripts/build_macos.sh` faz tudo no Mac: gera o `.app`, roda o autoteste, e cria
+  `dist/Jabuti-macOS.zip` (com `ditto`, que preserva o bundle) e `dist/Jabuti-macOS.dmg`.
+  O app gerado é para Macs com chip Apple (arm64) e não é assinado: como abrir pela primeira
+  vez (Gatekeeper / SmartScreen) em `packaging/LEIAME_INSTALACAO.txt`.
 - Versões fixadas em `requirements.txt` / `requirements-dev.txt`.

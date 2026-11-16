@@ -1,0 +1,76 @@
+JABUTI — COMO INSTALAR E ABRIR
+==============================
+
+O Jabuti é distribuído sem assinatura da Apple ou da Microsoft (não há certificado
+pago). Por isso o sistema avisa na primeira vez que o app é aberto. O app não precisa
+de internet e não envia nada para fora do computador.
+
+
+macOS (Apple Silicon: M1, M2, M3, M4…)
+---------------------------------------
+
+1. Descompacte o Jabuti-macOS.zip (duplo clique) ou abra o Jabuti-macOS.dmg.
+2. Arraste o Jabuti.app para a pasta Aplicativos (ou para onde preferir).
+3. Abra uma vez de um destes jeitos:
+
+   a) macOS 14 (Sonoma) ou anterior:
+      clique com o botão direito (ou Control + clique) no Jabuti.app > Abrir,
+      e confirme em "Abrir" no aviso.
+
+   b) macOS 15 (Sequoia) ou mais novo:
+      dê duplo clique no Jabuti.app; no aviso, clique em "Concluído".
+      Depois vá em Ajustes do Sistema > Privacidade e Segurança, role até a seção
+      Segurança e clique em "Abrir Mesmo Assim" ao lado da mensagem sobre o Jabuti.
+      Confirme com a senha do Mac. Abra o Jabuti de novo e clique em "Abrir".
+
+   c) Pelo Terminal (qualquer versão), tirando a marca de "baixado da internet":
+
+         xattr -dr com.apple.quarantine /Applications/Jabuti.app
+
+      (troque o caminho se o app estiver em outra pasta) e abra normalmente.
+
+Depois da primeira vez, o Jabuti abre direto, sem aviso.
+
+Abrir arquivos com duplo clique: depois de aberto uma vez, o Jabuti fica registrado
+para arquivos .jabuti. Para árvores (.nwk, .newick, .treefile, .tree, .tre), clique com
+o botão direito no arquivo > Obter Informações > "Abrir com:" > Jabuti > "Alterar Tudo…".
+
+Se aparecer "o Jabuti está danificado e não pode ser aberto", use o comando do item (c).
+Este pacote é para Macs com chip Apple (M1 ou mais novo); não roda em Macs com Intel.
+
+
+Windows 10 e 11
+---------------
+
+1. Descompacte o Jabuti-Windows.zip inteiro (botão direito > Extrair Tudo…).
+   Não rode de dentro do .zip: o Jabuti.exe precisa da pasta _internal ao lado dele.
+2. Abra a pasta Jabuti e dê duplo clique em Jabuti.exe.
+3. Se aparecer "O Windows protegeu o computador" (SmartScreen):
+   clique em "Mais informações" > "Executar assim mesmo".
+4. Para abrir árvores e projetos com duplo clique: botão direito no arquivo >
+   Abrir com > Escolher outro aplicativo > "Procurar outro aplicativo neste PC" >
+   escolha o Jabuti.exe e marque "Sempre usar este aplicativo".
+
+Dica: crie um atalho do Jabuti.exe na Área de Trabalho ou no Menu Iniciar
+(botão direito no Jabuti.exe > Mostrar mais opções > Criar atalho).
+
+
+Conferir se o executável está íntegro (opcional)
+------------------------------------------------
+
+No Terminal / Prompt de Comando:
+
+   macOS:    /Applications/Jabuti.app/Contents/MacOS/Jabuti --autoteste ~/Desktop/teste_jabuti
+   Windows:  Jabuti\Jabuti.exe --autoteste %USERPROFILE%\Desktop\teste_jabuti
+
+O Jabuti abre a árvore de exemplo, exporta nos 4 formatos, salva e reabre um projeto e
+grava o resultado em autoteste.txt na pasta indicada ("resultado: TUDO CERTO").
+
+
+Configuração e log de erros
+---------------------------
+
+macOS:   ~/Library/Application Support/Jabuti/Jabuti
+Windows: %APPDATA%\Jabuti\Jabuti   (log em %LOCALAPPDATA%\Jabuti\Jabuti\logs)
+
+Laboratório de Genômica Eco-evolutiva Microbiana · Desenvolvido por Guilherme Gonçalves
