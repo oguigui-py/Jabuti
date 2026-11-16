@@ -173,6 +173,12 @@ def test_github_workflow():
                    "startsWith(github.ref, 'refs/tags/v')", "contents: write", "ExtractAssociatedIcon"):
         assert needle in text, needle
     assert "\t" not in text                                       # YAML não aceita tabulação
+    win = text[text.index("  windows:"):text.index("  release:")]
+    mac = text[text.index("  macos:"):text.index("  windows:")]
+    assert "QT_QPA_PLATFORM: windows" in win                      # fontes do sistema (não offscreen)
+    for job in (mac, win):                                        # artefato antes dos testes
+        assert job.index("actions/upload-artifact") < job.index("python -m pytest -q")
+        assert "if: ${{ !cancelled() }}" in job[job.index("name: Testes"):]
 
 
 def test_windows_app_id_never_raises(monkeypatch):

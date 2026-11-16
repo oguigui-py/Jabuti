@@ -11,9 +11,11 @@ on:
 permissions:
   contents: read
 
+# Ordem dos passos: primeiro empacota e publica o artefato, depois roda as checagens e a
+# suíte. Um teste que falhe marca o job como falho, mas não impede o .zip de sair.
 env:
   PYTHON_VERSION: "3.12"
-  QT_QPA_PLATFORM: offscreen          # testes e autoteste sem tela
+  QT_QPA_PLATFORM: offscreen          # macOS: testes e autoteste sem tela
   JABUTI_NO_SPLASH: "1"
   PYTHONIOENCODING: utf-8
 
@@ -38,11 +40,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
 
-      - name: Testes
-        run: |
-          python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
-          python -m pytest -q
-
       - name: Gerar Jabuti.app, autoteste, .zip e .dmg
         run: PYTHON=python scripts/build_macos.sh
 
@@ -58,10 +55,20 @@ jobs:
           path: dist/Jabuti-macOS.dmg
           if-no-files-found: ignore      # o hdiutil às vezes falha nos runners; o .zip basta
 
+      - name: Testes
+        if: ${{ !cancelled() }}            # roda mesmo se o empacotamento falhar
+        run: |
+          python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
+          python -m pytest -q
+
   windows:
     name: Windows (Jabuti.exe)
     runs-on: windows-latest
     timeout-minutes: 40
+    env:
+      # plataforma normal do Windows (o runner tem sessão de desktop): no offscreen o Qt não
+      # encontra nenhuma fonte e métricas de texto, negrito e cliques divergem
+      QT_QPA_PLATFORM: windows
     defaults:
       run:
         shell: pwsh
@@ -81,34 +88,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
 
-      - name: Testes
-        run: |
-          python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
-          python -m pytest -q
-
       - name: Gerar a pasta Jabuti\ com Jabuti.exe (onedir)
+        id: build
         run: python -m PyInstaller --noconfirm --clean packaging/jabuti.spec
-
-      - name: Ícone .ico aplicado ao Jabuti.exe
-        run: |
-          Add-Type -AssemblyName System.Drawing
-          $exe = Resolve-Path dist\Jabuti\Jabuti.exe
-          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
-          if ($null -eq $icon) { throw "Jabuti.exe sem ícone" }
-          $bmp = $icon.ToBitmap()
-          # o ícone padrão do PyInstaller é azul/amarelo; o do Jabuti tem fundo claro (off-white)
-          $c = $bmp.GetPixel([int]($bmp.Width / 2), 2)
-          Write-Host "pixel do topo do ícone: R=$($c.R) G=$($c.G) B=$($c.B) A=$($c.A)"
-          if ($c.R -lt 200 -or $c.G -lt 200 -or $c.B -lt 190) { throw "o ícone do Jabuti.exe não parece ser o jabuti.ico" }
-
-      - name: Autoteste do Jabuti.exe (pasta com acento)
-        run: |
-          $out = Join-Path $env:RUNNER_TEMP "teste ação Jabuti"
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          # o .exe é de janela (sem console): espera terminar e lê o relatório
-          $p = Start-Process -FilePath dist\Jabuti\Jabuti.exe -ArgumentList @("--autoteste", "`"$out`"") -Wait -PassThru
-          Get-Content -Encoding utf8 (Join-Path $out "autoteste.txt")
-          if ($p.ExitCode -ne 0) { throw "autoteste falhou (código $($p.ExitCode))" }
 
       - name: Jabuti-Windows.zip
         run: |
@@ -121,6 +103,35 @@ jobs:
           name: Jabuti-Windows
           path: dist/Jabuti-Windows.zip
           if-no-files-found: error
+
+      - name: Ícone .ico aplicado ao Jabuti.exe
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $exe = Resolve-Path dist\Jabuti\Jabuti.exe
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          if ($null -eq $icon) { throw "Jabuti.exe sem ícone" }
+          $bmp = $icon.ToBitmap()
+          # o ícone padrão do PyInstaller é azul/amarelo; o do Jabuti tem fundo claro (off-white)
+          $c = $bmp.GetPixel([int]($bmp.Width / 2), 2)
+          Write-Host "pixel do topo do ícone: R=$($c.R) G=$($c.G) B=$($c.B) A=$($c.A)"
+          if ($c.R -lt 200 -or $c.G -lt 200 -or $c.B -lt 190) { throw "o ícone do Jabuti.exe não parece ser o jabuti.ico" }
+
+      - name: Autoteste do Jabuti.exe (pasta com acento)
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "teste ação Jabuti"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          # o .exe é de janela (sem console): espera terminar e lê o relatório
+          $p = Start-Process -FilePath dist\Jabuti\Jabuti.exe -ArgumentList @("--autoteste", "`"$out`"") -Wait -PassThru
+          Get-Content -Encoding utf8 (Join-Path $out "autoteste.txt")
+          if ($p.ExitCode -ne 0) { throw "autoteste falhou (código $($p.ExitCode))" }
+
+      - name: Testes
+        if: ${{ !cancelled() }}            # roda mesmo se o empacotamento falhar
+        run: |
+          python -m pyflakes jabuti tests scripts packaging/jabuti_main.py
+          python -m pytest -q
 
   release:
     name: Release (só em tag v*)
