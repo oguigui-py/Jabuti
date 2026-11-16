@@ -90,6 +90,10 @@ def run(tree: str | None = None, itol: list[str] | None = None, splash: bool = T
     from jabuti.logs import get_logger, setup_logging
     from jabuti.views.errors import install_excepthook
 
+    from jabuti import macos
+
+    if sys.platform == "darwin":
+        macos.set_app_name("Jabuti")          # menu superior: "Jabuti" em vez de "Python"
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setApplicationName("Jabuti")
     app.setOrganizationName("Jabuti")
@@ -97,9 +101,13 @@ def run(tree: str | None = None, itol: list[str] | None = None, splash: bool = T
     try:
         from jabuti.resources import app_icon
 
-        app.setWindowIcon(app_icon())        # janelas, Dock (macOS) e barra de tarefas
+        app.setWindowIcon(app_icon())        # janelas e barra de tarefas (Windows/Linux)
     except Exception:  # noqa: BLE001
         pass
+    if sys.platform == "darwin":                # o Dock ignora o setWindowIcon: AppKit direto
+        from jabuti.resources import JABUTI_ICON, assets_dir
+
+        macos.set_dock_icon(assets_dir() / JABUTI_ICON)
     setup_logging()
     get_logger().info("Jabuti %s iniciado", __version__)
     install_excepthook()
