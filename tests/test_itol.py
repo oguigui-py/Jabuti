@@ -25,8 +25,9 @@ def tree():
 
 
 def write(tmp_path: Path, text: str, name: str = "a.txt") -> Path:
+    """Grava os bytes exatos (sem traduzir "\n" em "\r\n" no Windows)."""
     p = tmp_path / name
-    p.write_text(text, encoding="utf-8")
+    p.write_bytes(text.encode("utf-8"))
     return p
 
 
@@ -73,6 +74,43 @@ def test_header_comments_bom_crlf_and_mixed_header_separator(tmp_path):
     assert [r.fields for r in ds.rows] == [["X", "#ff0000", "rótulo com espaço"]]
     assert ds.rows[0].line == 10
     assert ds.warnings == []
+
+
+@pytest.mark.parametrize("eol", ["\n", "\r\n", "\r"])
+def test_line_endings_give_same_rows_and_line_numbers(tmp_path, eol):
+    lines = ["# cabeçalho", "", "DATASET_COLORSTRIP", "SEPARATOR TAB", "FOO_BAR\t1", "DATA",
+             "X\t#ff0000\tum", "", "Y\t#00ff00\tdois"]
+    ds = parse_itol(write(tmp_path, eol.join(lines) + eol, f"eol{len(eol)}.txt"))
+    assert [(r.line, r.fields) for r in ds.rows] == [(7, ["X", "#ff0000", "um"]), (9, ["Y", "#00ff00", "dois"])]
+    assert ds.warnings == [(5, "opção desconhecida FOO_BAR (ignorada)")]
+
+
+@pytest.mark.parametrize("eol", ["\r\n", "\r"])
+def test_error_line_number_with_crlf(tmp_path, eol):
+    from jabuti.parsers.itol import ItolError
+
+    good = parse_itol(write(tmp_path, "DATASET_COLORSTRIP\nSEPARATOR TAB\nDATA\nX\t#ff0000\n", "ok.txt"))
+    text = eol.join(["# a", "# b", "nome\tvalor", "A\t1"]) + eol
+    with pytest.raises(ItolError) as lf:
+        parse_itol(write(tmp_path, text.replace(eol, "\n"), "lf.txt"))
+    with pytest.raises(ItolError) as other:
+        parse_itol(write(tmp_path, text, "crlf.txt"))
+    assert lf.value.line == other.value.line and good.rows[0].line == 4
+
+
+def test_gff_and_metadata_crlf_same_as_lf(tmp_path):
+    from jabuti.parsers.gff import parse_gff3
+    from jabuti.parsers.metadata import load_metadata
+
+    gff = "##gff-version 3\nc1\tP\tCDS\t1\t90\t.\t+\t0\tID=g1;gene=abc\nc1\tP\tCDS\t100\t200\t.\t-\t0\tID=g2\n"
+    a = parse_gff3(write(tmp_path, gff, "lf.gff3"))
+    b = parse_gff3(write(tmp_path, gff.replace("\n", "\r\n"), "crlf.gff3"))
+    assert [(f.start, f.end, f.attributes) for f in a.features] == [(f.start, f.end, f.attributes) for f in b.features]
+    assert a.warnings == b.warnings
+    meta = "genoma\thab\nA\tsolo\nB\tágua\n"
+    ma = load_metadata(write(tmp_path, meta, "lf.tsv"))
+    mb = load_metadata(write(tmp_path, meta.replace("\n", "\r\n"), "crlf.tsv"))
+    assert ma.rows == mb.rows and ma.columns == mb.columns == ["genoma", "hab"]
 
 
 def test_unknown_option_warns_with_line(tmp_path):
